@@ -4,7 +4,6 @@ version = "1.3.0"
 edition = "2024"
 
 [dependencies]
-wire-message = { workspace = true }
 primitives = { workspace = true }
 element = { workspace = true }
 hash = { workspace = true }

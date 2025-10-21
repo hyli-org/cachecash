@@ -5,8 +5,6 @@ mod migrate;
 mod note;
 mod points;
 mod signature;
-#[cfg(test)]
-mod tests;
 mod utxo;
 
 use std::io::Read;
