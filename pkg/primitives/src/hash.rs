@@ -5,7 +5,6 @@ use sha2::{Digest, Sha256};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
-use web3::types::H256;
 
 #[derive(
     Clone,
@@ -86,11 +85,15 @@ impl Borrow<[u8]> for CryptoHash {
 }
 
 impl FromStr for CryptoHash {
-    type Err = <H256 as FromStr>::Err;
+    type Err = hex::FromHexError;
 
     #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.strip_prefix("0x").unwrap_or(s);
-        Ok(Self(H256::from_str(s)?.into()))
+        let bytes = hex::decode(s)?;
+        let array: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| hex::FromHexError::InvalidStringLength)?;
+        Ok(Self(array))
     }
 }

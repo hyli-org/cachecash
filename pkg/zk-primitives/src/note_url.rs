@@ -1,7 +1,7 @@
 use element::Element;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Keccak256};
 use std::str::FromStr;
-use web3::signing::keccak256;
 
 use crate::{
     InputNote, Note, bridged_polygon_usdc_note_kind, get_address_for_private_key,
@@ -79,7 +79,8 @@ impl NoteURLPayload {
         match self.version {
             0 => self.psi.expect("version 1 should have explicit psi"),
             1 => {
-                Element::from_str(&hex::encode(keccak256(&self.private_key.to_be_bytes()))).unwrap()
+                let hash = Keccak256::digest(&self.private_key.to_be_bytes());
+                Element::from_str(&hex::encode(hash)).unwrap()
             }
             2 => hash_private_key_for_psi(self.private_key),
             _ => unreachable!("only version 1, 2 or 3 is supported"),
@@ -143,7 +144,10 @@ pub fn decode_activity_url_payload(payload: &str) -> NoteURLPayload {
             rest = &rest[32..];
             Some(Element::from_be_bytes(psi_bytes))
         }
-        1 => Some(Element::from_str(&hex::encode(keccak256(&private_key_bytes))).unwrap()),
+        1 => {
+            let hash = Keccak256::digest(&private_key_bytes);
+            Some(Element::from_str(&hex::encode(hash)).unwrap())
+        }
         2 => Some(hash_private_key_for_psi(private_key)),
         _ => unreachable!("only version 1, 2 or 3 is supported"),
     };

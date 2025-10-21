@@ -4,7 +4,6 @@ use secp256k1::{Message, PublicKey, SECP256K1, SecretKey};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha3::{Digest, Keccak256};
 use std::{fmt::Display, str::FromStr};
-use web3::types::Address as Web3Address;
 
 #[derive(
     Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize,
@@ -34,7 +33,7 @@ impl Address {
         // Start from the 1st byte, to strip the 0x04 prefix from the public key.
         let hashed_pubkey = Keccak256::digest(&serialized_pubkey[1..]);
 
-        // Get the last 20 bytes from the Keccak-256 hash. These last 20 bytes are the Ethereum address.
+        // Get the last 20 bytes from the Keccak-256 hash to form the address.
         let address_bytes = &hashed_pubkey[hashed_pubkey.len() - 20..];
 
         let mut address = [0u8; 20];
@@ -100,12 +99,6 @@ impl FromStr for Address {
         let mut array_32 = [0u8; 20];
         array_32.copy_from_slice(&bytes);
         Ok(Self(array_32))
-    }
-}
-
-impl From<Web3Address> for Address {
-    fn from(addr: Web3Address) -> Self {
-        Self(addr.0)
     }
 }
 
