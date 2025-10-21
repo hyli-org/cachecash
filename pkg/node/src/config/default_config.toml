@@ -1,0 +1,54 @@
+# Default config file for node
+#
+# Note: all settings are optional - any missing values will be "filled" from the default values
+
+env-name = "dev"
+
+# Max number of txns in a block
+block-txns-count = 6
+
+# Min duration for a block to be produced
+min-block-duration = 1000
+
+# The maximum number of blocks to request in a snapshot chunk
+sync-chunk-size = 10000
+# Duration after which we stop waiting for a snapshot offer/chunk
+sync-timeout-ms = 10000
+# Only request fast sync if the node is this many blocks behind
+fast-sync-threshold = 100000
+
+mode = "validator"
+
+run-prover = false
+
+secret-key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+rpc-laddr = "0.0.0.0:8091"
+
+db-path = "~/.polybase/db"
+smirk-path = "~/.polybase/smirk"
+
+eth-rpc-url = "http://localhost:8545"
+
+rollup-contract-addr = "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
+
+health-check-commit-interval-sec = 60
+
+rollup-wait-time-ms = 3000
+
+bad-blocks = []
+
+safe-eth-height-offset = 0
+
+[p2p]
+# Addresses are "multiaddr"s - see the libp2p docs for more details:
+# https://docs.rs/libp2p/latest/libp2p/struct.Multiaddr.html
+laddr = "/ip4/127.0.0.1/tcp/5000"
+
+# Optionally specify other addresses to dial on startup
+dial = ""
+
+# The idle timeout in seconds (0 means `u64::MAX`)
+idle-timeout-secs = 0
+
+whitelisted-ips = []

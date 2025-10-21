@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "utxo",
+    "agg_utxo",
+    "agg_agg",
+    "signature",
+    "points",
+    "migrate",
+    "poseidon_alt",
+    "utxo_lib",
+    "hyli_utxo",
+]

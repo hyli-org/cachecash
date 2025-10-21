@@ -1,0 +1,10 @@
+[package]
+name = "utxo-mint-example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+barretenberg = { workspace = true }
+color-eyre = { workspace = true }
+element = { workspace = true }
+zk-primitives = { workspace = true }
