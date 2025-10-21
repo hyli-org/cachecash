@@ -1,0 +1,7 @@
+id = "zfruit"
+log_format = "full"
+
+rest_server_port = 9002
+rest_server_max_body_size = 10_485_760 # 10 MB
+contract_name = "zfruit"
+default_faucet_amount = 1_000
