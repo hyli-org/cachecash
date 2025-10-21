@@ -184,13 +184,8 @@ element = { path = "./pkg/element" }
 hash = { path = "./pkg/hash" }
 hash-poseidon = { path = "./pkg/hash-poseidon" }
 minimal-poseidon = { path = "./pkg/minimal-poseidon" }
-node-interface = { path = "./pkg/node-interface" }
-p2p2 = { path = "./pkg/p2p2" }
 primitives = { path = "./pkg/primitives" }
-rpc = { path = "./pkg/rpc" }
-rpc-error-convert = { path = "./pkg/rpc-error-convert" }
 smirk = { path = "./pkg/smirk" }
-solid = { path = "./pkg/solid" }
 whitelist-ips = { path = "./pkg/whitelist-ips" }
 wire-message = { path = "./pkg/wire-message" }
 zk-circuits = { path = "./pkg/zk-circuits" }
