@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use k256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 use sha3::{Digest, Sha3_256};
 
+#[derive(Clone, Debug)]
 pub struct KeyMaterial {
     pub private_key: [u8; 32],
     pub public_key: Vec<u8>,

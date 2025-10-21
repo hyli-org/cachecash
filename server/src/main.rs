@@ -3,10 +3,13 @@ use std::{io::ErrorKind, net::SocketAddr};
 use anyhow::{anyhow, Context, Result};
 use axum::Router;
 use clap::Parser;
-use sdk::ContractName;
+use client_sdk::rest_client::NodeApiHttpClient;
+use hyli_modules::{bus::{dont_use_this, SharedMessageBus}, modules::Module};
 use server::{
     api::{build_router, ApiState},
+    app::{FaucetApp, FaucetAppContext, FaucetMintRequest},
     conf::Conf,
+    tx::HYLI_UTXO_CONTRACT_NAME,
 };
 use tokio::{net::TcpListener, signal};
 use tracing::info;
@@ -46,12 +49,36 @@ async fn main() -> Result<()> {
         config.contract_name = contract_name;
     }
 
+    if config.contract_name != HYLI_UTXO_CONTRACT_NAME {
+        config.contract_name = HYLI_UTXO_CONTRACT_NAME.to_string();
+    }
+
     init_tracing(&config.log_format)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
+    let node_client =
+        NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?;
+
+    let shared_bus = SharedMessageBus::default();
+    let faucet_sender = dont_use_this::get_sender::<FaucetMintRequest>(&shared_bus).await;
+
+    let faucet_context = FaucetAppContext {
+        client: node_client.clone(),
+    };
+
+    let mut faucet_module = FaucetApp::build(shared_bus.new_handle(), faucet_context)
+        .await
+        .context("building faucet module")?;
+
+    tokio::spawn(async move {
+        if let Err(err) = faucet_module.run().await {
+            tracing::error!(error = %err, "Faucet module terminated");
+        }
+    });
+
     let state = ApiState {
-        contract_name: ContractName(config.contract_name.clone()),
         default_amount: config.default_faucet_amount,
+        faucet_sender,
     };
 
     let router: Router = build_router(state);
