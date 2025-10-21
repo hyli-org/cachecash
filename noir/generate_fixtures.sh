@@ -85,15 +85,6 @@ for NAME in "${PROGRAMS[@]}"; do
     rm $REPO_ROOT/noir/agg_agg/src/main.nr.bak
   fi
 
-  $BACKEND write_solidity_verifier --scheme ultra_honk -k $REPO_ROOT/fixtures/keys/${NAME}_key -o $REPO_ROOT/eth/noir/${NAME}.sol
-  sed -i.bak 's/external pure/internal pure/g' $REPO_ROOT/eth/noir/${NAME}.sol
-  rm $REPO_ROOT/eth/noir/${NAME}.sol.bak
-  if [[ "$(uname)" == "Darwin" ]]; then
-    SOLC=$REPO_ROOT/fixtures/binaries/solc-v0.8.29-macos
-  else
-    SOLC=$REPO_ROOT/fixtures/binaries/solc-v0.8.29-linux
-  fi
-  $SOLC --combined-json bin --revert-strings strip --optimize --optimize-runs 1 $REPO_ROOT/eth/noir/$NAME.sol | jq -r ".contracts[\"$REPO_ROOT/eth/noir/$NAME.sol:HonkVerifier\"].bin" > $REPO_ROOT/eth/contracts/noir/${NAME}_HonkVerifier.bin
 done
 
 echo "Successfully copied compiled programs to fixtures/keys/programs"

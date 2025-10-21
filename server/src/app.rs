@@ -58,11 +58,8 @@ impl FaucetApp {
     ) -> Result<(KeyPairInfo, BlobTransaction)> {
         let key_material = derive_key_material(name)?;
 
-        let tx = build_faucet_transaction(
-            &self.contract_name,
-            key_material.public_key.clone(),
-            amount,
-        );
+        let tx =
+            build_faucet_transaction(&self.contract_name, key_material.public_key.clone(), amount);
 
         let key_pair = KeyPairInfo {
             private_key_hex: hex::encode(key_material.private_key),

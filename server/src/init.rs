@@ -1,8 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use sdk::{
-    api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier,
-};
+use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
 use tracing::info;
 
 /// Metadata required to deploy (or validate) a Noir UTXO contract.
@@ -39,10 +37,7 @@ pub async fn ensure_contract_registered(
     deployment: &ContractDeployment,
     verifier: Verifier,
 ) -> Result<()> {
-    match client
-        .get_contract(deployment.contract_name.clone())
-        .await
-    {
+    match client.get_contract(deployment.contract_name.clone()).await {
         Ok(existing) => {
             if existing.program_id != deployment.program_id {
                 let node_pid = hex::encode(existing.program_id.0);

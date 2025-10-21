@@ -16,8 +16,8 @@ use noirc_driver::CompiledProgram;
 use std::{io::Write, path::PathBuf, process::Command};
 use tempfile::NamedTempFile;
 use zk_primitives::{
-    HYLI_UTXO_PUBLIC_INPUTS_COUNT, HyliUtxo, HyliUtxoProof, ToBytes, UtxoProofBytes,
-    bytes_to_elements,
+    HYLI_BLOB_LENGTH_BYTES, HYLI_UTXO_PUBLIC_INPUTS_COUNT, HyliUtxo, HyliUtxoProof, ToBytes,
+    UtxoProofBytes, bytes_to_elements,
 };
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/hyli_utxo.json");
@@ -74,6 +74,22 @@ impl Verify for HyliUtxoProof {
 
 fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
     let mut map = InputMap::new();
+    let expected_blob = value.expected_blob();
+
+    assert!(
+        value.blob_capacity as usize == HYLI_BLOB_LENGTH_BYTES,
+        "blob capacity must be {} bytes",
+        HYLI_BLOB_LENGTH_BYTES
+    );
+    assert!(
+        value.blob_len as usize == HYLI_BLOB_LENGTH_BYTES,
+        "blob length must be {} bytes",
+        HYLI_BLOB_LENGTH_BYTES
+    );
+    assert!(
+        value.blob == expected_blob,
+        "provided blob must match concatenated commitments"
+    );
 
     map.insert(
         "version".to_owned(),
@@ -150,8 +166,7 @@ fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
     map.insert(
         "blob".to_owned(),
         InputValue::Vec(
-            value
-                .blob
+            expected_blob
                 .iter()
                 .map(|b| InputValue::Field(Base::from(*b as u64)))
                 .collect(),

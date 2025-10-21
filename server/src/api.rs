@@ -57,8 +57,11 @@ async fn faucet(
     let key_material =
         derive_key_material(name).map_err(|err| ApiError::bad_request(err.to_string()))?;
 
-    let transaction =
-        build_faucet_transaction(&state.contract_name, key_material.public_key.clone(), amount);
+    let transaction = build_faucet_transaction(
+        &state.contract_name,
+        key_material.public_key.clone(),
+        amount,
+    );
     let tx_hash = transaction.hashed();
 
     let response = FaucetResponse {

@@ -145,7 +145,8 @@ pub fn generate_note_kind_bridge_evm(chain: u64, address: Address) -> Element {
 pub fn bridged_polygon_usdc_note_kind() -> Element {
     let chain = 137u64; // Polygon chain
     let mut address_bytes = [0u8; 20];
-    address_bytes.copy_from_slice(&hex::decode("3c499c542cef5e3811e1192ce70d8cc03d5c3359").unwrap());
+    address_bytes
+        .copy_from_slice(&hex::decode("3c499c542cef5e3811e1192ce70d8cc03d5c3359").unwrap());
     let address = Address::new(address_bytes);
 
     generate_note_kind_bridge_evm(chain, address)

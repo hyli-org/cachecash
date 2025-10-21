@@ -32,7 +32,7 @@ fn main(
     blob_contract_name: pub str<256>,
     blob_capacity: pub u32,
     blob_len: pub u32,
-    blob: pub [u8; 32],
+    blob: pub [u8; 128],
     tx_blob_count: pub u32,
     success: pub bool,
     notes_root_initial: Field,
@@ -57,8 +57,8 @@ fn main(
     assert(initial_state_len == 4, "initial_state must be 4 bytes");
     assert(next_state_len == 4, "next_state must be 4 bytes");
 
-    assert(blob_capacity == 32, "blob capacity must be 32 bytes");
-    assert(blob_len == 32, "blob length must be 32 bytes");
+    assert(blob_capacity == 128, "blob capacity must be 128 bytes");
+    assert(blob_len == 128, "blob length must be 128 bytes");
     assert(blob_number == 1, "exactly one blob is expected");
     assert(tx_blob_count >= blob_number, "transaction must provide enough blobs");
     assert(blob_index == index, "blob index must align with invocation index");
@@ -162,11 +162,13 @@ fn main(
     let mut nullifier_update_bits: [[u1; 254]; 4] = [[0; 254]; 4];
     let mut nullifier_update_nodes: [[Field; 161]; 4] = [[0; 161]; 4];
     let mut nullifier_update_count: u32 = 0;
+    let mut nullifier_commitments: [Field; 2] = [0; 2];
 
     for i in 0..2 {
         let note = input_notes[i];
         let private_commitment =
             poseidon2::Poseidon2::hash([note.note.psi, note.secret_key], 2);
+        nullifier_commitments[i] = private_commitment;
         if private_commitment != 0 {
             let bits: [u1; 254] = private_commitment.to_le_bits();
             let path = nullifier_merkle_paths[i];
@@ -195,11 +197,10 @@ fn main(
     );
 
     // ---------------------------------------------------------------------
-    // Build a digest that Hyli can parse from the blob.
+    // Build the blob payload that Hyli expects: concatenated input and nullifier commitments.
     // ---------------------------------------------------------------------
-    let digest_bytes = compute_blob_digest(messages, commitments, notes_root);
-
-    assert(blob == digest_bytes, "blob must match digest derived from UTXO state");
+    let expected_blob = build_blob_payload(commitments, nullifier_commitments);
+    assert(blob == expected_blob, "blob must match concatenated commitments");
 }
 
 fn get_null_root(bits: [u1; 254], merkle_path: [Field; 160]) -> Field {
@@ -220,20 +221,34 @@ fn get_merkle_root(leaf: Field, bits: [u1; 254], merkle_path: [Field; 160]) -> F
     hash
 }
 
-fn compute_blob_digest(
-    messages: [Field; 5],
+fn build_blob_payload(
     commitments: [Field; 4],
-    root: Field,
-) -> [u8; 32] {
-    let messages_hash = poseidon2::Poseidon2::hash(messages, 5);
-    let digest_inputs = [
-        messages_hash,
-        commitments[2],
-        commitments[3],
-        root,
-    ];
-    let digest = poseidon2::Poseidon2::hash(digest_inputs, 5);
-    field_to_bytes(digest)
+    nullifier_commitments: [Field; 2],
+) -> [u8; 128] {
+    let mut bytes: [u8; 128] = [0; 128];
+    let mut offset: u32 = 0;
+
+    for i in 0..2 {
+        let commitment_bytes = field_to_bytes(commitments[i]);
+        for j in 0..32 {
+            let j_idx: u32 = j as u32;
+            let index: u32 = offset + j_idx;
+            bytes[index] = commitment_bytes[j_idx];
+        }
+        offset += 32;
+    }
+
+    for i in 0..2 {
+        let commitment_bytes = field_to_bytes(nullifier_commitments[i]);
+        for j in 0..32 {
+            let j_idx: u32 = j as u32;
+            let index: u32 = offset + j_idx;
+            bytes[index] = commitment_bytes[j_idx];
+        }
+        offset += 32;
+    }
+
+    bytes
 }
 
 fn adjust_path(
@@ -309,28 +324,27 @@ fn apply_merkle_update(
 }
 
 #[test]
-fn test_compute_blob_digest_matches_expected() {
-    let messages_for_expected: [Field; 5] = [1, 0, 0, 0, 0];
-    let commitments_for_expected: [Field; 4] = [0, 0, 0, 0];
-    let messages_hash = poseidon2::Poseidon2::hash(messages_for_expected, 5);
-    let digest_inputs = [
-        messages_hash,
-        commitments_for_expected[2],
-        commitments_for_expected[3],
-        0,
-    ];
-    let expected_field = poseidon2::Poseidon2::hash(digest_inputs, 5);
-    let digest_bytes =
-        compute_blob_digest([1, 0, 0, 0, 0], [0, 0, 0, 0], 0);
-    assert(digest_bytes == field_to_bytes(expected_field), "blob digest mismatch");
-}
+fn test_build_blob_payload_concatenates_commitments() {
+    let commitments: [Field; 4] = [11, 22, 33, 44];
+    let nullifiers: [Field; 2] = [55, 66];
+    let blob = build_blob_payload(commitments, nullifiers);
+    let mut expected: [u8; 128] = [0; 128];
 
-#[test(should_fail)]
-fn test_compute_blob_digest_mismatch() {
-    let messages: [Field; 5] = [1, 0, 0, 0, 0];
-    let commitments: [Field; 4] = [0, 0, 0, 0];
-    let digest = compute_blob_digest(messages, commitments, 0);
-    assert(digest == [0; 32], "digest unexpectedly matched");
+    let arrays = [
+        field_to_bytes(commitments[0]),
+        field_to_bytes(commitments[1]),
+        field_to_bytes(nullifiers[0]),
+        field_to_bytes(nullifiers[1]),
+    ];
+
+    for i in 0..4 {
+        let start = i * 32;
+        for j in 0..32 {
+            expected[start + j] = arrays[i][j];
+        }
+    }
+
+    assert(blob == expected, "blob must match concatenated commitment bytes");
 }
 
 #[test]

@@ -15,5 +15,8 @@ pub fn build_faucet_transaction(
 
     let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name.0));
 
-    BlobTransaction::new(identity, vec![action.as_blob(contract_name.clone(), None, None)])
+    BlobTransaction::new(
+        identity,
+        vec![action.as_blob(contract_name.clone(), None, None)],
+    )
 }
