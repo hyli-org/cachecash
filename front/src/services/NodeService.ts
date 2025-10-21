@@ -1,3 +1,15 @@
+interface FaucetResponse {
+    name: string;
+    key_pair: {
+        private_key_hex: string;
+        public_key_hex: string;
+    };
+    contract_name: string;
+    amount: number;
+    tx_hash: string;
+    transaction: unknown;
+}
+
 class NodeService {
     private readonly baseUrl: string;
 
@@ -37,48 +49,28 @@ class NodeService {
         }
     }
 
-    async recordSlice(playerName: string): Promise<{ id: string; total?: number }> {
-        const payload = { playerName };
-        const data = await this.request<any>("/api/slices", {
+    async requestFaucet(playerName: string, amount?: number): Promise<FaucetResponse> {
+        const trimmedName = playerName.trim();
+        if (!trimmedName) {
+            throw new Error("Player name must not be empty");
+        }
+
+        const payload: Record<string, unknown> = { name: trimmedName };
+        if (typeof amount === "number") {
+            payload.amount = amount;
+        }
+
+        const data = await this.request<FaucetResponse>("/api/faucet", {
             method: "POST",
             body: JSON.stringify(payload),
         });
 
-        const fallbackId = `${playerName || "anonymous"}-${Date.now()}`;
+        if (!data || typeof data.tx_hash !== "string") {
+            throw new Error("Unexpected faucet response");
+        }
 
-        const id = typeof data?.id === "string" ? data.id : fallbackId;
-        const total =
-            typeof data?.total === "number"
-                ? data.total
-                : typeof data?.score === "number"
-                ? data.score
-                : undefined;
-
-        return { id, total };
+        return data;
     }
-
-    async fetchScore(playerName: string): Promise<number> {
-        if (!playerName) {
-            return 0;
-        }
-
-        const data = await this.request<any>(`/api/score/${encodeURIComponent(playerName)}`);
-
-        if (typeof data === "number") {
-            return data;
-        }
-
-        if (typeof data?.score === "number") {
-            return data.score;
-        }
-
-        if (typeof data?.total === "number") {
-            return data.total;
-        }
-
-        return 0;
-    }
-
 }
 
 export const nodeService = new NodeService();

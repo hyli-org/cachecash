@@ -1,7 +1,8 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 
 interface Transaction {
-    message: string;
+    title: string;
+    hash?: string;
     timestamp: number;
 }
 
@@ -10,7 +11,7 @@ interface TransactionListProps {
     setTransactions: (callback: (prev: Transaction[]) => Transaction[]) => void;
 }
 
-export const TransactionList: React.FC<TransactionListProps> = ({ transactions, setTransactions }) => {
+export const TransactionList = ({ transactions, setTransactions }: TransactionListProps) => {
     useEffect(() => {
         const timeout = setTimeout(() => {
             setTransactions((prev) => prev.filter((tx) => Date.now() - tx.timestamp < 3000));
@@ -24,35 +25,13 @@ export const TransactionList: React.FC<TransactionListProps> = ({ transactions, 
     }
 
     return (
-        <div
-            style={{
-                position: "fixed",
-                top: "10px",
-                right: "10px",
-                padding: "6px",
-                borderRadius: "6px",
-                maxWidth: "250px",
-                overflowY: "hidden",
-                zIndex: 1000,
-                color: "white",
-                fontSize: "1em",
-            }}
-        >
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                {transactions.map((tx) => (
-                    <div
-                        key={tx.timestamp}
-                        style={{
-                            padding: "4px 6px",
-                            backgroundColor: "rgba(255, 255, 255, 0.1)",
-                            borderRadius: "3px",
-                            wordBreak: "break-all",
-                        }}
-                    >
-                        <div style={{ fontFamily: "monospace", fontSize: "0.75em" }}>{tx.message}</div>
-                    </div>
-                ))}
-            </div>
+        <div className="transaction-list">
+            {transactions.map((tx) => (
+                <div key={tx.timestamp} className="transaction-list__item">
+                    <div className="transaction-list__title">{tx.title}</div>
+                    {tx.hash ? <div className="transaction-list__hash">{tx.hash}</div> : null}
+                </div>
+            ))}
         </div>
     );
 };

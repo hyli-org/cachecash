@@ -30,7 +30,7 @@ pub fn build_router(state: ApiState) -> Router {
 
     Router::new()
         .route("/_health", get(health))
-        .route("/api/faucet/:username", get(faucet_log))
+        .route("/api/faucet/{username}", get(faucet_log))
         .route("/api/faucet", post(faucet))
         .with_state(state)
         .layer(cors)

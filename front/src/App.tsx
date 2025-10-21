@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef, ChangeEvent, FormEvent } from "react";
 import "./App.css";
 import { nodeService } from "./services/NodeService";
-import { useConfig } from "./hooks/useConfig";
 import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
 
 import { TransactionList } from "./components/TransactionList";
@@ -100,6 +99,20 @@ interface ExplosionParticle {
   time: number;
 }
 
+interface ScorePopup {
+  id: number;
+  x: number;
+  y: number;
+  text: string;
+  variant: "positive" | "negative";
+}
+
+interface TransactionEntry {
+  title: string;
+  hash?: string;
+  timestamp: number;
+}
+
 const SPAWN_INTERVAL = 500;
 const GRAVITY = 0.01;
 const INITIAL_SPEED = 1;
@@ -111,7 +124,6 @@ const BOMB_SLICE_THRESHOLD = BOMB_SIZE / 2;
 const OFFSCREEN_BUFFER = Math.max(ORANGE_SIZE, 200);
 
 function App() {
-  const { isLoading: isLoadingConfig, error: _configError } = useConfig();
   const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
   const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
   const [playerKeys, setPlayerKeys] = useState<DerivedKeyPair | null>(() => {
@@ -161,7 +173,9 @@ function App() {
   const nextJuiceId = useRef(0);
   const [explosionParticles, setExplosionParticles] = useState<ExplosionParticle[]>([]);
   const nextExplosionId = useRef(0);
-  const [transactions, setTransactions] = useState<Array<{ message: string; timestamp: number }>>([]);
+  const [scorePopups, setScorePopups] = useState<ScorePopup[]>([]);
+  const nextScorePopupId = useRef(0);
+  const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
@@ -268,6 +282,23 @@ function App() {
     }, 1000);
   }, []);
 
+  const addScorePopup = useCallback((x: number, y: number, text: string, variant: "positive" | "negative") => {
+    const id = nextScorePopupId.current++;
+    const popup: ScorePopup = {
+      id,
+      x,
+      y,
+      text,
+      variant,
+    };
+
+    setScorePopups((prev) => [...prev, popup]);
+
+    setTimeout(() => {
+      setScorePopups((prev) => prev.filter((existing) => existing.id !== id));
+    }, 800);
+  }, []);
+
   const sliceBomb = async (bombId: number) => {
     if (!playerName) return;
     try {
@@ -282,10 +313,13 @@ function App() {
 
       // Play bomb sound
       const bombAudio = new Audio(bombSound);
+      bombAudio.volume = Math.max(0, Math.min(1, bombAudio.volume * 0.84));
       bombAudio.play();
 
       // Create explosion effect instead of juice effect
       createExplosionEffect(bomb.x, bomb.y);
+
+      addScorePopup(bomb.x, bomb.y, "-10", "negative");
 
       // Apply cumulative penalty
       const newPenalty = bombPenalty + 10;
@@ -318,6 +352,7 @@ function App() {
       // Play random slice sound
       const sliceSound = [slice1, slice2, slice3];
       const audio = new Audio(sliceSound[Math.floor(Math.random() * sliceSound.length)]);
+      audio.volume = Math.max(0, Math.min(1, audio.volume * 0.84));
       // Reset audio if already playing
       audio.currentTime = 0;
       audio.play();
@@ -325,27 +360,26 @@ function App() {
       // Créer l'effet de jus
       createJuiceEffect(orange.x, orange.y);
 
+      addScorePopup(orange.x, orange.y, "+1", "positive");
+
       // Only send blob tx if no bomb penalty is active
       if (bombPenalty === 0) {
         try {
-          const { id, total } = await nodeService.recordSlice(playerName);
+          setCount((c) => c + 1);
+          const { tx_hash: txHash } = await nodeService.requestFaucet(playerName);
           setSubmissionError(null);
-          const shortId = id && id.length > 12 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
-          const message = shortId ? `+1 pumpkin (${shortId})` : `+1 pumpkin for ${playerName}`;
+          const shortHash = txHash && txHash.length > 12 ? `${txHash.slice(0, 6)}…${txHash.slice(-4)}` : txHash;
+          const title = `+1 pumpkin${playerName ? ` for ${playerName}` : ""}`;
           setTransactions((prev) =>
             [
               {
-                message,
+                title,
+                hash: shortHash || undefined,
                 timestamp: Date.now(),
               },
               ...prev,
             ].slice(0, 10),
           );
-          if (typeof total === "number" && !Number.isNaN(total)) {
-            setCount(total);
-          } else {
-            setCount((c) => c + 1);
-          }
         } catch (error) {
           console.error("Failed to record slice", error);
           setSubmissionError("We could not reach the server. Your score has not been updated.");
@@ -725,23 +759,6 @@ function App() {
     return () => cancelAnimationFrame(animationFrame);
   }, []);
 
-  useEffect(() => {
-    if (!playerName) {
-      return;
-    }
-
-    nodeService
-      .fetchScore(playerName)
-      .then((score) => {
-        if (typeof score === "number" && !Number.isNaN(score)) {
-          setCount(score);
-        }
-      })
-      .catch((error) => {
-        console.warn("Failed to load score", error);
-      });
-  }, [playerName]);
-
   // Mettre à jour la position des particules avec la balistique
   useEffect(() => {
     const animationFrame = requestAnimationFrame(function animate() {
@@ -792,10 +809,6 @@ function App() {
 
     return () => cancelAnimationFrame(animationFrame);
   }, []);
-
-  if (isLoadingConfig) {
-    return <div>Loading configuration...</div>;
-  }
 
   return (
     <div className="App">
@@ -919,6 +932,15 @@ function App() {
                 />
               </>
             )}
+          </div>
+        ))}
+        {scorePopups.map((popup) => (
+          <div
+            key={popup.id}
+            className={`score-popup score-popup--${popup.variant}`}
+            style={{ left: popup.x, top: popup.y }}
+          >
+            {popup.text}
           </div>
         ))}
         {juiceParticles.map((particle) => (

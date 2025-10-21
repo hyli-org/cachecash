@@ -603,6 +603,35 @@ body {
     -webkit-user-select: none;
 }
 
+.score-popup {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-family: "Silkscreen", "Courier New", monospace;
+    font-size: 24px;
+    pointer-events: none;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+    animation: scorePopupFloat 0.8s ease-out forwards;
+}
+
+.score-popup--positive {
+    color: #ffe45c;
+}
+
+.score-popup--negative {
+    color: #ff5b5b;
+}
+
+@keyframes scorePopupFloat {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -150%) scale(1.2);
+    }
+}
+
 .orange {
     position: absolute;
     width: 200px;
@@ -922,4 +951,70 @@ pre {
     backface-visibility: hidden;
     perspective: 1000px;
     will-change: transform;
+}
+
+.transaction-list {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 1100;
+}
+
+.transaction-list__item {
+    padding: 8px 10px;
+    min-width: 200px;
+    max-width: 260px;
+    border-radius: 12px;
+    color: #ffe7d9;
+    font-family: "Silkscreen", "Courier New", monospace;
+    background: linear-gradient(135deg, rgba(38, 12, 44, 0.92), rgba(12, 4, 19, 0.92));
+    border: 2px solid rgba(255, 152, 95, 0.8);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4), 0 0 14px rgba(255, 152, 95, 0.25);
+    backdrop-filter: blur(6px);
+    word-break: break-all;
+    animation: tx-enter 0.28s ease-out, tx-exit 0.3s ease-in 2.4s forwards;
+}
+
+.transaction-list__title {
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.transaction-list__hash {
+    margin-top: 4px;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    color: rgba(255, 231, 217, 0.75);
+    text-transform: uppercase;
+    word-break: break-all;
+}
+
+@keyframes tx-enter {
+    0% {
+        opacity: 0;
+        transform: translateY(-12px) scale(0.98);
+    }
+    65% {
+        opacity: 1;
+        transform: translateY(4px) scale(1.02);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes tx-exit {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-12px) scale(0.96);
+    }
 }
