@@ -1,0 +1,23 @@
+[package]
+name = "contracts"
+edition = { workspace = true }
+rust-version = "1.81"
+
+[lib]
+path = "metadata.rs"
+
+[dependencies]
+sdk = { workspace = true }
+hyli-utxo-state = { path = "hyli-utxo-state", features = ["sp1"] }
+sp1-sdk = { workspace = true }
+
+[build-dependencies]
+sp1-build = { workspace = true }
+sp1-sdk = { workspace = true }
+serde_json = { version = "1.0.142" }
+
+[features]
+default = ["nonreproducible"]
+build = []
+nonreproducible = []
+nobuild = []

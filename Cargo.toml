@@ -1,7 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "server", "pkg/*"
+    "server",
+    "pkg/*",
+    "contracts",
+    "contracts/hyli-utxo-state",
 ]
 
 [workspace.dependencies]
@@ -11,6 +14,9 @@ hyli-smt-token = { git = "https://github.com/hyli-org/hyli.git", package = "hyli
 hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "main" }
 hyli-net = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-net", branch = "main" }
 hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
+sp1-sdk = { version = "5.0.3", default-features = false }
+sp1-build = "5.0.3"
+sp1-zkvm = { version = "5.0.3", default-features = false }
 clap = { version = "4.5.28", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "std", "registry", "ansi", "json"] }
 
