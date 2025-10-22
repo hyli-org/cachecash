@@ -51,18 +51,8 @@ pub struct HyliUtxo {
     pub tx_blob_count: u32,
     /// Execution success flag reported by the host.
     pub success: bool,
-    /// Notes tree root provided as private input.
-    pub notes_root_initial: Element,
-    /// Nullifier tree root provided as private input.
-    pub nullifier_root_initial: Element,
     /// Underlying UTXO transaction data.
     pub utxo: Utxo,
-    /// Merkle authentication paths for spent notes.
-    pub input_merkle_paths: [[Element; 160]; 2],
-    /// Merkle null paths for newly created notes.
-    pub output_merkle_paths: [[Element; 160]; 2],
-    /// Nullifier tree insertion paths for spent notes.
-    pub nullifier_merkle_paths: [[Element; 160]; 2],
 }
 
 impl HyliUtxo {

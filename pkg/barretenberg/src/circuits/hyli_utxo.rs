@@ -181,15 +181,6 @@ fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
         InputValue::Field(Base::from(value.success as u64)),
     );
 
-    map.insert(
-        "notes_root_initial".to_owned(),
-        InputValue::Field(value.notes_root_initial.to_base()),
-    );
-    map.insert(
-        "nullifier_root_initial".to_owned(),
-        InputValue::Field(value.nullifier_root_initial.to_base()),
-    );
-
     let input_notes: [BInputNote; 2] = value
         .utxo
         .input_notes
@@ -240,55 +231,6 @@ fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
             messages
                 .into_iter()
                 .map(|message| InputValue::Field(message.to_base()))
-                .collect(),
-        ),
-    );
-
-    map.insert(
-        "input_merkle_paths".to_owned(),
-        InputValue::Vec(
-            value
-                .input_merkle_paths
-                .iter()
-                .map(|path| {
-                    InputValue::Vec(
-                        path.iter()
-                            .map(|element| InputValue::Field(element.to_base()))
-                            .collect(),
-                    )
-                })
-                .collect(),
-        ),
-    );
-    map.insert(
-        "output_merkle_paths".to_owned(),
-        InputValue::Vec(
-            value
-                .output_merkle_paths
-                .iter()
-                .map(|path| {
-                    InputValue::Vec(
-                        path.iter()
-                            .map(|element| InputValue::Field(element.to_base()))
-                            .collect(),
-                    )
-                })
-                .collect(),
-        ),
-    );
-    map.insert(
-        "nullifier_merkle_paths".to_owned(),
-        InputValue::Vec(
-            value
-                .nullifier_merkle_paths
-                .iter()
-                .map(|path| {
-                    InputValue::Vec(
-                        path.iter()
-                            .map(|element| InputValue::Field(element.to_base()))
-                            .collect(),
-                    )
-                })
                 .collect(),
         ),
     );

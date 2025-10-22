@@ -4,7 +4,10 @@ use anyhow::{anyhow, Context, Result};
 use axum::Router;
 use clap::Parser;
 use client_sdk::rest_client::NodeApiHttpClient;
-use hyli_modules::{bus::{dont_use_this, SharedMessageBus}, modules::Module};
+use hyli_modules::{
+    bus::{dont_use_this, SharedMessageBus},
+    modules::Module,
+};
 use server::{
     api::{build_router, ApiState},
     app::{FaucetApp, FaucetAppContext, FaucetMintRequest},
