@@ -60,6 +60,22 @@ pub fn hyli_utxo_state_deployment() -> ContractDeployment {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ContractInit {
+    pub deployment: ContractDeployment,
+    pub verifier: Verifier,
+}
+
+pub async fn init_node(
+    client: &NodeApiHttpClient,
+    contracts: &[ContractInit],
+) -> Result<()> {
+    for contract in contracts {
+        ensure_contract_registered(client, &contract.deployment, contract.verifier.clone()).await?;
+    }
+    Ok(())
+}
+
 /// Ensure that the Noir contract is registered on the node.
 ///
 /// - If the contract already exists, the function validates that the on-chain program id

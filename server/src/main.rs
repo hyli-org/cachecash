@@ -1,24 +1,28 @@
-use std::{io::ErrorKind, net::SocketAddr};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use axum::Router;
 use clap::Parser;
 use client_sdk::rest_client::NodeApiHttpClient;
 use hyli_modules::{
-    bus::{dont_use_this, SharedMessageBus},
-    modules::Module,
+    bus::{metrics::BusMetrics, SharedMessageBus},
+    modules::{
+        rest::{RestApi, RestApiRunContext},
+        BuildApiContextInner, ModulesHandler,
+    },
 };
+use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
-    api::{build_router, ApiState},
-    app::{FaucetApp, FaucetAppContext, FaucetMintRequest},
+    api::{ApiModule, ApiModuleCtx},
+    app::{FaucetApp, FaucetAppContext},
     conf::Conf,
-    init::{ensure_contract_registered, hyli_utxo_noir_deployment, hyli_utxo_state_deployment},
+    init::{
+        hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit,
+    },
     tx::HYLI_UTXO_CONTRACT_NAME,
 };
-use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-use sdk::{verifiers, Verifier};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Run the zfruit faucet server", long_about = None)]
@@ -64,59 +68,90 @@ async fn main() -> Result<()> {
     let node_client =
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?;
 
-    ensure_contract_registered(
-        &node_client,
-        &hyli_utxo_noir_deployment(),
-        Verifier(verifiers::NOIR.to_string()),
-    )
-    .await
-    .context("ensuring hyli_utxo Noir contract is registered")?;
+    let contracts = vec![
+        ContractInit {
+            deployment: hyli_utxo_noir_deployment(),
+            verifier: Verifier(verifiers::NOIR.to_string()),
+        },
+        ContractInit {
+            deployment: hyli_utxo_state_deployment(),
+            verifier: Verifier(verifiers::SP1_4.to_string()),
+        },
+    ];
+    init_node(&node_client, &contracts)
+        .await
+        .context("initializing contracts on node")?;
 
-    ensure_contract_registered(
-        &node_client,
-        &hyli_utxo_state_deployment(),
-        Verifier(verifiers::SP1_4.to_string()),
-    )
-    .await
-    .context("ensuring hyli-utxo-state SP1 contract is registered")?;
+    let shared_bus = SharedMessageBus::new(BusMetrics::global(config.id.clone()));
+    let mut handler = ModulesHandler::new(&shared_bus).await;
 
-    let shared_bus = SharedMessageBus::default();
-    let faucet_sender = dont_use_this::get_sender::<FaucetMintRequest>(&shared_bus).await;
-
-    let faucet_context = FaucetAppContext {
-        client: node_client.clone(),
-    };
-
-    let mut faucet_module = FaucetApp::build(shared_bus.new_handle(), faucet_context)
+    handler
+        .build_module::<FaucetApp>(FaucetAppContext {
+            client: node_client.clone(),
+        })
         .await
         .context("building faucet module")?;
 
-    tokio::spawn(async move {
-        if let Err(err) = faucet_module.run().await {
-            tracing::error!(error = %err, "Faucet module terminated");
-        }
+    let api_builder_ctx = Arc::new(BuildApiContextInner {
+        router: std::sync::Mutex::new(Some(Router::new())),
+        openapi: Default::default(),
     });
 
-    let state = ApiState {
-        default_amount: config.default_faucet_amount,
-        faucet_sender,
-    };
+    handler
+        .build_module::<ApiModule>(Arc::new(ApiModuleCtx {
+            api: api_builder_ctx.clone(),
+            default_amount: config.default_faucet_amount,
+            contract_name: ContractName(config.contract_name.clone()),
+        }))
+        .await
+        .context("building API module")?;
 
-    let router: Router = build_router(state);
+    let mut router_guard = api_builder_ctx
+        .router
+        .lock()
+        .expect("API router mutex poisoned");
+    let router = router_guard
+        .take()
+        .unwrap_or_else(Router::new);
+    drop(router_guard);
 
-    let (listener, addr) = bind_listener(config.rest_server_port).await?;
+    let openapi = api_builder_ctx
+        .openapi
+        .lock()
+        .expect("OpenAPI mutex poisoned")
+        .clone();
+
+    let rest_context = RestApiRunContext::new(
+        config.rest_server_port,
+        NodeInfo {
+            id: config.id.clone(),
+            da_address: config.node_url.clone(),
+            pubkey: None,
+        },
+        router,
+        config.rest_server_max_body_size,
+        openapi,
+    );
+
+    handler
+        .build_module::<RestApi>(rest_context)
+        .await
+        .context("building REST API module")?;
 
     info!(
         contract = %config.contract_name,
         amount = config.default_faucet_amount,
-        address = %addr,
+        port = config.rest_server_port,
         "Starting zfruit faucet server",
     );
 
-    axum::serve(listener, router.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
+    handler.start_modules().await.context("starting modules")?;
+    handler
+        .exit_process()
         .await
-        .context("running HTTP server")
+        .context("waiting for module shutdown")?;
+
+    Ok(())
 }
 
 fn init_tracing(log_format: &str) -> Result<()> {
@@ -142,36 +177,5 @@ fn init_tracing(log_format: &str) -> Result<()> {
         builder
             .try_init()
             .map_err(|err| anyhow!("failed to initialise tracing: {err}"))
-    }
-}
-
-async fn shutdown_signal() {
-    if let Err(err) = signal::ctrl_c().await {
-        info!(error = %err, "Failed to listen for shutdown signal");
-    } else {
-        info!("Shutdown signal received, stopping server");
-    }
-}
-
-async fn bind_listener(port: u16) -> Result<(TcpListener, SocketAddr)> {
-    let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], port));
-
-    match TcpListener::bind(wildcard_addr).await {
-        Ok(listener) => Ok((listener, wildcard_addr)),
-        Err(err) if err.kind() == ErrorKind::PermissionDenied => {
-            let loopback_addr = SocketAddr::from(([127, 0, 0, 1], port));
-            let listener = TcpListener::bind(loopback_addr)
-                .await
-                .with_context(|| format!("binding HTTP listener on {loopback_addr}"))?;
-
-            info!(
-                original_address = %wildcard_addr,
-                fallback_address = %loopback_addr,
-                "Operation not permitted on wildcard address, falling back to loopback"
-            );
-
-            Ok((listener, loopback_addr))
-        }
-        Err(err) => Err(err).with_context(|| format!("binding HTTP listener on {wildcard_addr}")),
     }
 }
