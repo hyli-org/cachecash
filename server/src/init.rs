@@ -1,7 +1,22 @@
 use anyhow::{anyhow, bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
+use sdk::{
+    api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier,
+    ZkContract,
+};
 use tracing::info;
+
+use contracts::HYLI_UTXO_STATE_VK;
+use hyli_utxo_state::HyliUtxoZkVmState;
+
+use crate::tx::HYLI_UTXO_CONTRACT_NAME;
+
+pub const HYLI_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
+
+const HYLI_UTXO_NOIR_VK: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../fixtures/keys/hyli_utxo_key"
+));
 
 /// Metadata required to deploy (or validate) a Noir UTXO contract.
 #[derive(Clone, Debug)]
@@ -23,6 +38,25 @@ impl ContractDeployment {
             timeout_window: self.timeout_window,
             constructor_metadata: None,
         }
+    }
+}
+
+pub fn hyli_utxo_noir_deployment() -> ContractDeployment {
+    ContractDeployment {
+        contract_name: ContractName(HYLI_UTXO_CONTRACT_NAME.to_string()),
+        program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
+        state_commitment: StateCommitment(vec![0u8; 4]),
+        timeout_window: None,
+    }
+}
+
+pub fn hyli_utxo_state_deployment() -> ContractDeployment {
+    let initial_state = HyliUtxoZkVmState::default();
+    ContractDeployment {
+        contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
+        program_id: ProgramId(HYLI_UTXO_STATE_VK.to_vec()),
+        state_commitment: initial_state.commit(),
+        timeout_window: None,
     }
 }
 

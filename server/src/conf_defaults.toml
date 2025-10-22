@@ -5,4 +5,4 @@ rest_server_port = 9002
 rest_server_max_body_size = 10_485_760 # 10 MB
 contract_name = "hyli_utxo"
 default_faucet_amount = 10
-node_url = "http://127.0.0.1:7000"
+node_url = "http://127.0.0.1:4321"

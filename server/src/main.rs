@@ -12,11 +12,13 @@ use server::{
     api::{build_router, ApiState},
     app::{FaucetApp, FaucetAppContext, FaucetMintRequest},
     conf::Conf,
+    init::{ensure_contract_registered, hyli_utxo_noir_deployment, hyli_utxo_state_deployment},
     tx::HYLI_UTXO_CONTRACT_NAME,
 };
 use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+use sdk::{verifiers, Verifier};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Run the zfruit faucet server", long_about = None)]
@@ -61,6 +63,22 @@ async fn main() -> Result<()> {
 
     let node_client =
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?;
+
+    ensure_contract_registered(
+        &node_client,
+        &hyli_utxo_noir_deployment(),
+        Verifier(verifiers::NOIR.to_string()),
+    )
+    .await
+    .context("ensuring hyli_utxo Noir contract is registered")?;
+
+    ensure_contract_registered(
+        &node_client,
+        &hyli_utxo_state_deployment(),
+        Verifier(verifiers::SP1_4.to_string()),
+    )
+    .await
+    .context("ensuring hyli-utxo-state SP1 contract is registered")?;
 
     let shared_bus = SharedMessageBus::default();
     let faucet_sender = dont_use_this::get_sender::<FaucetMintRequest>(&shared_bus).await;

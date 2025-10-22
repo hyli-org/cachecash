@@ -99,7 +99,6 @@ fn main(
     for i in 0..2 {
         let note = input_notes[i];
         let private_commitment = poseidon2::Poseidon2::hash([note.note.psi, note.secret_key], 2);
-        assert(private_commitment != 0, "nullifier commitment must be non-zero");
         nullifier_commitments[i] = private_commitment;
     }
 

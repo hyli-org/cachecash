@@ -25,6 +25,8 @@ hash = { workspace = true }
 zk-primitives = { workspace = true }
 hyli-modules = { workspace = true }
 opentelemetry = "0.28"
+contracts = { path = "../contracts" }
+hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 
 [features]
 instrumentation = []
