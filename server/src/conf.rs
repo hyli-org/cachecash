@@ -10,6 +10,11 @@ pub struct Conf {
     pub contract_name: String,
     pub default_faucet_amount: u64,
     pub node_url: String,
+    pub data_directory: String,
+    pub da_read_from: String,
+    pub buffer_blocks: u32,
+    pub max_txs_per_proof: usize,
+    pub tx_working_window_size: usize,
 }
 
 impl Conf {

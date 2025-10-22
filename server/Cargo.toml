@@ -6,7 +6,7 @@ edition = "2021"
 anyhow = "1.0.93"
 axum = { version = "0.8.3", features = ["macros"] }
 borsh = { workspace = true }
-client-sdk = { workspace = true, features = ["rest"] }
+client-sdk = { workspace = true, features = ["rest", "sp1"] }
 clap = { workspace = true }
 config = { version = "0.15.11", default-features = false, features = ["toml"] }
 hex = { workspace = true }
@@ -27,6 +27,8 @@ hyli-modules = { workspace = true }
 opentelemetry = "0.28"
 contracts = { path = "../contracts" }
 hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
+bincode = { workspace = true }
+sp1-sdk = { workspace = true }
 
 [features]
 instrumentation = []

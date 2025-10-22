@@ -1,23 +1,33 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use axum::Router;
 use clap::Parser;
-use client_sdk::rest_client::NodeApiHttpClient;
+use client_sdk::{
+    helpers::{sp1::SP1Prover, ClientSdkProver},
+    rest_client::{NodeApiClient, NodeApiHttpClient},
+};
 use hyli_modules::{
     bus::{metrics::BusMetrics, SharedMessageBus},
     modules::{
+        da_listener::{DAListener, DAListenerConf},
+        prover::{AutoProver, AutoProverCtx},
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
     },
 };
-use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
+use sdk::{api::NodeInfo, verifiers, Calldata, ContractName, Verifier};
 use server::{
     api::{ApiModule, ApiModuleCtx},
     app::{FaucetApp, FaucetAppContext},
     conf::Conf,
-    init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
+    hyli_utxo_state_client::HyliUtxoStateExecutor,
+    init::{
+        hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit,
+        HYLI_UTXO_STATE_CONTRACT_NAME,
+    },
     tx::HYLI_UTXO_CONTRACT_NAME,
+    utils::load_utxo_state_proving_key,
 };
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -63,8 +73,9 @@ async fn main() -> Result<()> {
     init_tracing(&config.log_format)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
-    let node_client =
-        NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?;
+    let node_client = Arc::new(
+        NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?,
+    );
 
     let contracts = vec![
         ContractInit {
@@ -76,16 +87,25 @@ async fn main() -> Result<()> {
             verifier: Verifier(verifiers::SP1_4.to_string()),
         },
     ];
-    init_node(&node_client, &contracts)
+    init_node(node_client.as_ref(), &contracts)
         .await
         .context("initializing contracts on node")?;
+
+    let data_directory = PathBuf::from(&config.data_directory);
+    std::fs::create_dir_all(&data_directory).context("creating data directory")?;
+
+    let proving_key = load_utxo_state_proving_key(&data_directory)
+        .context("loading hyli-utxo-state proving key")?;
+    let prover_impl = Arc::new(SP1Prover::new(proving_key).await);
+    let prover: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> =
+        prover_impl.clone() as Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync>;
 
     let shared_bus = SharedMessageBus::new(BusMetrics::global(config.id.clone()));
     let mut handler = ModulesHandler::new(&shared_bus).await;
 
     handler
         .build_module::<FaucetApp>(FaucetAppContext {
-            client: node_client.clone(),
+            client: node_client.as_ref().clone(),
         })
         .await
         .context("building faucet module")?;
@@ -104,6 +124,31 @@ async fn main() -> Result<()> {
         .await
         .context("building API module")?;
 
+    handler
+        .build_module::<DAListener>(DAListenerConf {
+            start_block: None,
+            data_directory: data_directory.clone(),
+            da_read_from: config.da_read_from.clone(),
+            timeout_client_secs: 10,
+        })
+        .await
+        .context("building DA listener module")?;
+
+    handler
+        .build_module::<AutoProver<HyliUtxoStateExecutor>>(Arc::new(AutoProverCtx {
+            data_directory: data_directory.clone(),
+            prover: prover.clone(),
+            contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
+            node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
+            default_state: HyliUtxoStateExecutor::default(),
+            buffer_blocks: config.buffer_blocks,
+            max_txs_per_proof: config.max_txs_per_proof,
+            tx_working_window_size: config.tx_working_window_size,
+            api: Some(api_builder_ctx.clone()),
+        }))
+        .await
+        .context("building auto prover module")?;
+
     let mut router_guard = api_builder_ctx
         .router
         .lock()
@@ -121,7 +166,7 @@ async fn main() -> Result<()> {
         config.rest_server_port,
         NodeInfo {
             id: config.id.clone(),
-            da_address: config.node_url.clone(),
+            da_address: config.da_read_from.clone(),
             pubkey: None,
         },
         router,
