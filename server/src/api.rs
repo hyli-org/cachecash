@@ -10,7 +10,10 @@ use axum::{
 };
 use hex::encode as hex_encode;
 use hyli_modules::{
-    bus::{BusClientSender, SharedMessageBus},
+    bus::{
+        command_response::{CmdRespClient, Query},
+        SharedMessageBus,
+    },
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
@@ -19,12 +22,11 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::{
-    app::{FaucetMintRequest, FAUCET_MINT_AMOUNT},
+    app::{FaucetMintCommand, FaucetMintResult, FAUCET_MINT_AMOUNT},
     keys::derive_key_material,
-    tx::FAUCET_IDENTITY_PREFIX,
     types::{FaucetRequest, FaucetResponse, KeyPairInfo},
 };
-use sdk::{BlobTransaction, ContractName, Hashed, Identity};
+use sdk::ContractName;
 
 pub struct ApiModule {
     bus: ApiModuleBusClient,
@@ -46,7 +48,7 @@ struct RouterCtx {
 module_bus_client! {
     #[derive(Debug)]
     pub struct ApiModuleBusClient {
-        sender(FaucetMintRequest),
+        sender(Query<FaucetMintCommand, FaucetMintResult>),
     }
 }
 
@@ -75,10 +77,7 @@ impl Module for ApiModule {
             .layer(cors);
 
         if let Ok(mut guard) = ctx.api.router.lock() {
-            let merged = guard
-                .take()
-                .unwrap_or_else(Router::new)
-                .merge(router);
+            let merged = guard.take().unwrap_or_else(Router::new).merge(router);
             guard.replace(merged);
         }
 
@@ -125,19 +124,13 @@ async fn faucet(
     let key_material =
         derive_key_material(name).map_err(|err| ApiError::bad_request(err.to_string()))?;
 
-    bus.send(FaucetMintRequest {
-        key_material: key_material.clone(),
-        amount,
-    })
-    .map_err(|err| ApiError::internal(err.to_string()))?;
-
-    let placeholder_identity =
-        Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
-    let placeholder_tx = BlobTransaction::new(
-        placeholder_identity.clone(),
-        vec![],
-    );
-    let placeholder_hash = placeholder_tx.hashed();
+    let mint_result = bus
+        .request(FaucetMintCommand {
+            key_material: key_material.clone(),
+            amount,
+        })
+        .await
+        .map_err(|err| ApiError::internal(err.to_string()))?;
 
     let response = FaucetResponse {
         name: name.to_string(),
@@ -147,8 +140,9 @@ async fn faucet(
         },
         contract_name: contract_name.clone(),
         amount,
-        tx_hash: placeholder_hash.0,
-        transaction: placeholder_tx,
+        tx_hash: mint_result.tx_hash.0.clone(),
+        transaction: mint_result.transaction,
+        utxo: mint_result.utxo,
     };
 
     Ok(Json(response))

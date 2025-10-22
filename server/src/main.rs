@@ -16,9 +16,7 @@ use server::{
     api::{ApiModule, ApiModuleCtx},
     app::{FaucetApp, FaucetAppContext},
     conf::Conf,
-    init::{
-        hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit,
-    },
+    init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
     tx::HYLI_UTXO_CONTRACT_NAME,
 };
 use tracing::info;
@@ -110,9 +108,7 @@ async fn main() -> Result<()> {
         .router
         .lock()
         .expect("API router mutex poisoned");
-    let router = router_guard
-        .take()
-        .unwrap_or_else(Router::new);
+    let router = router_guard.take().unwrap_or_else(Router::new);
     drop(router_guard);
 
     let openapi = api_builder_ctx

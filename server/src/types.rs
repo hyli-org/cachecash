@@ -3,6 +3,7 @@ use sdk::{
     Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, StructuredBlobData,
 };
 use serde::{Deserialize, Serialize};
+use zk_primitives::Utxo;
 
 #[derive(Debug, Deserialize)]
 pub struct FaucetRequest {
@@ -25,6 +26,7 @@ pub struct FaucetResponse {
     pub amount: u64,
     pub tx_hash: String,
     pub transaction: BlobTransaction,
+    pub utxo: Utxo,
 }
 
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]

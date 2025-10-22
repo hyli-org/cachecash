@@ -165,7 +165,7 @@ mod tests {
             0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
         ]);
 
-        let result = generate_note_kind_bridge_evm(chain, address);
+        let result = generate_note_kind_bridge_evm(chain, address.clone());
 
         // Verify the structure by extracting bytes
         let result_bytes = result.to_be_bytes();
@@ -188,7 +188,7 @@ mod tests {
         let chain = 0x0000u64;
         let address = Address::default();
 
-        let result = generate_note_kind_bridge_evm(chain, address);
+        let result = generate_note_kind_bridge_evm(chain, address.clone());
         let result_bytes = result.to_be_bytes();
 
         // Check note_kind_format is in bytes 0-2
@@ -212,7 +212,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
         ]);
 
-        let result = generate_note_kind_bridge_evm(chain, address);
+        let result = generate_note_kind_bridge_evm(chain, address.clone());
         let result_bytes = result.to_be_bytes();
 
         // Check note_kind_format is in bytes 0-2

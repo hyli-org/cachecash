@@ -8,6 +8,7 @@ interface FaucetResponse {
     amount: number;
     tx_hash: string;
     transaction: unknown;
+    utxo: unknown;
 }
 
 class NodeService {

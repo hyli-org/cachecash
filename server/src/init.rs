@@ -66,10 +66,7 @@ pub struct ContractInit {
     pub verifier: Verifier,
 }
 
-pub async fn init_node(
-    client: &NodeApiHttpClient,
-    contracts: &[ContractInit],
-) -> Result<()> {
+pub async fn init_node(client: &NodeApiHttpClient, contracts: &[ContractInit]) -> Result<()> {
     for contract in contracts {
         ensure_contract_registered(client, &contract.deployment, contract.verifier.clone()).await?;
     }
