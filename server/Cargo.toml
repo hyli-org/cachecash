@@ -29,6 +29,7 @@ contracts = { path = "../contracts" }
 hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 bincode = { workspace = true }
 sp1-sdk = { workspace = true }
+reqwest = { workspace = true }
 
 [features]
 instrumentation = []

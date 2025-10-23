@@ -28,7 +28,7 @@ struct CommitmentSnapshot {
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-struct EmptyAction;
+pub struct EmptyAction;
 
 impl HyliUtxoState {
     fn collect_leaves(tree: &SMT<BorshableH256>) -> Vec<BorshableH256> {
