@@ -9,7 +9,9 @@ use hyli_modules::{
 };
 use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity, TxHash};
 use tracing::info;
-use zk_primitives::{Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
+use zk_primitives::{
+    hash_private_key_for_psi, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES,
+};
 
 use crate::{
     init::HYLI_UTXO_STATE_CONTRACT_NAME,
@@ -79,13 +81,6 @@ impl Module for FaucetApp {
 
 impl FaucetApp {
     async fn process_request(&mut self, request: FaucetMintCommand) -> Result<FaucetMintResult> {
-        if request.amount != MINT_AMOUNT {
-            return Err(anyhow!(
-                "unsupported faucet amount {}; expected {MINT_AMOUNT}",
-                request.amount
-            ));
-        }
-
         let (blob_transaction, utxo) =
             self.build_transaction(&request.key_material, request.amount)?;
 
@@ -112,7 +107,11 @@ impl FaucetApp {
         let private_key = Element::from_be_bytes(key_material.private_key);
         let minted_value = Element::new(amount);
 
-        let recipient_note = Note::new_from_ephemeral_private_key(private_key, minted_value);
+        let recipient_note = Note::new_with_psi(
+            private_key,
+            minted_value,
+            hash_private_key_for_psi(private_key),
+        );
         let utxo = Utxo::new_mint([recipient_note, Note::padding_note()]);
 
         let leaf_elements = utxo.leaf_elements();
