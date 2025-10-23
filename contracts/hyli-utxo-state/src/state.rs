@@ -1,5 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use sdk::{Calldata, StateCommitment, merkle_utils::BorshableMerkleProof};
+use sdk::{
+    Calldata, RunResult, StateCommitment, merkle_utils::BorshableMerkleProof,
+    utils::parse_raw_calldata,
+};
 use sparse_merkle_tree::H256;
 
 use crate::zk::{
@@ -25,8 +28,7 @@ struct CommitmentSnapshot {
     nullified_notes_root: BorshableH256,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct EmptyAction;
+pub type HyliUtxoStateAction = [BorshableH256; 4];
 
 impl HyliUtxoState {
     pub fn record_created(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
@@ -129,7 +131,52 @@ impl HyliUtxoState {
 impl sdk::FullStateRevert for HyliUtxoZkVmState {}
 
 impl HyliUtxoZkVmState {
-    pub fn commit(&self) -> StateCommitment {
+    fn apply_action(&mut self, action: &HyliUtxoStateAction) -> Result<(), String> {
+        let created: Vec<_> = action
+            .iter()
+            .take(2)
+            .copied()
+            .filter(|c| c.0 != H256::zero())
+            .collect();
+        let nullified: Vec<_> = action
+            .iter()
+            .skip(2)
+            .copied()
+            .filter(|c| c.0 != H256::zero())
+            .collect();
+
+        if self.notes.values.len() != created.len() {
+            return Err("notes witness entries do not match action size".to_string());
+        }
+        if self.nullified_notes.values.len() != nullified.len() {
+            return Err("nullified witness entries do not match action size".to_string());
+        }
+
+        for (leaf, commitment) in self.notes.values.iter_mut().zip(created.iter()) {
+            leaf.value = *commitment;
+        }
+
+        for (leaf, commitment) in self.nullified_notes.values.iter_mut().zip(nullified.iter()) {
+            leaf.value = *commitment;
+        }
+
+        Ok(())
+    }
+}
+
+impl sdk::ZkContract for HyliUtxoZkVmState {
+    fn execute(&mut self, calldata: &Calldata) -> RunResult {
+        let (action, ctx) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)?;
+
+        self.notes.ensure_all_zero()?;
+        self.nullified_notes.ensure_all_zero()?;
+
+        self.apply_action(&action)?;
+
+        Ok((Vec::new(), ctx, Vec::new()))
+    }
+
+    fn commit(&self) -> StateCommitment {
         let notes_root = self
             .notes
             .compute_root()

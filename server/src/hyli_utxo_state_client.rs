@@ -1,14 +1,14 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use client_sdk::transaction_builder::TxExecutorHandler;
 use hyli_utxo_state::{
-    HyliUtxoZkVmState,
-    state::{EmptyAction, HyliUtxoState, hyli_utxo_blob, parse_hyli_utxo_blob},
+    state::{hyli_utxo_blob, parse_hyli_utxo_blob, HyliUtxoState, HyliUtxoStateAction},
     zk::BorshableH256,
+    HyliUtxoZkVmState,
 };
 use sdk::{
-    Blob, Calldata, Contract, ContractName, HyliOutput, RunResult, StateCommitment,
     utils::{as_hyli_output, parse_raw_calldata},
+    Blob, Calldata, Contract, ContractName, HyliOutput, RunResult, StateCommitment,
 };
 
 #[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
@@ -85,7 +85,7 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
     fn handle(&mut self, calldata: &Calldata) -> Result<HyliOutput> {
         let initial_commitment = self.get_state_commitment();
 
-        let (_, execution_ctx) = parse_raw_calldata::<EmptyAction>(calldata)
+        let (_, execution_ctx) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)
             .map_err(|e| anyhow!("parsing calldata: {e}"))?;
 
         self.update_from_blob(calldata)?;

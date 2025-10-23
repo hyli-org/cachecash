@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
+use hyli_utxo_state::HyliUtxoState;
 use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
 use tracing::info;
 
@@ -46,10 +47,11 @@ pub fn hyli_utxo_noir_deployment() -> ContractDeployment {
 }
 
 pub fn hyli_utxo_state_deployment() -> ContractDeployment {
+    let hyli_utxo_state = HyliUtxoState::default();
     ContractDeployment {
         contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
         program_id: ProgramId(HYLI_UTXO_STATE_VK.to_vec()),
-        state_commitment: StateCommitment::default(),
+        state_commitment: hyli_utxo_state.commitment(),
         timeout_window: None,
     }
 }

@@ -2,7 +2,7 @@ use std::{io, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use sdk::merkle_utils::SHA256Hasher;
-use sparse_merkle_tree::{H256, SparseMerkleTree, default_store::DefaultStore, traits::Value};
+use sparse_merkle_tree::{default_store::DefaultStore, traits::Value, SparseMerkleTree, H256};
 
 pub trait GetKey {
     fn get_key(&self) -> BorshableH256;

@@ -7,6 +7,7 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::Module,
 };
+use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
 use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity};
 use tracing::info;
 use zk_primitives::{Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
@@ -110,10 +111,13 @@ impl FaucetApp {
         let mut blob_bytes = vec![0u8; HYLI_BLOB_LENGTH_BYTES];
         let mut offset = 0usize;
 
+        let mut commitments = Vec::with_capacity(4);
+
         for commitment in &leaf_elements[0..2] {
             blob_bytes[offset..offset + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&commitment.to_be_bytes());
             offset += HYLI_BLOB_HASH_BYTE_LENGTH;
+            commitments.push(BorshableH256::from(commitment.to_be_bytes()));
         }
 
         for input in utxo.input_notes.iter() {
@@ -128,12 +132,20 @@ impl FaucetApp {
             offset += HYLI_BLOB_HASH_BYTE_LENGTH;
 
             self.nullifier_root = nullifier;
+
+            commitments.push(BorshableH256::from(nullifier.to_be_bytes()));
         }
+
+        let state_action: HyliUtxoStateAction = commitments
+            .try_into()
+            .expect("expected exactly four commitments for state action");
 
         let contract_name = HYLI_UTXO_CONTRACT_NAME.to_string();
         let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
-        let hyli_utxo_data = BlobData(blob_bytes.clone());
-        let state_blob_data = BlobData(blob_bytes);
+        let hyli_utxo_data = BlobData(blob_bytes);
+        let state_blob_data = BlobData(
+            borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
+        );
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),
             data: hyli_utxo_data,
