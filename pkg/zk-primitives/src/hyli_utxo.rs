@@ -5,7 +5,7 @@ use hash::hash_merge;
 use serde::{Deserialize, Serialize};
 
 /// Number of public input fields emitted by the Hyli UTXO proof.
-pub const HYLI_UTXO_PUBLIC_INPUTS_COUNT: usize = 637;
+pub const HYLI_UTXO_PUBLIC_INPUTS_COUNT: usize = 733;
 
 /// Number of field elements concatenated into the Hyli blob (2 input commitments + 2 nullifier commitments).
 pub const HYLI_BLOB_HASH_COUNT: usize = 4;

@@ -3792,6 +3792,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex-literal"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7542,14 +7548,17 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "axum 0.8.6",
+ "barretenberg",
  "bincode",
  "borsh",
  "clap",
  "config",
  "contracts",
  "element",
+ "ethnum",
  "hash",
  "hex",
+ "hex-literal",
  "hyli-client-sdk",
  "hyli-contract-sdk",
  "hyli-modules",
@@ -7563,6 +7572,7 @@ dependencies = [
  "sha3",
  "sp1-sdk",
  "tokio",
+ "toml 0.8.23",
  "tower-http",
  "tracing",
  "tracing-subscriber",

@@ -26,6 +26,7 @@ use server::{
         hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit,
         HYLI_UTXO_STATE_CONTRACT_NAME,
     },
+    noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
     tx::HYLI_UTXO_CONTRACT_NAME,
     utils::load_utxo_state_proving_key,
 };
@@ -77,13 +78,15 @@ async fn main() -> Result<()> {
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?,
     );
 
+    let hyli_utxo_contract = hyli_utxo_noir_deployment();
+    let hyli_utxo_state_contract = hyli_utxo_state_deployment();
     let contracts = vec![
         ContractInit {
-            deployment: hyli_utxo_noir_deployment(),
+            deployment: hyli_utxo_contract.clone(),
             verifier: Verifier(verifiers::NOIR.to_string()),
         },
         ContractInit {
-            deployment: hyli_utxo_state_deployment(),
+            deployment: hyli_utxo_state_contract.clone(),
             verifier: Verifier(verifiers::SP1_4.to_string()),
         },
     ];
@@ -102,6 +105,15 @@ async fn main() -> Result<()> {
 
     let shared_bus = SharedMessageBus::new(BusMetrics::global(config.id.clone()));
     let mut handler = ModulesHandler::new(&shared_bus).await;
+
+    handler
+        .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
+            node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
+            contract: hyli_utxo_contract.clone(),
+            verify_locally: true,
+        }))
+        .await
+        .context("building hyli_utxo Noir prover module")?;
 
     handler
         .build_module::<FaucetApp>(FaucetAppContext {

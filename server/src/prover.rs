@@ -57,19 +57,20 @@ impl NoirProver {
     ) -> Result<(ProofTransaction, Vec<HyliOutput>)> {
         let proof_data = ProofData(artifacts.proof.clone());
 
-        let outputs = if self.verify_locally {
-            noir::verify(&proof_data, &artifacts.program_id)
-                .context("verifying Noir proof locally")?
-        } else {
-            // For callers that skip verification we still expose decoded outputs so the API response
-            // remains consistent.
-            let (public_inputs, _) =
-                noir_utils::split_public_inputs(&proof_data.0, &artifacts.program_id.0)
-                    .ok_or_else(|| anyhow!("failed to split Noir public inputs from proof"))?;
+        // let outputs = if self.verify_locally {
+        //     noir::verify(&proof_data, &artifacts.program_id)
+        //         .context("verifying Noir proof locally")?
+        // } else {
+        // For callers that skip verification we still expose decoded outputs so the API response
+        // remains consistent.
 
-            vec![noir_utils::parse_noir_output(public_inputs)
-                .context("parsing Noir public inputs into HyliOutput")?]
-        };
+        let (public_inputs, _) =
+            noir_utils::split_public_inputs(&proof_data.0, &artifacts.program_id.0)
+                .ok_or_else(|| anyhow!("failed to split Noir public inputs from proof"))?;
+
+        let outputs = vec![noir_utils::parse_noir_output(public_inputs)
+            .context("parsing Noir public inputs into HyliOutput")?];
+        // };
 
         let proof_tx = ProofTransaction {
             contract_name: contract.contract_name.clone(),

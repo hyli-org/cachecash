@@ -248,24 +248,17 @@ fn verify_with_bb(key: &[u8], proof_with_inputs: &[u8]) -> Result<()> {
         return Err("Proof is shorter than expected".into());
     }
 
-    let proof_fields_len = proof_with_inputs.len() - public_inputs_len;
-    if proof_fields_len % 32 != 0 {
+    let (public_inputs_bytes, proof_bytes) = proof_with_inputs.split_at(public_inputs_len);
+    if proof_bytes.len() % 32 != 0 {
         return Err("Proof field data must be a multiple of 32 bytes".into());
     }
 
-    let total_fields = (HYLI_UTXO_PUBLIC_INPUTS_COUNT + (proof_fields_len / 32)) as u32;
-
-    let mut encoded = Vec::with_capacity(4 + proof_with_inputs.len());
-    encoded.extend_from_slice(&total_fields.to_be_bytes());
-    encoded.extend_from_slice(&proof_with_inputs[..public_inputs_len]);
-    encoded.extend_from_slice(&proof_with_inputs[public_inputs_len..]);
-
     let mut proof_file = NamedTempFile::new()?;
-    proof_file.write_all(&encoded)?;
+    proof_file.write_all(proof_bytes)?;
     proof_file.flush()?;
 
     let mut public_inputs_file = NamedTempFile::new()?;
-    public_inputs_file.write_all(&proof_with_inputs[..public_inputs_len])?;
+    public_inputs_file.write_all(public_inputs_bytes)?;
     public_inputs_file.flush()?;
 
     let mut cmd = Command::new(PathBuf::from("bb"));

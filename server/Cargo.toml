@@ -30,6 +30,10 @@ hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 bincode = { workspace = true }
 sp1-sdk = { workspace = true }
 reqwest = { workspace = true }
+barretenberg = { path = "../pkg/barretenberg" }
+toml = "0.8"
+ethnum = "1.3"
+hex-literal = "0.4"
 
 [features]
 instrumentation = []

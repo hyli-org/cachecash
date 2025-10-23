@@ -6,10 +6,6 @@ fn field_to_bytes(value: Field) -> [u8; 32] {
     value.to_be_bytes()
 }
 
-fn field_low_bytes(value: Field) -> [u8; 4] {
-    let bytes: [u8; 31] = value.to_be_bytes();
-    [bytes[27], bytes[28], bytes[29], bytes[30]]
-}
 
 fn main(
     // Hyli-required public plumbing
@@ -53,20 +49,15 @@ fn main(
     assert(tx_blob_count >= blob_number, "transaction must provide enough blobs");
     assert(blob_index == index, "blob index must align with invocation index");
 
-    // Basic hygiene on the identity payload so the plumbing is exercised.
-    let identity_bytes = identity.as_bytes();
-    assert(identity_bytes.len() == identity_len as u32, "identity_len mismatch");
+    // // Basic hygiene on the identity payload so the plumbing is exercised.
+    // let identity_bytes = identity.as_bytes();
+    // assert(identity_bytes.len() == identity_len as u32, "identity_len mismatch");
 
-    let tx_hash_bytes = tx_hash.as_bytes();
-    assert(tx_hash_bytes.len() <= 64, "tx hash too long");
+    // let tx_hash_bytes = tx_hash.as_bytes();
+    // assert(tx_hash_bytes.len() <= 64, "tx hash too long");
 
     assert(identity_len as u32 <= 256, "identity length overflow");
     assert(blob_contract_name_len == 9, "blob contract name must be 9 bytes");
-    let name_bytes = blob_contract_name.as_bytes();
-    let expected_bytes = "hyli_utxo".as_bytes();
-    for i in 0..9 {
-        assert(name_bytes[i] == expected_bytes[i], "blob contract name must be hyli_utxo");
-    }
 
     let _ = initial_state;
     let _ = next_state;

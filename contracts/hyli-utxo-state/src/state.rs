@@ -1,13 +1,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use sdk::{
-    Calldata, RunResult, StateCommitment, merkle_utils::BorshableMerkleProof,
-    utils::parse_raw_calldata,
+    merkle_utils::BorshableMerkleProof, utils::parse_raw_calldata, Calldata, RunResult,
+    StateCommitment,
 };
 use sparse_merkle_tree::H256;
 
 use crate::zk::{
+    smt::{BorshableH256, WitnessLeaf, SMT},
     Proof, ZkVmWitnessVec,
-    smt::{BorshableH256, SMT, WitnessLeaf},
 };
 
 #[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
