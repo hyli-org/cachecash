@@ -1,17 +1,15 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
 use hash::hash_merge;
 use hyli_modules::{
-    bus::{command_response::Query, SharedMessageBus},
+    bus::{SharedMessageBus, command_response::Query},
     module_bus_client, module_handle_messages,
     modules::Module,
 };
-use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity, TxHash};
+use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity};
 use tracing::info;
-use zk_primitives::{
-    hash_private_key_for_psi, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES,
-};
+use zk_primitives::{HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES, Note, Utxo};
 
 use crate::{
     init::HYLI_UTXO_STATE_CONTRACT_NAME,
@@ -20,7 +18,6 @@ use crate::{
 };
 
 pub const FAUCET_MINT_AMOUNT: u64 = 10;
-const MINT_AMOUNT: u64 = FAUCET_MINT_AMOUNT;
 
 #[derive(Clone, Debug)]
 pub struct FaucetMintCommand {
@@ -30,9 +27,7 @@ pub struct FaucetMintCommand {
 
 #[derive(Clone, Debug)]
 pub struct FaucetMintResult {
-    pub utxo: Utxo,
-    pub transaction: BlobTransaction,
-    pub tx_hash: TxHash,
+    pub note: Note,
 }
 
 module_bus_client! {
@@ -81,7 +76,7 @@ impl Module for FaucetApp {
 
 impl FaucetApp {
     async fn process_request(&mut self, request: FaucetMintCommand) -> Result<FaucetMintResult> {
-        let (blob_transaction, utxo) =
+        let (blob_transaction, recipient_note) =
             self.build_transaction(&request.key_material, request.amount)?;
 
         let tx_hash = self
@@ -93,9 +88,7 @@ impl FaucetApp {
         info!(%tx_hash, "Submitted hyli_utxo faucet transaction");
 
         Ok(FaucetMintResult {
-            utxo,
-            transaction: blob_transaction,
-            tx_hash: tx_hash.clone(),
+            note: recipient_note,
         })
     }
 
@@ -103,16 +96,12 @@ impl FaucetApp {
         &mut self,
         key_material: &KeyMaterial,
         amount: u64,
-    ) -> Result<(BlobTransaction, Utxo)> {
+    ) -> Result<(BlobTransaction, Note)> {
         let private_key = Element::from_be_bytes(key_material.private_key);
         let minted_value = Element::new(amount);
 
-        let recipient_note = Note::new_with_psi(
-            private_key,
-            minted_value,
-            hash_private_key_for_psi(private_key),
-        );
-        let utxo = Utxo::new_mint([recipient_note, Note::padding_note()]);
+        let recipient_note = Note::new(private_key, minted_value);
+        let utxo = Utxo::new_mint([recipient_note.clone(), Note::padding_note()]);
 
         let leaf_elements = utxo.leaf_elements();
         self.notes_root = leaf_elements[2];
@@ -153,6 +142,6 @@ impl FaucetApp {
         };
         let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
 
-        Ok((blob_transaction, utxo))
+        Ok((blob_transaction, recipient_note))
     }
 }

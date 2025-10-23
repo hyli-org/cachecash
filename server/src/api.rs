@@ -2,17 +2,16 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
-use hex::encode as hex_encode;
 use hyli_modules::{
     bus::{
-        command_response::{CmdRespClient, Query},
         SharedMessageBus,
+        command_response::{CmdRespClient, Query},
     },
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
@@ -22,9 +21,9 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::{
-    app::{FaucetMintCommand, FaucetMintResult, FAUCET_MINT_AMOUNT},
+    app::{FAUCET_MINT_AMOUNT, FaucetMintCommand, FaucetMintResult},
     keys::derive_key_material,
-    types::{FaucetRequest, FaucetResponse, KeyPairInfo},
+    types::{FaucetRequest, FaucetResponse},
 };
 use sdk::ContractName;
 
@@ -102,7 +101,7 @@ async fn faucet(
 ) -> Result<Json<FaucetResponse>, ApiError> {
     let RouterCtx {
         default_amount,
-        contract_name,
+        contract_name: _,
         mut bus,
     } = state;
 
@@ -133,16 +132,7 @@ async fn faucet(
         .map_err(|err| ApiError::internal(err.to_string()))?;
 
     let response = FaucetResponse {
-        name: name.to_string(),
-        key_pair: KeyPairInfo {
-            private_key_hex: hex_encode(key_material.private_key),
-            public_key_hex: hex_encode(key_material.public_key),
-        },
-        contract_name: contract_name.clone(),
-        amount,
-        tx_hash: mint_result.tx_hash.0.clone(),
-        transaction: mint_result.transaction,
-        utxo: mint_result.utxo,
+        note: mint_result.note,
     };
 
     Ok(Json(response))

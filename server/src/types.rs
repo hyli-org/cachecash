@@ -1,9 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use sdk::{
-    Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, StructuredBlobData,
-};
+use sdk::{Blob, BlobData, BlobIndex, ContractAction, ContractName, StructuredBlobData};
 use serde::{Deserialize, Serialize};
-use zk_primitives::Utxo;
+use zk_primitives::Note;
 
 #[derive(Debug, Deserialize)]
 pub struct FaucetRequest {
@@ -13,20 +11,8 @@ pub struct FaucetRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct KeyPairInfo {
-    pub private_key_hex: String,
-    pub public_key_hex: String,
-}
-
-#[derive(Debug, Serialize)]
 pub struct FaucetResponse {
-    pub name: String,
-    pub key_pair: KeyPairInfo,
-    pub contract_name: String,
-    pub amount: u64,
-    pub tx_hash: String,
-    pub transaction: BlobTransaction,
-    pub utxo: Utxo,
+    pub note: Note,
 }
 
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
