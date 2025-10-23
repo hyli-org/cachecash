@@ -6,8 +6,8 @@ use serde::Serialize;
 #[derive(Parser, Debug)]
 #[command(about = "Send a faucet mint request to the zfruit server", version)]
 struct Args {
-    /// Base URL of the server, e.g. http://localhost:8080
-    #[arg(long, default_value = "http://localhost:8080")]
+    /// Base URL of the server, e.g. http://localhost:9002
+    #[arg(long, default_value = "http://localhost:9002")]
     server_url: String,
 
     /// Name to use for the faucet mint request
@@ -30,7 +30,7 @@ struct FaucetRequest<'a> {
 async fn main() -> Result<()> {
     let args = Args::parse();
     let client = Client::new();
-    let endpoint = format!("{}/api/faucet", args.server_url.trim_end_matches('/'));
+    let endpoint = build_endpoint(&args.server_url);
 
     let payload = FaucetRequest {
         name: &args.name,
@@ -63,4 +63,21 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn build_endpoint(server_url: &str) -> String {
+    let url = if server_url.contains("://") {
+        server_url.to_string()
+    } else {
+        format!("http://{server_url}")
+    };
+
+    let trimmed = url.trim_end_matches('/');
+    if trimmed.ends_with("/api/faucet") {
+        trimmed.to_string()
+    } else if trimmed.ends_with("/api") {
+        format!("{trimmed}/faucet")
+    } else {
+        format!("{trimmed}/api/faucet")
+    }
 }
