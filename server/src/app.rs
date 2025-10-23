@@ -3,13 +3,13 @@ use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
 use hash::hash_merge;
 use hyli_modules::{
-    bus::{SharedMessageBus, command_response::Query},
+    bus::{command_response::Query, SharedMessageBus},
     module_bus_client, module_handle_messages,
     modules::Module,
 };
 use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity};
 use tracing::info;
-use zk_primitives::{HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES, Note, Utxo};
+use zk_primitives::{Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
 
 use crate::{
     init::HYLI_UTXO_STATE_CONTRACT_NAME,
@@ -132,13 +132,15 @@ impl FaucetApp {
 
         let contract_name = HYLI_UTXO_CONTRACT_NAME.to_string();
         let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
+        let hyli_utxo_data = BlobData(blob_bytes.clone());
+        let state_blob_data = BlobData(blob_bytes);
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),
-            data: BlobData(blob_bytes),
+            data: hyli_utxo_data,
         };
         let state_blob = Blob {
             contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
-            data: BlobData(Vec::new()),
+            data: state_blob_data,
         };
         let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
 

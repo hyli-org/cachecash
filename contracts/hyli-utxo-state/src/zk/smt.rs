@@ -1,8 +1,8 @@
-use std::marker::PhantomData;
+use std::{io, marker::PhantomData};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use sdk::merkle_utils::SHA256Hasher;
-use sparse_merkle_tree::{default_store::DefaultStore, traits::Value, SparseMerkleTree, H256};
+use sparse_merkle_tree::{H256, SparseMerkleTree, default_store::DefaultStore, traits::Value};
 
 pub trait GetKey {
     fn get_key(&self) -> BorshableH256;
@@ -36,6 +36,36 @@ impl Value for BorshableH256 {
 
     fn zero() -> Self {
         BorshableH256(H256::zero())
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, Eq, PartialEq, PartialOrd, Ord, BorshSerialize, BorshDeserialize,
+)]
+pub struct WitnessLeaf {
+    pub key: BorshableH256,
+    pub value: BorshableH256,
+}
+
+impl WitnessLeaf {
+    pub fn new(key: BorshableH256, value: BorshableH256) -> Self {
+        Self { key, value }
+    }
+}
+
+impl GetKey for WitnessLeaf {
+    fn get_key(&self) -> BorshableH256 {
+        self.key
+    }
+}
+
+impl Value for WitnessLeaf {
+    fn to_h256(&self) -> H256 {
+        self.value.0
+    }
+
+    fn zero() -> Self {
+        Self::default()
     }
 }
 
@@ -189,5 +219,41 @@ where
     {
         self.0
             .merkle_proof(keys.map(|v| v.get_key().0).collect::<Vec<_>>())
+    }
+}
+
+impl BorshSerialize for SMT<BorshableH256> {
+    fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.root().serialize(writer)?;
+        let leaves = self.store().leaves_map();
+        let len = leaves.len() as u32;
+        len.serialize(writer)?;
+        for (key, value) in leaves.iter() {
+            BorshableH256(*key).serialize(writer)?;
+            BorshableH256(*value).serialize(writer)?;
+        }
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for SMT<BorshableH256> {
+    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+        let expected_root = BorshableH256::deserialize_reader(reader)?;
+        let len: u32 = BorshDeserialize::deserialize_reader(reader)?;
+        let mut tree = SMT::<BorshableH256>::zero();
+        for _ in 0..len {
+            let key = BorshableH256::deserialize_reader(reader)?;
+            let value = BorshableH256::deserialize_reader(reader)?;
+            tree.update_leaf(key, value).map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("rebuilding SMT: {e}"))
+            })?;
+        }
+        if tree.root() != expected_root {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "SMT root mismatch during deserialization",
+            ));
+        }
+        Ok(tree)
     }
 }

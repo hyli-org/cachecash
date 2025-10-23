@@ -1,15 +1,10 @@
 use anyhow::{anyhow, bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use sdk::{
-    api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier,
-    ZkContract,
-};
+use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
 use tracing::info;
 
-use contracts::HYLI_UTXO_STATE_VK;
-use hyli_utxo_state::HyliUtxoZkVmState;
-
 use crate::tx::HYLI_UTXO_CONTRACT_NAME;
+use contracts::HYLI_UTXO_STATE_VK;
 
 pub const HYLI_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
 
@@ -51,11 +46,10 @@ pub fn hyli_utxo_noir_deployment() -> ContractDeployment {
 }
 
 pub fn hyli_utxo_state_deployment() -> ContractDeployment {
-    let initial_state = HyliUtxoZkVmState::default();
     ContractDeployment {
         contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
         program_id: ProgramId(HYLI_UTXO_STATE_VK.to_vec()),
-        state_commitment: initial_state.commit(),
+        state_commitment: StateCommitment::default(),
         timeout_window: None,
     }
 }

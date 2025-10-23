@@ -1,64 +1,39 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use borsh::{BorshDeserialize, BorshSerialize};
 use client_sdk::transaction_builder::TxExecutorHandler;
 use hyli_utxo_state::{
-    state::{hyli_utxo_blob, parse_hyli_utxo_blob, EmptyAction, HyliUtxoState},
-    zk::BorshableH256,
     HyliUtxoZkVmState,
+    state::{EmptyAction, HyliUtxoState, hyli_utxo_blob, parse_hyli_utxo_blob},
+    zk::BorshableH256,
 };
 use sdk::{
+    Blob, Calldata, Contract, ContractName, HyliOutput, RunResult, StateCommitment,
     utils::{as_hyli_output, parse_raw_calldata},
-    Blob, Calldata, Contract, ContractName, HyliOutput, RunResult, StateCommitment, ZkContract,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoStateExecutor {
     state: HyliUtxoState,
 }
 
 impl Clone for HyliUtxoStateExecutor {
     fn clone(&self) -> Self {
-        Self::from_zkvm_state(
-            self.zkvm_state()
-                .expect("HyliUtxoState can convert to zkvm state"),
-        )
-        .expect("HyliUtxoStateExecutor clone conversion must succeed")
-    }
-}
-
-impl BorshSerialize for HyliUtxoStateExecutor {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let zk_state = self
-            .zkvm_state()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        zk_state.serialize(writer)
-    }
-}
-
-impl BorshDeserialize for HyliUtxoStateExecutor {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let zk_state = HyliUtxoZkVmState::deserialize_reader(reader)?;
-        HyliUtxoStateExecutor::from_zkvm_state(zk_state)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        let encoded = borsh::to_vec(&self.state).expect("HyliUtxoState should serialize for clone");
+        let state =
+            borsh::from_slice(&encoded).expect("HyliUtxoState should deserialize for clone");
+        Self { state }
     }
 }
 
 impl HyliUtxoStateExecutor {
-    fn from_zkvm_state(state: HyliUtxoZkVmState) -> Result<Self> {
-        let mut full = HyliUtxoState::default();
-        if !state.notes.values.is_empty() {
-            full.record_created(&state.notes.values)
-                .map_err(|e| anyhow!(e))?;
-        }
-        if !state.nullified_notes.values.is_empty() {
-            full.record_nullified(&state.nullified_notes.values)
-                .map_err(|e| anyhow!(e))?;
-        }
-        Ok(Self { state: full })
-    }
-
-    fn zkvm_state(&self) -> Result<HyliUtxoZkVmState> {
-        Ok(self.state.to_zkvm_state())
+    pub fn zkvm_witness(
+        &self,
+        note_keys: &[BorshableH256],
+        nullified_keys: &[BorshableH256],
+    ) -> Result<HyliUtxoZkVmState> {
+        self.state
+            .to_zkvm_state(note_keys, nullified_keys)
+            .map_err(|e| anyhow!(e))
     }
 
     fn apply_commitments(
@@ -94,17 +69,17 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
     ) -> Result<Self> {
         let state = match metadata {
             Some(bytes) if !bytes.is_empty() => {
-                let zk_state: HyliUtxoZkVmState =
-                    borsh::from_slice(bytes).context("decoding HyliUtxoZkVmState")?;
-                HyliUtxoStateExecutor::from_zkvm_state(zk_state)?.state
+                borsh::from_slice(bytes).context("decoding HyliUtxoState")?
             }
             _ => HyliUtxoState::default(),
         };
         Ok(HyliUtxoStateExecutor { state })
     }
 
-    fn build_commitment_metadata(&self, _blob: &Blob) -> Result<Vec<u8>> {
-        borsh::to_vec(&self.zkvm_state()?).context("serializing HyliUtxoZkVmState")
+    fn build_commitment_metadata(&self, blob: &Blob) -> Result<Vec<u8>> {
+        let (nullified, created) = parse_hyli_utxo_blob(&blob.data.0).map_err(|e| anyhow!(e))?;
+        let witness = self.zkvm_witness(&created, &nullified)?;
+        borsh::to_vec(&witness).context("serializing HyliUtxoZkVmState")
     }
 
     fn handle(&mut self, calldata: &Calldata) -> Result<HyliOutput> {
@@ -127,8 +102,6 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
     }
 
     fn get_state_commitment(&self) -> StateCommitment {
-        self.zkvm_state()
-            .expect("conversion to zkvm state")
-            .commit()
+        self.state.commitment()
     }
 }

@@ -2,16 +2,16 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    Json, Router,
     extract::{Path, State},
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
+    Json, Router,
 };
 use hyli_modules::{
     bus::{
-        SharedMessageBus,
         command_response::{CmdRespClient, Query},
+        SharedMessageBus,
     },
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
@@ -21,7 +21,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::{
-    app::{FAUCET_MINT_AMOUNT, FaucetMintCommand, FaucetMintResult},
+    app::{FaucetMintCommand, FaucetMintResult, FAUCET_MINT_AMOUNT},
     keys::derive_key_material,
     types::{FaucetRequest, FaucetResponse},
 };

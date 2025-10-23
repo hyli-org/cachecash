@@ -4,7 +4,7 @@ use sparse_merkle_tree::{traits::Value, H256};
 
 pub mod smt;
 
-pub use smt::{BorshableH256, GetKey, SMT};
+pub use smt::{BorshableH256, GetKey, WitnessLeaf, SMT};
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub enum Proof {

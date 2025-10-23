@@ -1,15 +1,13 @@
-use std::collections::HashSet;
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use sdk::{utils::parse_raw_calldata, Calldata, RunResult, StateCommitment};
+use sdk::{Calldata, StateCommitment, merkle_utils::BorshableMerkleProof};
 use sparse_merkle_tree::H256;
 
 use crate::zk::{
-    smt::{BorshableH256, SMT},
-    ZkVmWitnessVec,
+    Proof, ZkVmWitnessVec,
+    smt::{BorshableH256, SMT, WitnessLeaf},
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoState {
     notes_tree: SMT<BorshableH256>,
     nullified_tree: SMT<BorshableH256>,
@@ -17,8 +15,8 @@ pub struct HyliUtxoState {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Default)]
 pub struct HyliUtxoZkVmState {
-    pub notes: ZkVmWitnessVec<BorshableH256>,
-    pub nullified_notes: ZkVmWitnessVec<BorshableH256>,
+    pub notes: ZkVmWitnessVec<WitnessLeaf>,
+    pub nullified_notes: ZkVmWitnessVec<WitnessLeaf>,
 }
 
 #[derive(BorshSerialize)]
@@ -31,34 +29,14 @@ struct CommitmentSnapshot {
 pub struct EmptyAction;
 
 impl HyliUtxoState {
-    fn collect_leaves(tree: &SMT<BorshableH256>) -> Vec<BorshableH256> {
-        let mut leaves: Vec<BorshableH256> = tree
-            .store()
-            .leaves_map()
-            .iter()
-            .map(|(key, _)| BorshableH256(*key))
-            .collect();
-
-        leaves.sort();
-        leaves
-    }
-
     pub fn record_created(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
-        let mut seen = HashSet::new();
         for commitment in commitments {
             if commitment.0 == H256::zero() {
                 continue;
             }
-            if !seen.insert(*commitment) {
-                return Err("duplicate created commitment in blob".to_string());
-            }
 
             if self.notes_tree.contains(commitment) {
                 return Err("created note already exists in notes tree".to_string());
-            }
-
-            if self.nullified_tree.contains(commitment) {
-                return Err("created note already nullified".to_string());
             }
 
             self.notes_tree
@@ -69,17 +47,9 @@ impl HyliUtxoState {
     }
 
     pub fn record_nullified(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
-        let mut seen = HashSet::new();
         for commitment in commitments {
             if commitment.0 == H256::zero() {
                 continue;
-            }
-            if !seen.insert(*commitment) {
-                return Err("duplicate nullified commitment in blob".to_string());
-            }
-
-            if !self.notes_tree.contains(commitment) {
-                return Err("nullified note is missing from notes tree".to_string());
             }
 
             if self.nullified_tree.contains(commitment) {
@@ -93,81 +63,73 @@ impl HyliUtxoState {
         Ok(())
     }
 
-    pub fn notes_root(&self) -> BorshableH256 {
-        self.notes_tree.root()
-    }
+    pub fn to_zkvm_state(
+        &self,
+        note_keys: &[BorshableH256],
+        nullified_keys: &[BorshableH256],
+    ) -> Result<HyliUtxoZkVmState, String> {
+        let notes = Self::build_witness(&self.notes_tree, note_keys)?;
+        let nullified = Self::build_witness(&self.nullified_tree, nullified_keys)?;
 
-    pub fn nullified_root(&self) -> BorshableH256 {
-        self.nullified_tree.root()
-    }
-
-    pub fn to_zkvm_state(&self) -> HyliUtxoZkVmState {
-        let mut notes = ZkVmWitnessVec::with_root(self.notes_root());
-        for leaf in Self::collect_leaves(&self.notes_tree) {
-            notes.insert(leaf);
-        }
-
-        let mut nullified = ZkVmWitnessVec::with_root(self.nullified_root());
-        for leaf in Self::collect_leaves(&self.nullified_tree) {
-            nullified.insert(leaf);
-        }
-
-        HyliUtxoZkVmState {
+        Ok(HyliUtxoZkVmState {
             notes,
             nullified_notes: nullified,
-        }
-    }
-}
-
-impl HyliUtxoZkVmState {
-    fn apply_nullified(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
-        let mut seen = HashSet::new();
-        for commitment in commitments {
-            if commitment.0 == H256::zero() {
-                return Err("nullified commitment must be non-zero".to_string());
-            }
-            if !seen.insert(*commitment) {
-                return Err("duplicate nullified commitment in blob".to_string());
-            }
-        }
-        self.nullified_notes.values = commitments.iter().copied().collect();
-        Ok(())
+        })
     }
 
-    fn apply_created(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
-        let mut seen = HashSet::new();
-        for commitment in commitments {
-            if commitment.0 == H256::zero() {
-                return Err("created commitment must be non-zero".to_string());
-            }
-            if !seen.insert(*commitment) {
-                return Err("duplicate created commitment in blob".to_string());
-            }
+    fn build_witness(
+        tree: &SMT<BorshableH256>,
+        keys: &[BorshableH256],
+    ) -> Result<ZkVmWitnessVec<WitnessLeaf>, String> {
+        if keys.is_empty() {
+            return Ok(ZkVmWitnessVec::with_root(tree.root()));
         }
-        self.notes.values = commitments.iter().copied().collect();
-        Ok(())
+
+        let proof_inputs: Vec<WitnessLeaf> = keys
+            .iter()
+            .copied()
+            .map(|key| WitnessLeaf::new(key, BorshableH256::from(H256::zero())))
+            .collect();
+
+        let proof = tree
+            .merkle_proof(proof_inputs.iter())
+            .map_err(|e| format!("failed to construct merkle proof: {e}"))?;
+
+        let mut witness = ZkVmWitnessVec {
+            values: Vec::with_capacity(keys.len()),
+            proof: Proof::Some(BorshableMerkleProof::from(proof)),
+        };
+
+        for key in keys {
+            let value = tree
+                .store()
+                .leaves_map()
+                .get(&key.as_h256())
+                .copied()
+                .map(BorshableH256::from)
+                .unwrap_or_else(|| BorshableH256::from(H256::zero()));
+            witness.values.push(WitnessLeaf::new(*key, value));
+        }
+
+        Ok(witness)
+    }
+
+    pub fn commitment(&self) -> StateCommitment {
+        let snapshot = CommitmentSnapshot {
+            notes_root: self.notes_tree.root(),
+            nullified_notes_root: self.nullified_tree.root(),
+        };
+
+        StateCommitment(
+            borsh::to_vec(&snapshot).expect("state commitment serialization must succeed"),
+        )
     }
 }
 
 impl sdk::FullStateRevert for HyliUtxoZkVmState {}
 
-impl sdk::ZkContract for HyliUtxoZkVmState {
-    fn execute(&mut self, calldata: &Calldata) -> RunResult {
-        let (_action, ctx) = parse_raw_calldata::<EmptyAction>(calldata)?;
-
-        let hyli_blob = hyli_utxo_blob(calldata)?;
-        let (nullified, created) = parse_hyli_utxo_blob(hyli_blob)?;
-
-        self.notes.ensure_all_zero()?;
-        self.nullified_notes.ensure_all_zero()?;
-
-        self.apply_nullified(&nullified)?;
-        self.apply_created(&created)?;
-
-        Ok((Vec::new(), ctx, Vec::new()))
-    }
-
-    fn commit(&self) -> StateCommitment {
+impl HyliUtxoZkVmState {
+    pub fn commit(&self) -> StateCommitment {
         let notes_root = self
             .notes
             .compute_root()
