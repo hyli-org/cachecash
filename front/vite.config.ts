@@ -7,5 +7,11 @@ export default defineConfig({
     optimizeDeps: {
         esbuildOptions: { target: "esnext" },
         exclude: ["@noir-lang/noirc_abi", "@noir-lang/acvm_js"],
+        include: ["buffer"],
+    },
+    resolve: {
+        alias: {
+            buffer: "buffer/",
+        },
     },
 });
