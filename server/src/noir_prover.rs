@@ -12,6 +12,7 @@ use hyli_modules::{
     modules::Module,
 };
 use sdk::{Identity, TxHash};
+use tokio::task::{JoinError, JoinSet};
 use tracing::{error, info};
 use zk_primitives::{HyliUtxo, ToBytes, Utxo, HYLI_BLOB_LENGTH_BYTES};
 
@@ -65,12 +66,17 @@ impl Module for HyliUtxoNoirProver {
     }
 
     async fn run(&mut self) -> Result<()> {
+        let mut proof_tasks = JoinSet::new();
+
         module_handle_messages! {
             on_self self,
             listen<HyliUtxoProofJob> job => {
-                if let Err(err) = self.handle_job(job).await {
-                    error!(error = %err, "failed to prove hyli_utxo transaction, {:#?}", err);
-                }
+                let ctx = Arc::clone(&self.ctx);
+                let prover = self.prover.clone();
+                proof_tasks.spawn(async move { Self::execute_proof_job(ctx, prover, job).await });
+            }
+            Some(res) = proof_tasks.join_next() => {
+                Self::handle_task_completion(res);
             }
         };
 
@@ -79,7 +85,30 @@ impl Module for HyliUtxoNoirProver {
 }
 
 impl HyliUtxoNoirProver {
-    async fn handle_job(&self, job: HyliUtxoProofJob) -> Result<()> {
+    fn handle_task_completion(result: Result<Result<()>, JoinError>) {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                error!(
+                    error = %err,
+                    "failed to prove hyli_utxo transaction, {:#?}",
+                    err
+                );
+            }
+            Err(join_err) => {
+                error!(
+                    error = %join_err,
+                    "hyli_utxo proof task terminated unexpectedly"
+                );
+            }
+        }
+    }
+
+    async fn execute_proof_job(
+        ctx: Arc<HyliUtxoNoirProverCtx>,
+        prover: NoirProver,
+        job: HyliUtxoProofJob,
+    ) -> Result<()> {
         let hyli_utxo = Self::build_hyli_utxo(&job)?;
 
         if job.blob_index > job.tx_blob_count {
@@ -121,17 +150,18 @@ impl HyliUtxoNoirProver {
 
         let proof_bytes = proof.to_bytes();
 
-        let (proof_tx, _outputs) = self.prover.build_proof_transaction(
-            &self.ctx.contract,
+        let contract = ctx.contract.clone();
+
+        let (proof_tx, _outputs) = prover.build_proof_transaction(
+            &contract,
             NoirProofArtifacts {
                 proof: proof_bytes,
-                program_id: self.ctx.contract.program_id.clone(),
+                program_id: contract.program_id.clone(),
             },
         )?;
 
-        self.ctx
-            .node
-            .send_tx_proof(proof_tx)
+        let node = Arc::clone(&ctx.node);
+        node.send_tx_proof(proof_tx)
             .await
             .context("submitting hyli_utxo Noir proof to node")?;
 

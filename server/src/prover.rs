@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
-use hyli_verifiers::{noir, noir_utils};
+use anyhow::{Context, Result, anyhow};
+use hyli_verifiers::noir_utils;
 use sdk::{HyliOutput, ProgramId, ProofData, ProofTransaction, Verifier};
 
 use crate::init::ContractDeployment;
@@ -31,6 +31,7 @@ impl NoirProofArtifacts {
 ///
 /// Noir proofs embed the public inputs; we use the Hyli verification helpers to extract
 /// the resulting [`HyliOutput`] (UTXO commitments, etc.) which can be returned to callers.
+#[derive(Clone)]
 pub struct NoirProver {
     verifier: Verifier,
     verify_locally: bool,
@@ -68,8 +69,10 @@ impl NoirProver {
             noir_utils::split_public_inputs(&proof_data.0, &artifacts.program_id.0)
                 .ok_or_else(|| anyhow!("failed to split Noir public inputs from proof"))?;
 
-        let outputs = vec![noir_utils::parse_noir_output(public_inputs)
-            .context("parsing Noir public inputs into HyliOutput")?];
+        let outputs = vec![
+            noir_utils::parse_noir_output(public_inputs)
+                .context("parsing Noir public inputs into HyliOutput")?,
+        ];
         // };
 
         let proof_tx = ProofTransaction {

@@ -7578,6 +7578,7 @@ dependencies = [
  "contracts",
  "element",
  "ethnum",
+ "futures-util",
  "hash",
  "hex",
  "hex-literal",
