@@ -1,14 +1,27 @@
+import { addStoredNote } from "./noteStorage";
+import { StoredNote } from "../types/note";
+
+type MaybeFaucetNote = {
+    kind?: string;
+    contract?: string;
+    address?: string;
+    psi?: string;
+    value?: string;
+    [key: string]: unknown;
+};
+
 interface FaucetResponse {
-    name: string;
-    key_pair: {
+    name?: string;
+    key_pair?: {
         private_key_hex: string;
         public_key_hex: string;
     };
-    contract_name: string;
-    amount: number;
-    tx_hash: string;
-    transaction: unknown;
-    utxo: unknown;
+    contract_name?: string;
+    amount?: number;
+    tx_hash?: string;
+    transaction?: unknown;
+    note?: MaybeFaucetNote | null;
+    [key: string]: unknown;
 }
 
 class NodeService {
@@ -66,8 +79,28 @@ class NodeService {
             body: JSON.stringify(payload),
         });
 
-        if (!data || typeof data.tx_hash !== "string") {
+        if (!data) {
             throw new Error("Unexpected faucet response");
+        }
+
+        const hasTxHash = typeof data.tx_hash === "string" && data.tx_hash.length > 0;
+        const hasNote = data.note !== undefined && data.note !== null;
+
+        if (!hasTxHash && !hasNote) {
+            throw new Error("Unexpected faucet response");
+        }
+
+        if (hasTxHash || hasNote) {
+            const reference = hasTxHash ? data.tx_hash : deriveNoteReference(data.note);
+            if (reference) {
+                const stored: StoredNote = {
+                    txHash: reference,
+                    note: hasNote ? data.note : data,
+                    storedAt: Date.now(),
+                    player: trimmedName,
+                };
+                addStoredNote(trimmedName, stored);
+            }
         }
 
         return data;
@@ -75,3 +108,12 @@ class NodeService {
 }
 
 export const nodeService = new NodeService();
+
+function deriveNoteReference(note: MaybeFaucetNote | null | undefined): string | undefined {
+    if (!note || typeof note !== "object") {
+        return undefined;
+    }
+
+    const candidates = [note.psi, note.address, note.contract, note.value, note.kind];
+    return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+}

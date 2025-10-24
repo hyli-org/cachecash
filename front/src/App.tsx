@@ -4,11 +4,14 @@ import { nodeService } from "./services/NodeService";
 import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
 
 import { TransactionList } from "./components/TransactionList";
+import { DebugNotesPanel } from "./components/DebugNotesPanel";
 import slice1 from "./audio/slice1.mp3";
 import slice2 from "./audio/slice2.mp3";
 import slice3 from "./audio/slice3.mp3";
 import bombSound from "./audio/bomb.mp3";
 import { declareCustomElement } from "testnet-maintenance-widget";
+import { useStoredNotes } from "./hooks/useStoredNotes";
+import { useDebugMode } from "./hooks/useDebugMode";
 declareCustomElement();
 
 // Mutex implementation
@@ -116,15 +119,52 @@ interface TransactionEntry {
 const SPAWN_INTERVAL = 500;
 const GRAVITY = 0.01;
 const INITIAL_SPEED = 1;
-const ORANGE_SIZE = 200;
-const ORANGE_RADIUS = ORANGE_SIZE / 2;
-const ORANGE_SLICE_THRESHOLD = ORANGE_RADIUS;
-const BOMB_SIZE = 200;
-const BOMB_SLICE_THRESHOLD = BOMB_SIZE / 2;
-const OFFSCREEN_BUFFER = Math.max(ORANGE_SIZE, 200);
+const BASE_ORANGE_SIZE = 200;
+const BASE_BOMB_SIZE = 200;
+const MOBILE_BREAKPOINT = 768;
+const SMALL_MOBILE_BREAKPOINT = 480;
+const SLICE_RATE_WINDOW_MS = 10_000;
+const SLICE_RATE_DISPLAY_MS = 1_000;
+const MAX_PUMPKINS_PER_SECOND = 5;
+const MAX_PENALTY_DISPLAY = 30;
+
+interface ViewportSpriteSizes {
+  orangeSize: number;
+  bombSize: number;
+}
+
+const computeSpriteSizes = (width: number): ViewportSpriteSizes => {
+  if (width <= SMALL_MOBILE_BREAKPOINT) {
+    return { orangeSize: 140, bombSize: 160 };
+  }
+
+  if (width <= MOBILE_BREAKPOINT) {
+    return { orangeSize: 160, bombSize: 180 };
+  }
+
+  return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
+};
+
+const deriveNoteReference = (note: unknown): string | undefined => {
+  if (!note || typeof note !== "object") {
+    return undefined;
+  }
+
+  const candidates = [
+    (note as { psi?: string }).psi,
+    (note as { address?: string }).address,
+    (note as { contract?: string }).contract,
+    (note as { value?: string }).value,
+    (note as { kind?: string }).kind,
+  ];
+
+  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+};
 
 function App() {
+  const debugMode = useDebugMode();
   const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
+  const { notes: storedNotes, clearNotes } = useStoredNotes(playerName);
   const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
   const [playerKeys, setPlayerKeys] = useState<DerivedKeyPair | null>(() => {
     const storedPlayer = localStorage.getItem("playerName");
@@ -146,13 +186,6 @@ function App() {
       return null;
     }
   });
-  const [count, setCount] = useState(() => {
-    if (!playerName) {
-      return 0;
-    }
-    const stored = localStorage.getItem(`count:${playerName}`);
-    return stored ? Number(stored) || 0 : 0;
-  });
   const [oranges, setOranges] = useState<Orange[]>([]);
   const [bombs, setBombs] = useState<Bomb[]>([]);
   const [bombPenalty, setBombPenalty] = useState(() => {
@@ -169,6 +202,7 @@ function App() {
   const isMouseDown = useRef(false);
   const slicePoints = useRef<{ x: number; y: number }[]>([]);
   const sliceStartTime = useRef<number>(0);
+  const lastSpawnTimeRef = useRef(performance.now());
   const [juiceParticles, setJuiceParticles] = useState<JuiceParticle[]>([]);
   const nextJuiceId = useRef(0);
   const [explosionParticles, setExplosionParticles] = useState<ExplosionParticle[]>([]);
@@ -176,7 +210,58 @@ function App() {
   const [scorePopups, setScorePopups] = useState<ScorePopup[]>([]);
   const nextScorePopupId = useRef(0);
   const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
+  const [sliceTimestamps, setSliceTimestamps] = useState<number[]>([]);
+  const [rateTick, setRateTick] = useState(() => Date.now());
+  const [spriteSizes, setSpriteSizes] = useState<ViewportSpriteSizes>(() => {
+    if (typeof window === "undefined") {
+      return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
+    }
+    return computeSpriteSizes(window.innerWidth);
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setSpriteSizes((prev) => {
+        const next = computeSpriteSizes(window.innerWidth);
+        if (next.orangeSize === prev.orangeSize && next.bombSize === prev.bombSize) {
+          return prev;
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setRateTick(Date.now());
+      setSliceTimestamps((prev) => {
+        if (prev.length === 0) {
+          return prev;
+        }
+        const cutoff = Date.now() - SLICE_RATE_WINDOW_MS;
+        const filtered = prev.filter((timestamp) => timestamp >= cutoff);
+        return filtered.length === prev.length ? prev : filtered;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const orangeSize = spriteSizes.orangeSize;
+  const bombSize = spriteSizes.bombSize;
+  const orangeSliceThreshold = orangeSize / 2;
+  const bombSliceThreshold = bombSize / 2;
+  const offscreenBuffer = Math.max(orangeSize, 200);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const noteBalance = storedNotes.length;
+  const slicesPerSecond = sliceTimestamps.filter((timestamp) => timestamp >= rateTick - SLICE_RATE_DISPLAY_MS).length;
+  const clampedPumpkinRate = Math.min(slicesPerSecond, MAX_PUMPKINS_PER_SECOND);
+  const pumpkinRateDisplay = slicesPerSecond.toString();
+  const penaltyMeterPercent = Math.min(bombPenalty / MAX_PENALTY_DISPLAY, 1);
+  const penaltyDisplayText = bombPenalty > 0 ? `${bombPenalty} pumpkins` : "None";
 
   const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setNameInput(event.target.value);
@@ -199,6 +284,7 @@ function App() {
   const handleLogout = useCallback(() => {
     setPlayerName("");
     setSubmissionError(null);
+    setSliceTimestamps([]);
   }, [setPlayerName, setSubmissionError]);
 
   const [moreInfoModalOpacity, setMoreInfoModalOpacity] = useState(0);
@@ -365,10 +451,10 @@ function App() {
       // Only send blob tx if no bomb penalty is active
       if (bombPenalty === 0) {
         try {
-          setCount((c) => c + 1);
-          const { tx_hash: txHash } = await nodeService.requestFaucet(playerName);
+          const { tx_hash: txHash, note } = await nodeService.requestFaucet(playerName);
           setSubmissionError(null);
-          const shortHash = txHash && txHash.length > 12 ? `${txHash.slice(0, 6)}…${txHash.slice(-4)}` : txHash;
+          const reference = txHash ?? deriveNoteReference(note);
+          const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
           const title = `+1 pumpkin${playerName ? ` for ${playerName}` : ""}`;
           setTransactions((prev) =>
             [
@@ -380,6 +466,12 @@ function App() {
               ...prev,
             ].slice(0, 10),
           );
+          setSliceTimestamps((prev) => {
+            const now = Date.now();
+            const cutoff = now - SLICE_RATE_WINDOW_MS;
+            const filtered = prev.filter((timestamp) => timestamp >= cutoff);
+            return [...filtered, now];
+          });
         } catch (error) {
           console.error("Failed to record slice", error);
           setSubmissionError("We could not reach the server. Your score has not been updated.");
@@ -464,7 +556,7 @@ function App() {
           const distance = Math.sqrt(Math.pow(orange.x - closestX, 2) + Math.pow(orange.y - closestY, 2));
 
           // If orange is close enough to the slice line
-          if (distance < ORANGE_SLICE_THRESHOLD) {
+          if (distance < orangeSliceThreshold) {
             sliceOrange(orange.id);
             return orange;
           }
@@ -490,7 +582,7 @@ function App() {
 
           const distance = Math.sqrt(Math.pow(bomb.x - closestX, 2) + Math.pow(bomb.y - closestY, 2));
 
-          if (distance < BOMB_SLICE_THRESHOLD) {
+          if (distance < bombSliceThreshold) {
             sliceBomb(bomb.id);
             return bomb;
           }
@@ -498,7 +590,7 @@ function App() {
         }),
       );
     },
-    [createSliceEffect, sliceOrange, sliceBomb],
+    [createSliceEffect, sliceOrange, sliceBomb, orangeSliceThreshold, bombSliceThreshold],
   );
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -611,54 +703,56 @@ function App() {
     isMouseDown.current = false;
   }, [createSliceEffect]);
 
-  let lastSpawnTime = performance.now();
-  const spawnOrange = (currentTime: number) => {
-    if (!gameAreaRef.current) return;
+  const spawnOrange = useCallback(
+    (currentTime: number) => {
+      if (!gameAreaRef.current) return;
 
-    const gameArea = gameAreaRef.current;
+      const gameArea = gameAreaRef.current;
 
-    const timeSinceLastSpawn = currentTime - lastSpawnTime;
-    const clampedWidth = (Math.max(Math.min(gameArea.clientWidth, 1800), 400) - 400) / 1400;
-    const widthMult = 1.2 - 0.6 * clampedWidth;
-    if (timeSinceLastSpawn < SPAWN_INTERVAL * widthMult) {
-      return; // Skip spawning if not enough time has passed
-    }
-    lastSpawnTime = currentTime + Math.random() * SPAWN_INTERVAL * 0.4 - SPAWN_INTERVAL * 0.2;
-
-    const gameWidth = gameArea.clientWidth;
-    const computeSpawnX = (size: number) => {
-      const radius = size / 2;
-      if (gameWidth <= size) {
-        return gameWidth / 2;
+      const timeSinceLastSpawn = currentTime - lastSpawnTimeRef.current;
+      const clampedWidth = (Math.max(Math.min(gameArea.clientWidth, 1800), 400) - 400) / 1400;
+      const widthMult = 1.2 - 0.6 * clampedWidth;
+      if (timeSinceLastSpawn < SPAWN_INTERVAL * widthMult) {
+        return; // Skip spawning if not enough time has passed
       }
-      const min = radius;
-      const max = gameWidth - radius;
-      return min + Math.random() * (max - min);
-    };
+      lastSpawnTimeRef.current = currentTime + Math.random() * SPAWN_INTERVAL * 0.4 - SPAWN_INTERVAL * 0.2;
 
-    // 20% chance to spawn a bomb instead of an orange
-    if (Math.random() < 0.2) {
-      const bomb: Bomb = {
-        id: nextOrangeId.current++,
-        x: computeSpawnX(BOMB_SIZE),
-        y: -BOMB_SIZE,
-        rotation: Math.random() * 360,
-        speed: INITIAL_SPEED,
-        sliced: false,
+      const gameWidth = gameArea.clientWidth;
+      const computeSpawnX = (size: number) => {
+        const radius = size / 2;
+        if (gameWidth <= size) {
+          return gameWidth / 2;
+        }
+        const min = radius;
+        const max = gameWidth - radius;
+        return min + Math.random() * (max - min);
       };
-      setBombs((prev) => [...prev, bomb]);
-    } else {
-      const orange: Orange = {
-        id: nextOrangeId.current++,
-        x: computeSpawnX(ORANGE_SIZE),
-        y: -ORANGE_SIZE,
-        rotation: Math.random() * 360,
-        speed: INITIAL_SPEED,
-        sliced: false,
-      };
-      setOranges((prev) => [...prev, orange]);
-    }
-  };
+
+      // 20% chance to spawn a bomb instead of an orange
+      if (Math.random() < 0.2) {
+        const bomb: Bomb = {
+          id: nextOrangeId.current++,
+          x: computeSpawnX(bombSize),
+          y: -bombSize,
+          rotation: Math.random() * 360,
+          speed: INITIAL_SPEED,
+          sliced: false,
+        };
+        setBombs((prev) => [...prev, bomb]);
+      } else {
+        const orange: Orange = {
+          id: nextOrangeId.current++,
+          x: computeSpawnX(orangeSize),
+          y: -orangeSize,
+          rotation: Math.random() * 360,
+          speed: INITIAL_SPEED,
+          sliced: false,
+        };
+        setOranges((prev) => [...prev, orange]);
+      }
+    },
+    [bombSize, orangeSize],
+  );
 
   useEffect(() => {
     if (!playerName) {
@@ -695,17 +789,16 @@ function App() {
 
   useEffect(() => {
     if (!playerName) {
-      setCount(0);
       setBombPenalty(0);
       setNameInput("");
+      setSliceTimestamps([]);
       return;
     }
 
-    const storedCount = localStorage.getItem(`count:${playerName}`);
-    setCount(storedCount ? Number(storedCount) || 0 : 0);
-
     const storedPenalty = localStorage.getItem(`bombPenalty:${playerName}`);
     setBombPenalty(storedPenalty ? Number(storedPenalty) || 0 : 0);
+
+    localStorage.removeItem(`count:${playerName}`);
 
     setNameInput(playerName);
   }, [playerName]);
@@ -716,19 +809,19 @@ function App() {
       return;
     }
 
-    localStorage.setItem(`count:${playerName}`, count.toString());
     localStorage.setItem(`bombPenalty:${playerName}`, bombPenalty.toString());
     localStorage.removeItem(`achievements:${playerName}`);
-  }, [playerName, count, bombPenalty]);
+  }, [playerName, bombPenalty]);
 
   // Update orange and bomb positions
   useEffect(() => {
     let currentTime = performance.now();
-    const animationFrame = requestAnimationFrame(function animate(time) {
+    let animationFrameId = requestAnimationFrame(function animate(time) {
       const elapsed = time - currentTime;
       currentTime = time;
+
       if (!document.hidden) {
-        spawnOrange(currentTime);
+        spawnOrange(time);
       }
 
       setOranges((prev) =>
@@ -739,7 +832,7 @@ function App() {
             speed: orange.speed + GRAVITY * (elapsed / 10),
             rotation: orange.rotation + 2 * (elapsed / 10),
           }))
-          .filter((orange) => orange.y < window.innerHeight + OFFSCREEN_BUFFER),
+          .filter((orange) => orange.y < window.innerHeight + offscreenBuffer),
       );
 
       setBombs((prev) =>
@@ -750,14 +843,14 @@ function App() {
             speed: bomb.speed + GRAVITY * (elapsed / 10),
             rotation: bomb.rotation + 2 * (elapsed / 10),
           }))
-          .filter((bomb) => bomb.y < window.innerHeight + Math.max(BOMB_SIZE * 2, 200)),
+          .filter((bomb) => bomb.y < window.innerHeight + Math.max(bombSize * 2, 200)),
       );
 
-      requestAnimationFrame(animate);
+      animationFrameId = requestAnimationFrame(animate);
     });
 
-    return () => cancelAnimationFrame(animationFrame);
-  }, []);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [spawnOrange, offscreenBuffer, bombSize]);
 
   // Mettre à jour la position des particules avec la balistique
   useEffect(() => {
@@ -815,7 +908,7 @@ function App() {
       <TransactionList transactions={transactions} setTransactions={setTransactions} />
 
       <div className="pumpkin-title">
-        <div className="pumpkin-title__badge">Pumpkin Ninja</div>
+        <div className="pumpkin-title__badge">Cache Cash</div>
       </div>
       <div
         ref={gameAreaRef}
@@ -858,6 +951,8 @@ function App() {
               className={`orange ${orange.sliced ? "sliced" : ""}`}
               style={
                 {
+                  width: orangeSize,
+                  height: orangeSize,
                   "--rotation": `${orange.rotation}deg`,
                   transform: `translateX(${orange.x}px) translateY(${orange.y}px) translate(-50%, -50%) rotate(${orange.rotation}deg)`,
                 } as React.CSSProperties
@@ -869,6 +964,8 @@ function App() {
                   className={`orange half top`}
                   style={
                     {
+                      width: orangeSize,
+                      height: orangeSize,
                       "--x-offset": `${orange.x}px`,
                       "--y-offset": `${orange.y}px`,
                       "--rotation": `${orange.rotation}deg`,
@@ -881,6 +978,8 @@ function App() {
                   className={`orange half bottom`}
                   style={
                     {
+                      width: orangeSize,
+                      height: orangeSize,
                       "--x-offset": `${orange.x}px`,
                       "--y-offset": `${orange.y}px`,
                       "--rotation": `${orange.rotation}deg`,
@@ -899,6 +998,8 @@ function App() {
               className={`bomb ${bomb.sliced ? "sliced" : ""}`}
               style={
                 {
+                  width: bombSize,
+                  height: bombSize,
                   "--rotation": `${bomb.rotation}deg`,
                   transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
                 } as React.CSSProperties
@@ -910,6 +1011,8 @@ function App() {
                   className="bomb-half top"
                   style={
                     {
+                      width: bombSize,
+                      height: bombSize,
                       "--x-offset": `${bomb.x}px`,
                       "--y-offset": `${bomb.y}px`,
                       "--rotation": `${bomb.rotation}deg`,
@@ -922,6 +1025,8 @@ function App() {
                   className="bomb-half bottom"
                   style={
                     {
+                      width: bombSize,
+                      height: bombSize,
                       "--x-offset": `${bomb.x}px`,
                       "--y-offset": `${bomb.y}px`,
                       "--rotation": `${bomb.rotation}deg`,
@@ -1054,20 +1159,52 @@ top: `${particle.y}px`,*/
             </div>
             <div className="nes-hud__card nes-hud__card--score">
               <div className="nes-hud__title">SCORE</div>
-              <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{count.toLocaleString()}</div>
-              <div className="nes-hud__caption">PUMPKINS SLICED</div>
+              <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
+              <div className="nes-hud__caption">CACHE BALANCE</div>
             </div>
           </div>
           <div className="nes-hud__status">
             <div className={`nes-hud__status-item nes-hud__status-item--penalty ${bombPenalty > 0 ? "is-active" : ""}`}>
-              Penalty: {bombPenalty} pumpkins
+              <div className="status-box status-box--penalty">
+                <div className="status-box__label">Penalty</div>
+                <div className="status-box__row">
+                  <div className="status-box__value">{penaltyDisplayText}</div>
+                  <div className="status-box__meter">
+                    <div
+                      className="status-box__meter-fill"
+                      style={{ width: `${penaltyMeterPercent * 100}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className={`nes-hud__status-item nes-hud__status-item--error ${submissionError ? "is-active" : ""}`}>
-              {submissionError || "READY"}
+            <div
+              className={`nes-hud__status-item ${
+                submissionError ? "nes-hud__status-item--error is-active" : "nes-hud__status-item--rate is-active"
+              }`}
+            >
+              {submissionError ? (
+                submissionError
+              ) : (
+                <div className="status-box status-box--rate">
+                  <div className="status-box__label">Slice rate</div>
+                  <div className="status-box__row">
+                    <div className="status-box__value">{pumpkinRateDisplay} /s</div>
+                    <div className="status-box__meter">
+                      <div
+                        className="status-box__meter-fill"
+                        style={{ width: `${(clampedPumpkinRate / MAX_PUMPKINS_PER_SECOND) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </footer>
+
+      {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
 
     </div>
   );
