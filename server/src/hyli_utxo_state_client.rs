@@ -5,7 +5,7 @@ use hex::encode as hex_encode;
 use hyli_utxo_state::{
     state::{HyliUtxoState, HyliUtxoStateAction},
     zk::BorshableH256,
-    HyliUtxoZkVmState,
+    HyliUtxoZkVmBatch, HyliUtxoZkVmState,
 };
 use sdk::{
     utils::{as_hyli_output, parse_raw_calldata},
@@ -133,7 +133,23 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
         );
 
         let witness = self.zkvm_witness(&created, &nullified)?;
-        borsh::to_vec(&witness).context("serializing HyliUtxoZkVmState")
+        let batch = HyliUtxoZkVmBatch::from_state(witness);
+        borsh::to_vec(&batch).context("serializing HyliUtxoZkVmBatch")
+    }
+
+    fn merge_commitment_metadata(
+        &self,
+        initial: Vec<u8>,
+        next: Vec<u8>,
+    ) -> Result<Vec<u8>, String> {
+        let mut initial_batch: HyliUtxoZkVmBatch =
+            borsh::from_slice(&initial).map_err(|e| format!("decoding initial metadata: {e}"))?;
+        let next_batch: HyliUtxoZkVmBatch =
+            borsh::from_slice(&next).map_err(|e| format!("decoding next metadata: {e}"))?;
+
+        initial_batch.extend_with(next_batch);
+
+        borsh::to_vec(&initial_batch).map_err(|e| format!("serializing merged metadata: {e}"))
     }
 
     fn handle(&mut self, calldata: &Calldata) -> Result<HyliOutput> {

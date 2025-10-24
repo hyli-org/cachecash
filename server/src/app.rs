@@ -387,8 +387,8 @@ mod tests {
         assert_eq!(hyli_utxo.identity_len as usize, identity.len());
         assert_eq!(
             hyli_utxo.blob_contract_name_len as usize,
-            hyli_utxo.blob_contract_name.len(),
-            "contract name length should match string length"
+            HYLI_UTXO_CONTRACT_NAME.len(),
+            "contract name length should match expected contract name length"
         );
         assert_eq!(hyli_utxo.identity.len(), 256);
         assert_eq!(hyli_utxo.blob_contract_name.len(), 256);
@@ -601,14 +601,24 @@ mod tests {
         let (blob_tx, _, _) = faucet
             .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
             .expect("build transaction");
-
-        let block = build_node_state_block(blob_tx.clone(), contract.clone(), 1);
-
+        api_client.set_block_height(BlockHeight(0));
+        let block = build_node_state_block(blob_tx.clone(), contract.clone(), 0);
+        let has_state_blob = block
+            .stateful_events
+            .events
+            .iter()
+            .any(|(_, event)| match event {
+                StatefulEvent::SequencedTx(tx, _) => tx
+                    .blobs
+                    .iter()
+                    .any(|blob| blob.contract_name == contract_name),
+                _ => false,
+            });
+        assert!(has_state_blob, "block must contain hyli_utxo_state blob");
         let sender = dont_use_this::get_sender::<NodeStateEvent>(&shared_bus).await;
         sender
             .send(NodeStateEvent::NewBlock(block))
             .expect("send node state event");
-
         let proof = timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(proof) = api_client

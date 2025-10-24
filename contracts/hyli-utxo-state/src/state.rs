@@ -22,6 +22,37 @@ pub struct HyliUtxoZkVmState {
     pub nullified_notes: ZkVmWitnessVec<WitnessLeaf>,
 }
 
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Default)]
+pub struct HyliUtxoZkVmBatch {
+    pub current: HyliUtxoZkVmState,
+    pub remaining: Vec<HyliUtxoZkVmState>,
+}
+
+impl HyliUtxoZkVmBatch {
+    pub fn from_state(state: HyliUtxoZkVmState) -> Self {
+        Self {
+            current: state,
+            remaining: Vec::new(),
+        }
+    }
+
+    pub fn extend_with(&mut self, next: HyliUtxoZkVmBatch) {
+        let mut merged = Vec::with_capacity(next.remaining.len() + 1 + self.remaining.len());
+        merged.extend(next.remaining.into_iter());
+        merged.push(next.current);
+        merged.extend(std::mem::take(&mut self.remaining));
+        self.remaining = merged;
+    }
+
+    fn advance_step(&mut self) {
+        if let Some(next) = self.remaining.pop() {
+            self.current = next;
+        } else {
+            self.current = HyliUtxoZkVmState::default();
+        }
+    }
+}
+
 #[derive(BorshSerialize)]
 struct CommitmentSnapshot {
     notes_root: BorshableH256,
@@ -197,6 +228,34 @@ impl sdk::ZkContract for HyliUtxoZkVmState {
     }
 }
 
+impl sdk::ZkContract for HyliUtxoZkVmBatch {
+    fn execute(&mut self, calldata: &Calldata) -> RunResult {
+        <HyliUtxoZkVmState as sdk::ZkContract>::execute(&mut self.current, calldata)
+    }
+
+    fn commit(&self) -> StateCommitment {
+        <HyliUtxoZkVmState as sdk::ZkContract>::commit(&self.current)
+    }
+}
+
+impl sdk::TransactionalZkContract for HyliUtxoZkVmBatch {
+    type State = Self;
+
+    fn initial_state(&self) -> Self::State {
+        self.clone()
+    }
+
+    fn revert(&mut self, initial_state: Self::State) {
+        *self = initial_state;
+    }
+
+    fn on_success(&mut self) -> StateCommitment {
+        let commitment = <HyliUtxoZkVmState as sdk::ZkContract>::commit(&self.current);
+        self.advance_step();
+        commitment
+    }
+}
+
 pub fn hyli_utxo_blob<'a>(calldata: &'a Calldata) -> Result<&'a [u8], String> {
     calldata
         .blobs
@@ -241,4 +300,52 @@ pub fn parse_hyli_utxo_blob(
         .collect();
 
     Ok((nullified, created))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with_root(byte: u8) -> HyliUtxoZkVmState {
+        let mut state = HyliUtxoZkVmState::default();
+        let root = BorshableH256::from([byte; 32]);
+        state.notes.proof = Proof::CurrentRootHash(root);
+        state.nullified_notes.proof = Proof::CurrentRootHash(BorshableH256::from([byte; 32]));
+        state
+    }
+
+    #[test]
+    fn batch_advances_steps_in_fifo_order() {
+        let s1 = state_with_root(1);
+        let s2 = state_with_root(2);
+        let s3 = state_with_root(3);
+
+        let mut batch = HyliUtxoZkVmBatch::from_state(s1.clone());
+        batch.extend_with(HyliUtxoZkVmBatch::from_state(s2.clone()));
+        batch.extend_with(HyliUtxoZkVmBatch::from_state(s3.clone()));
+
+        fn assert_root(batch: &HyliUtxoZkVmBatch, expected: u8) {
+            match &batch.current.notes.proof {
+                Proof::CurrentRootHash(root) => {
+                    let actual: [u8; 32] = (*root).into();
+                    assert_eq!(actual, [expected; 32]);
+                }
+                Proof::Some(_) => panic!("expected CurrentRootHash proof"),
+            }
+        }
+
+        assert_root(&batch, 1);
+        assert_eq!(batch.remaining.len(), 2);
+
+        // Advance to next step; commitment should still reflect the applied step.
+        let _ =
+            <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
+        assert_root(&batch, 2);
+        assert_eq!(batch.remaining.len(), 1);
+
+        let _ =
+            <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
+        assert_root(&batch, 3);
+        assert_eq!(batch.remaining.len(), 0);
+    }
 }
