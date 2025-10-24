@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use barretenberg::Prove;
@@ -107,21 +107,27 @@ impl HyliUtxoNoirProver {
             tracing::debug!(%prover_toml, "Generated hyli_utxo Prover.toml");
         }
 
+        let prove_start = Instant::now();
         let proof = hyli_utxo
             .prove()
             .map_err(|err| anyhow!("generating hyli_utxo Noir proof: {err}"))?;
+        let prove_duration = prove_start.elapsed();
+
+        info!(
+            duration_ms = prove_duration.as_millis(),
+            %tx_hash_str,
+            "generated hyli_utxo Noir proof"
+        );
 
         let proof_bytes = proof.to_bytes();
 
-        let (proof_tx, _outputs) = self
-            .prover
-            .build_proof_transaction(
-                &self.ctx.contract,
-                NoirProofArtifacts {
-                    proof: proof_bytes,
-                    program_id: self.ctx.contract.program_id.clone(),
-                },
-            )?;
+        let (proof_tx, _outputs) = self.prover.build_proof_transaction(
+            &self.ctx.contract,
+            NoirProofArtifacts {
+                proof: proof_bytes,
+                program_id: self.ctx.contract.program_id.clone(),
+            },
+        )?;
 
         self.ctx
             .node

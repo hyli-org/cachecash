@@ -119,15 +119,19 @@ impl FaucetApp {
         let mut blob_bytes = vec![0u8; HYLI_BLOB_LENGTH_BYTES];
         let mut offset = 0usize;
 
-        let mut commitments = Vec::with_capacity(4);
-
         for commitment in &leaf_elements[0..2] {
             blob_bytes[offset..offset + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&commitment.to_be_bytes());
             offset += HYLI_BLOB_HASH_BYTE_LENGTH;
-            commitments.push(BorshableH256::from(commitment.to_be_bytes()));
         }
 
+        let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
+
+        for (index, commitment) in leaf_elements[2..].iter().enumerate() {
+            state_commitments[index] = BorshableH256::from(commitment.to_be_bytes());
+        }
+
+        let mut nullifier_index = 2;
         for input in utxo.input_notes.iter() {
             let nullifier = hash_merge([input.note.psi, input.secret_key]);
 
@@ -137,12 +141,13 @@ impl FaucetApp {
 
             self.nullifier_root = nullifier;
 
-            commitments.push(BorshableH256::from(nullifier.to_be_bytes()));
+            if !input.note.is_padding_note() && nullifier_index < state_commitments.len() {
+                state_commitments[nullifier_index] = BorshableH256::from(nullifier.to_be_bytes());
+                nullifier_index += 1;
+            }
         }
 
-        let state_action: HyliUtxoStateAction = commitments
-            .try_into()
-            .expect("expected exactly four commitments for state action");
+        let state_action: HyliUtxoStateAction = state_commitments;
 
         let contract_name = HYLI_UTXO_CONTRACT_NAME.to_string();
         let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
@@ -209,10 +214,54 @@ impl FaucetApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{keys::derive_key_material, noir_prover::HyliUtxoNoirProver};
+    use crate::{
+        hyli_utxo_state_client::HyliUtxoStateExecutor, keys::derive_key_material,
+        noir_prover::HyliUtxoNoirProver,
+    };
     use barretenberg::{Prove, Verify};
-    use hyli_modules::bus::metrics::BusMetrics;
-    use sdk::{Blob, TxHash};
+    use client_sdk::{
+        helpers::{test::MockProver, ClientSdkProver},
+        rest_client::test::NodeApiMockClient,
+        transaction_builder::TxExecutorHandler,
+    };
+    use hyli_modules::{
+        bus::{dont_use_this, metrics::BusMetrics, SharedMessageBus},
+        modules::prover::{AutoProver, AutoProverCtx},
+    };
+    use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+    use sdk::{
+        AggregateSignature,
+        Block,
+        BlockHeight,
+        BlockStakingData,
+        Blob,
+        BlobIndex,
+        BlobTransaction,
+        Calldata,
+        ConsensusProposal,
+        ConsensusProposalHash,
+        Contract,
+        ContractName,
+        DataProposalHash,
+        NodeStateBlock,
+        NodeStateEvent,
+        ProgramId,
+        StatefulEvent,
+        StatefulEvents,
+        TimeoutWindow,
+        Transaction,
+        TxContext,
+        TxHash,
+        TxId,
+        ValidatorPublicKey,
+        Verifier,
+        HYLI_TESTNET_CHAIN_ID,
+    };
+    use sdk::{Hashed, LaneId, SignedBlock};
+    use sdk::hyli_model_utils::TimestampMs;
+    use std::{collections::BTreeMap, sync::Arc};
+    use tempfile::tempdir;
+    use tokio::time::{sleep, timeout, Duration};
     use zk_primitives::HyliUtxo;
 
     fn find_hyli_blob(blobs: &[Blob]) -> (usize, &[u8]) {
@@ -222,6 +271,80 @@ mod tests {
             .find(|(_, blob)| blob.contract_name.0 == HYLI_UTXO_CONTRACT_NAME)
             .map(|(idx, blob)| (idx, blob.data.0.as_slice()))
             .expect("hyli_utxo blob not found")
+    }
+
+    fn build_node_state_block(
+        blob_tx: BlobTransaction,
+        contract: Contract,
+        block_height: u64,
+    ) -> NodeStateBlock {
+        let tx_hash = blob_tx.hashed();
+        let tx_id = TxId(DataProposalHash(format!("dp-{block_height}")), tx_hash.clone());
+        let tx_ctx = Arc::new(TxContext {
+            lane_id: LaneId(ValidatorPublicKey(vec![0u8; 32])),
+            block_hash: ConsensusProposalHash(format!("block-{block_height}")),
+            block_height: BlockHeight(block_height),
+            timestamp: TimestampMs::ZERO,
+            chain_id: HYLI_TESTNET_CHAIN_ID,
+        });
+
+        let sequenced_tx = blob_tx.clone();
+
+        let stateful_events = StatefulEvents {
+            events: vec![
+                (
+                    tx_id.clone(),
+                    StatefulEvent::ContractUpdate(contract.name.clone(), contract.clone()),
+                ),
+                (
+                    tx_id.clone(),
+                    StatefulEvent::SequencedTx(sequenced_tx, tx_ctx),
+                ),
+            ],
+        };
+
+        let signed_block = SignedBlock {
+            data_proposals: Vec::new(),
+            consensus_proposal: ConsensusProposal {
+                slot: block_height,
+                parent_hash: ConsensusProposalHash("parent".into()),
+                cut: Vec::new(),
+                staking_actions: Vec::new(),
+                timestamp: TimestampMs::ZERO,
+            },
+            certificate: AggregateSignature::default(),
+        };
+
+        let transaction: Transaction = blob_tx.into();
+
+        let block = Block {
+            parent_hash: ConsensusProposalHash("parent".into()),
+            hash: ConsensusProposalHash(format!("hash-{block_height}")),
+            block_height: BlockHeight(block_height),
+            block_timestamp: TimestampMs::ZERO,
+            txs: vec![(tx_id, transaction)],
+            dp_parent_hashes: BTreeMap::new(),
+            lane_ids: BTreeMap::new(),
+            successful_txs: Vec::new(),
+            failed_txs: Vec::new(),
+            timed_out_txs: Vec::new(),
+            dropped_duplicate_txs: Vec::new(),
+            blob_proof_outputs: Vec::new(),
+            verified_blobs: Vec::new(),
+            registered_contracts: BTreeMap::new(),
+            deleted_contracts: BTreeMap::new(),
+            updated_states: BTreeMap::new(),
+            updated_program_ids: BTreeMap::new(),
+            updated_timeout_windows: BTreeMap::new(),
+            transactions_events: BTreeMap::new(),
+        };
+
+        NodeStateBlock {
+            signed_block: Arc::new(signed_block),
+            parsed_block: Arc::new(block),
+            staking_data: Arc::new(BlockStakingData::default()),
+            stateful_events: Arc::new(stateful_events),
+        }
     }
 
     #[tokio::test]
@@ -284,6 +407,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hyli_utxo_state_action_orders_commitments() {
+        let bus = SharedMessageBus::new(BusMetrics::global("test".to_string()));
+        let context = FaucetAppContext {
+            client: NodeApiHttpClient::new("http://localhost:19999".to_string())
+                .expect("client init"),
+        };
+
+        let mut app = FaucetApp::build(bus, context)
+            .await
+            .expect("building faucet app");
+
+        let key_material = derive_key_material("state-order-test").expect("key material");
+
+        let (blob_tx, recipient_note, utxo) = app
+            .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
+            .expect("build transaction");
+
+        let (state_index, state_blob) = blob_tx
+            .blobs
+            .iter()
+            .enumerate()
+            .find(|(_, blob)| blob.contract_name.0 == HYLI_UTXO_STATE_CONTRACT_NAME)
+            .expect("state blob present");
+
+        let state_action: HyliUtxoStateAction =
+            borsh::from_slice(&state_blob.data.0).expect("decode state action");
+
+        let (created, nullified) = state_action.split_at(2);
+
+        let expected_created = BorshableH256::from(recipient_note.commitment().to_be_bytes());
+        assert_eq!(&created[0], &expected_created);
+        let expected_created_second =
+            BorshableH256::from(utxo.output_notes[1].commitment().to_be_bytes());
+        assert_eq!(&created[1], &expected_created_second);
+
+        let expected_nullifiers: Vec<BorshableH256> = utxo
+            .input_notes
+            .iter()
+            .filter(|input| !input.note.is_padding_note())
+            .map(|input| hash_merge([input.note.psi, input.secret_key]))
+            .map(|value| BorshableH256::from(value.to_be_bytes()))
+            .collect();
+
+        let actual_nullifiers: Vec<BorshableH256> = nullified
+            .iter()
+            .copied()
+            .filter(|commitment| {
+                let bytes: [u8; 32] = commitment.0.into();
+                bytes != [0u8; 32]
+            })
+            .collect();
+
+        assert_eq!(actual_nullifiers, expected_nullifiers);
+
+        // Ensure executor accepts the state blob without duplicate errors.
+        let mut executor = HyliUtxoStateExecutor::default();
+        let metadata = executor
+            .build_commitment_metadata(state_blob)
+            .expect("build commitment metadata");
+        assert!(
+            !metadata.is_empty(),
+            "commitment metadata should not be empty"
+        );
+
+        let calldata = Calldata {
+            tx_hash: TxHash("test".into()),
+            identity: blob_tx.identity.clone(),
+            blobs: blob_tx.blobs.clone().into(),
+            tx_blob_count: blob_tx.blobs.len(),
+            index: BlobIndex(state_index),
+            tx_ctx: None,
+            private_input: Vec::new(),
+        };
+
+        executor
+            .handle(&calldata)
+            .expect("applying state blob should succeed");
+    }
+
+    #[tokio::test]
     async fn hyli_utxo_noir_proof_verifies() {
         if std::process::Command::new("bb")
             .arg("--version")
@@ -331,5 +534,104 @@ mod tests {
         let proof = hyli_utxo.prove().expect("generate hyli_utxo proof");
 
         proof.verify().expect("verify hyli_utxo proof");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn auto_prover_emits_state_proof_after_mint() -> Result<()> {
+        let shared_bus = SharedMessageBus::new(BusMetrics::global("autoprover-test".to_string()));
+
+        let api_client = Arc::new(NodeApiMockClient::new());
+        let mock_prover = Arc::new(MockProver {});
+
+        let default_executor = HyliUtxoStateExecutor::default();
+        let initial_commitment = default_executor.get_state_commitment();
+        let program_id = ProgramId("MockProver".as_bytes().to_vec());
+        let verifier: Verifier = "mock".into();
+
+        let contract_name = ContractName::new(HYLI_UTXO_STATE_CONTRACT_NAME);
+        let contract = Contract {
+            name: contract_name.clone(),
+            program_id: program_id.clone(),
+            state: initial_commitment.clone(),
+            verifier: verifier.clone(),
+            timeout_window: TimeoutWindow::NoTimeout,
+        };
+        api_client.add_contract(contract.clone());
+
+        let data_dir = tempdir().expect("tempdir");
+        let prover_arc: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> =
+            mock_prover.clone();
+        let node_arc: Arc<dyn NodeApiClient + Send + Sync> = api_client.clone();
+
+        let ctx = Arc::new(AutoProverCtx {
+            data_directory: data_dir.path().to_path_buf(),
+            prover: prover_arc,
+            contract_name: contract_name.clone(),
+            node: node_arc,
+            api: None,
+            default_state: default_executor.clone(),
+            buffer_blocks: 0,
+            max_txs_per_proof: 4,
+            tx_working_window_size: 1,
+        });
+
+        let auto_prover = AutoProver::<HyliUtxoStateExecutor>::build(
+            shared_bus.new_handle(),
+            ctx,
+        )
+        .await
+        .expect("build autoprover");
+
+        let auto_prover_handle = tokio::spawn(async move {
+            let mut prover = auto_prover;
+            let _ = prover.run().await;
+        });
+
+        sleep(Duration::from_millis(50)).await;
+
+        let faucet_bus = SharedMessageBus::new(BusMetrics::global("faucet-autoprover".to_string()));
+        let faucet_context = FaucetAppContext {
+            client: NodeApiHttpClient::new("http://localhost:19999".to_string())
+                .expect("client init"),
+        };
+        let mut faucet = FaucetApp::build(faucet_bus, faucet_context)
+            .await
+            .expect("build faucet app");
+        let key_material = derive_key_material("autoprover-test").expect("key material");
+        let (blob_tx, _, _) = faucet
+            .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
+            .expect("build transaction");
+
+        let block = build_node_state_block(blob_tx.clone(), contract.clone(), 1);
+
+        let sender = dont_use_this::get_sender::<NodeStateEvent>(&shared_bus).await;
+        sender
+            .send(NodeStateEvent::NewBlock(block))
+            .expect("send node state event");
+
+        let proof = timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(proof) = api_client
+                    .pending_proofs
+                    .lock()
+                    .expect("lock pending proofs")
+                    .first()
+                    .cloned()
+                {
+                    break proof;
+                }
+                sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("proof timeout");
+
+        assert_eq!(proof.contract_name, contract_name);
+        assert!(!proof.proof.0.is_empty(), "proof payload should not be empty");
+
+        auto_prover_handle.abort();
+        let _ = auto_prover_handle.await;
+
+        Ok(())
     }
 }
