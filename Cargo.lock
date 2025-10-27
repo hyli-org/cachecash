@@ -1521,7 +1521,6 @@ dependencies = [
  "bb_rs",
  "bincode",
  "bn254_blackbox_solver",
- "borsh",
  "element",
  "flate2",
  "hash",
@@ -1530,7 +1529,6 @@ dependencies = [
  "noirc_abi",
  "noirc_artifacts",
  "noirc_driver",
- "serde",
  "serde_json",
  "tempfile",
  "tracing",
@@ -3011,7 +3009,6 @@ dependencies = [
  "borsh",
  "diesel",
  "ethnum",
- "ff 0.12.1",
  "hex",
  "insta",
  "proptest",
@@ -3020,8 +3017,6 @@ dependencies = [
  "rand_xorshift 0.3.0",
  "serde",
  "serde_json",
- "strum 0.26.3",
- "strum_macros 0.26.4",
  "test-strategy",
  "ts-rs",
 ]
@@ -6076,7 +6071,6 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "borsh",
- "chrono",
  "futures",
  "hex",
  "microtype",
@@ -6085,13 +6079,11 @@ dependencies = [
  "rand_derive2",
  "secp256k1 0.28.2",
  "serde",
- "serde_bytes",
  "serde_json",
  "sha2",
  "sha3",
  "thiserror 1.0.69",
  "tokio",
- "tracing",
  "ts-rs",
  "uint",
 ]
@@ -7418,16 +7410,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
-dependencies = [
- "serde",
- "serde_core",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7581,7 +7563,6 @@ dependencies = [
  "contracts",
  "element",
  "ethnum",
- "futures-util",
  "hash",
  "hex",
  "hex-literal",
@@ -9334,7 +9315,6 @@ version = "11.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4994acea2522cd2b3b85c1d9529a55991e3ad5e25cdcd3de9d505972c4379424"
 dependencies = [
- "chrono",
  "dprint-plugin-typescript",
  "thiserror 2.0.17",
  "ts-rs-macros",
@@ -10375,23 +10355,17 @@ dependencies = [
 name = "zk-primitives"
 version = "1.3.0"
 dependencies = [
- "bitvec",
  "borsh",
  "bs58",
- "diesel",
  "element",
  "ethnum",
- "ff 0.12.1",
  "hash",
  "hex",
  "noirc_abi",
  "primitives",
- "proptest",
  "rand 0.8.5",
  "serde",
  "sha3",
- "strum 0.26.3",
- "strum_macros 0.26.4",
  "ts-rs",
 ]
 

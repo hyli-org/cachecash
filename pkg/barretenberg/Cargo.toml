@@ -19,9 +19,7 @@ nargo = { workspace = true }
 noirc_abi = { workspace = true }
 noirc_driver = { workspace = true }
 noirc_artifacts = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
-borsh = { workspace = true }
 bincode = { workspace = true }
 base64 = { workspace = true }
 flate2 = { workspace = true }
