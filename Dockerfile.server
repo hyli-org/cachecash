@@ -7,8 +7,11 @@ RUN if ! /root/.sp1/bin/cargo-prove prove -V 2>/dev/null | grep -q "38f0f14"; th
 fi
 
 WORKDIR /app
-COPY .cargo .cargo
 COPY ./server ./server
+COPY ./pkg ./pkg/
+COPY ./fixtures/ ./fixtures/
+COPY ./elf/ ./elf/
+COPY ./contracts/ ./contracts/
 COPY Cargo.toml . 
 COPY Cargo.lock .
 
