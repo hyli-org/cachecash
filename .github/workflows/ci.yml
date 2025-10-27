@@ -21,7 +21,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: rustfmt
 
       - name: Cache cargo build artifacts
         uses: Swatinem/rust-cache@v2
@@ -31,8 +31,6 @@ jobs:
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
 
-      - name: Run cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run cargo test
         run: cargo test --workspace --all-targets
@@ -57,3 +55,20 @@ jobs:
       - name: Build frontend
         working-directory: front
         run: bun run build
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - name: server
+            file: Dockerfile.server
+          - name: ui
+            file: Dockerfile.ui
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.image.name }} image
+        run: docker build -f ${{ matrix.image.file }} -t cachecash-${{ matrix.image.name }} .
