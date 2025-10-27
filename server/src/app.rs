@@ -241,7 +241,6 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
     use tempfile::tempdir;
     use tokio::time::{sleep, timeout, Duration};
-    use zk_primitives::HyliUtxo;
 
     fn find_hyli_blob(blobs: &[Blob]) -> (usize, &[u8]) {
         blobs

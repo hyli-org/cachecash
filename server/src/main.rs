@@ -110,7 +110,6 @@ async fn main() -> Result<()> {
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
             node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
             contract: hyli_utxo_contract.clone(),
-            verify_locally: true,
         }))
         .await
         .context("building hyli_utxo Noir prover module")?;
@@ -161,12 +160,13 @@ async fn main() -> Result<()> {
         .await
         .context("building auto prover module")?;
 
-    let mut router_guard = api_builder_ctx
-        .router
-        .lock()
-        .expect("API router mutex poisoned");
-    let router = router_guard.take().unwrap_or_else(Router::new);
-    drop(router_guard);
+    let router = {
+        let mut guard = api_builder_ctx
+            .router
+            .lock()
+            .expect("API router mutex poisoned");
+        guard.take().unwrap_or_default()
+    };
 
     let openapi = api_builder_ctx
         .openapi

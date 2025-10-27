@@ -4,7 +4,6 @@ use crate::{
     circuits::get_bytecode_from_program,
     prove::prove,
     traits::{Prove, Verify},
-    util::write_to_temp_file,
     verify::verify,
 };
 use anyhow::anyhow;
@@ -13,7 +12,6 @@ use lazy_static::lazy_static;
 use noirc_abi::InputMap;
 use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
-use std::path::PathBuf;
 use zk_primitives::{
     Signature, SignatureProof, SignatureProofBytes, SignaturePublicInput, ToBytes,
     bytes_to_elements, get_address_for_private_key,
@@ -25,7 +23,6 @@ const KEY: &[u8] = include_bytes!("../../../../fixtures/keys/signature_key");
 lazy_static! {
     static ref PROGRAM_ARTIFACT: ProgramArtifact = serde_json::from_str(PROGRAM).unwrap();
     static ref PROGRAM_COMPILED: CompiledProgram = CompiledProgram::from(PROGRAM_ARTIFACT.clone());
-    static ref PROGRAM_PATH: PathBuf = write_to_temp_file(PROGRAM.as_bytes(), ".json");
     static ref BYTECODE: Vec<u8> = get_bytecode_from_program(PROGRAM);
 }
 

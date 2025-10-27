@@ -5,7 +5,6 @@ use crate::{
     circuits::get_bytecode_from_program,
     prove::prove,
     traits::{Prove, Verify},
-    util::write_to_temp_file,
     verify::{VerificationKey, VerificationKeyHash},
 };
 use element::Base;
@@ -22,15 +21,16 @@ use zk_primitives::{
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/hyli_utxo.json");
 const KEY: &[u8] = include_bytes!("../../../../fixtures/keys/hyli_utxo_key");
-const KEY_FIELDS: &[u8] = include_bytes!("../../../../fixtures/keys/hyli_utxo_key_fields.json");
 
 lazy_static! {
     static ref PROGRAM_ARTIFACT: ProgramArtifact = serde_json::from_str(PROGRAM).unwrap();
     static ref PROGRAM_COMPILED: CompiledProgram = CompiledProgram::from(PROGRAM_ARTIFACT.clone());
-    static ref PROGRAM_PATH: PathBuf = write_to_temp_file(PROGRAM.as_bytes(), ".json");
     static ref BYTECODE: Vec<u8> = get_bytecode_from_program(PROGRAM);
     pub static ref HYLI_UTXO_VERIFICATION_KEY: VerificationKey = {
-        let fields = serde_json::from_slice::<Vec<Base>>(KEY_FIELDS).unwrap();
+        let fields = serde_json::from_slice::<Vec<Base>>(include_bytes!(
+            "../../../../fixtures/keys/hyli_utxo_key_fields.json"
+        ))
+        .unwrap();
         VerificationKey(fields)
     };
     pub static ref HYLI_UTXO_VERIFICATION_KEY_HASH: VerificationKeyHash = VerificationKeyHash(
