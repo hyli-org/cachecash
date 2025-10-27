@@ -338,13 +338,11 @@ mod tests {
         assert_eq!(batch.remaining.len(), 2);
 
         // Advance to next step; commitment should still reflect the applied step.
-        let _ =
-            <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
+        let _ = <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
         assert_root(&batch, 2);
         assert_eq!(batch.remaining.len(), 1);
 
-        let _ =
-            <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
+        let _ = <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
         assert_root(&batch, 3);
         assert_eq!(batch.remaining.len(), 0);
     }
