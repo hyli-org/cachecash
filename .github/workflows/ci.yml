@@ -9,6 +9,14 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  IMAGE_NAME: "cachecash"
+  PROJECT_ID: "hyle-413414"
+  AR_REPO_LOCATION: "europe-west3"
+  AR_URL: "europe-west3-docker.pkg.dev/hyle-413414/hyle-docker"
+  SERVICE_ACCOUNT: "github-actions-service-account@hyle-413414.iam.gserviceaccount.com"
+  WORKLOAD_IDENTITY_PROVIDER: ""
+
 jobs:
   rust:
     name: Rust Checks
@@ -59,16 +67,56 @@ jobs:
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     strategy:
       matrix:
-        image:
-          - name: server
-            file: Dockerfile.server
-          - name: ui
-            file: Dockerfile.ui
+        suffix:
+          - server
+          - ui
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build ${{ matrix.image.name }} image
-        run: docker build -f ${{ matrix.image.file }} -t cachecash-${{ matrix.image.name }} .
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.AR_URL }}/${{ env.IMAGE_NAME }}-${{ matrix.suffix }}
+            ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}-${{ matrix.suffix }}
+          tags: |
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Docker Auth (Google Artifact Registry)
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: _json_key
+          password: ${{ secrets.GOOGLE_CREDENTIALS }}
+          registry: "${{ env.AR_REPO_LOCATION }}-docker.pkg.dev"
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.suffix }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.suffix }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: ${{ github.event_name == 'push' }}
