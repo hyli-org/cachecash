@@ -1,4 +1,4 @@
-id = "zfruit"
+id = "cachecash"
 log_format = "full"
 
 rest_server_port = 9002

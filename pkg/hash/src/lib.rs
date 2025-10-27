@@ -1,8 +1,11 @@
 use element::Element;
 
 mod path;
+mod poseidon_alt;
+mod poseidon_alt_data;
 
 pub use path::*;
+pub use poseidon_alt::poseidon_alt_hash_2;
 
 #[cfg(feature = "test-api")]
 static HASH_COUNTER: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);

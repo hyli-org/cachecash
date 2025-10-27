@@ -1516,6 +1516,7 @@ name = "barretenberg"
 version = "0.1.0"
 dependencies = [
  "acvm",
+ "anyhow",
  "base64 0.21.7",
  "bb_rs",
  "bincode",
@@ -3728,10 +3729,12 @@ dependencies = [
 name = "hash"
 version = "0.1.0"
 dependencies = [
+ "acvm",
  "bn254_blackbox_solver",
  "element",
  "hex",
  "insta",
+ "once_cell",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_xorshift 0.3.0",

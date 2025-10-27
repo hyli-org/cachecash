@@ -7,6 +7,7 @@ use crate::{
     util::write_to_temp_file,
     verify::verify,
 };
+use anyhow::anyhow;
 use element::Base;
 use lazy_static::lazy_static;
 use noirc_abi::{InputMap, input_parser::InputValue};
@@ -30,7 +31,6 @@ lazy_static! {
 }
 
 const POINTS_PUBLIC_INPUTS_COUNT: usize = 13;
-const POINTS_PROOF_SIZE: usize = 508;
 
 impl Prove for Points {
     type Proof = PointsProof;
@@ -54,13 +54,10 @@ impl Prove for Points {
         let public_inputs = bytes_to_elements(&public_inputs);
         let raw_proof = proof_bytes[POINTS_PUBLIC_INPUTS_COUNT * 32..].to_vec();
 
-        assert_eq!(
-            raw_proof.len(),
-            POINTS_PROOF_SIZE * 32,
-            "Proof must be {POINTS_PROOF_SIZE} elements of 32 bytes"
-        );
+        if raw_proof.len() % 32 != 0 {
+            return Err(anyhow!("Proof byte length must be a multiple of 32").into());
+        }
 
-        // Convert the proof bytes to a UtxoProof
         let proof = PointsProof {
             proof: PointsProofBytes(raw_proof),
             public_inputs: PointsPublicInput {

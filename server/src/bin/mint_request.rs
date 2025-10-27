@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::Serialize;
 
 #[derive(Parser, Debug)]
-#[command(about = "Send a faucet mint request to the zfruit server", version)]
+#[command(about = "Send a faucet mint request to the cachecash server", version)]
 struct Args {
     /// Base URL of the server, e.g. http://localhost:9002
     #[arg(long, default_value = "http://localhost:9002")]

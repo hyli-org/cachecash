@@ -34,7 +34,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Run the zfruit faucet server", long_about = None)]
+#[command(version, about = "Run the cachecash faucet server", long_about = None)]
 struct Args {
     #[arg(long, default_value = "config.toml")]
     config_file: Vec<String>,
@@ -195,7 +195,7 @@ async fn main() -> Result<()> {
         contract = %config.contract_name,
         amount = config.default_faucet_amount,
         port = config.rest_server_port,
-        "Starting zfruit faucet server",
+        "Starting cachecash faucet server",
     );
 
     handler.start_modules().await.context("starting modules")?;

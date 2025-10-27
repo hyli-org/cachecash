@@ -1,4 +1,4 @@
-use crate::types::ZfruitAction;
+use crate::types::CachecashAction;
 use sdk::{BlobTransaction, ContractAction, ContractName, Identity};
 
 pub const FAUCET_IDENTITY_PREFIX: &str = "faucet";
@@ -9,7 +9,7 @@ pub fn build_faucet_transaction(
     recipient_pubkey: Vec<u8>,
     amount: u64,
 ) -> BlobTransaction {
-    let action = ZfruitAction::Faucet {
+    let action = CachecashAction::Faucet {
         recipient_pubkey,
         amount,
     };

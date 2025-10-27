@@ -115,7 +115,6 @@ impl Verify for MigrateProof {
 mod tests {
     use super::*;
     use element::Element;
-    use hash::hash_merge;
     use zk_primitives::get_address_for_private_key;
 
     #[test]
@@ -124,7 +123,7 @@ mod tests {
         let owner_pk = Element::from(101u64);
 
         let new_address = get_address_for_private_key(owner_pk);
-        let old_address = hash_merge([owner_pk, Element::ZERO]);
+        let old_address = hash::poseidon_alt_hash_2([owner_pk, Element::ZERO]);
 
         let migrate = Migrate {
             owner_pk,
