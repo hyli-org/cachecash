@@ -10,7 +10,7 @@ RUN bun install --frozen-lockfile
 
 COPY front .
 
-RUN bun run build
+RUN cp .env.production .env && bun run build --mode production
 
 FROM nginx:1.27-alpine AS production
 
