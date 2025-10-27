@@ -29,17 +29,20 @@ fn hex_to_32_bytes(hex: &str) -> [u8; 32] {
 }
 
 fn sbox(x: FieldElement) -> FieldElement {
-    let x2 = x.clone() * x.clone();
-    let x4 = x2.clone() * x2.clone();
+    let x2 = x * x;
+    let x4 = x2 * x2;
     x4 * x
 }
 
 fn apply_mds(state: [FieldElement; WIDTH]) -> [FieldElement; WIDTH] {
     let mut result = [FieldElement::zero(); WIDTH];
-    for i in 0..WIDTH {
-        for j in 0..WIDTH {
-            result[i] += MDS_MATRIX[i][j] * state[j];
-        }
+    for (slot, row) in result.iter_mut().zip(MDS_MATRIX.iter()) {
+        *slot = row
+            .iter()
+            .zip(state.iter())
+            .fold(FieldElement::zero(), |acc, (coef, value)| {
+                acc + (*coef * *value)
+            });
     }
     result
 }
@@ -69,17 +72,17 @@ fn permute(mut state: [FieldElement; WIDTH]) -> [FieldElement; WIDTH] {
     let mut constants = ROUND_CONSTANTS.iter();
 
     for _ in 0..(FULL_ROUNDS / 2) {
-        let round = constants.next().expect("round constant missing").clone();
+        let round = *constants.next().expect("round constant missing");
         state = full_round(state, round);
     }
 
     for _ in 0..PARTIAL_ROUNDS {
-        let round = constants.next().expect("round constant missing").clone();
+        let round = *constants.next().expect("round constant missing");
         state = partial_round(state, round);
     }
 
     for _ in 0..(FULL_ROUNDS / 2) {
-        let round = constants.next().expect("round constant missing").clone();
+        let round = *constants.next().expect("round constant missing");
         state = full_round(state, round);
     }
 
@@ -115,10 +118,13 @@ impl PoseidonSponge {
     }
 
     fn perform_duplex(&mut self) {
-        for i in 0..RATE {
-            if i < self.cache_size {
-                self.state[i] += self.cache[i];
-            }
+        for (slot, cached) in self
+            .state
+            .iter_mut()
+            .zip(self.cache.iter())
+            .take(self.cache_size)
+        {
+            *slot += *cached;
         }
         self.state = permute(self.state);
         self.cache_size = 0;

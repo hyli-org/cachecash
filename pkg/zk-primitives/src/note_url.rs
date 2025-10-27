@@ -79,7 +79,7 @@ impl NoteURLPayload {
         match self.version {
             0 => self.psi.expect("version 1 should have explicit psi"),
             1 => {
-                let hash = Keccak256::digest(&self.private_key.to_be_bytes());
+                let hash = Keccak256::digest(self.private_key.to_be_bytes());
                 Element::from_str(&hex::encode(hash)).unwrap()
             }
             2 => hash_private_key_for_psi(self.private_key),
@@ -99,10 +99,10 @@ impl NoteURLPayload {
         bytes.extend_from_slice(&self.private_key.to_be_bytes());
 
         // Encode psi if version is 0
-        if let Some(psi) = &self.psi {
-            if self.version == 0 {
-                bytes.extend_from_slice(&psi.to_be_bytes());
-            }
+        if let Some(psi) = &self.psi
+            && self.version == 0
+        {
+            bytes.extend_from_slice(&psi.to_be_bytes());
         }
 
         // Encode value with leading zeros
@@ -145,7 +145,7 @@ pub fn decode_activity_url_payload(payload: &str) -> NoteURLPayload {
             Some(Element::from_be_bytes(psi_bytes))
         }
         1 => {
-            let hash = Keccak256::digest(&private_key_bytes);
+            let hash = Keccak256::digest(private_key_bytes);
             Some(Element::from_str(&hex::encode(hash)).unwrap())
         }
         2 => Some(hash_private_key_for_psi(private_key)),

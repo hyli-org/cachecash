@@ -76,7 +76,7 @@ macro_rules! impl_serde_for_element_array {
 #[inline]
 pub fn bytes_to_elements(bytes: &[u8]) -> Vec<Element> {
     assert!(
-        bytes.len() % 32 == 0,
+        bytes.len().is_multiple_of(32),
         "Input bytes length must be a multiple of 32"
     );
 
@@ -121,7 +121,7 @@ pub fn hash_private_key_for_psi(private_key: Element) -> Element {
 ///
 /// An Element constructed from the big-endian byte representation.
 #[must_use]
-pub fn generate_note_kind_bridge_evm(chain: u64, address: Address) -> Element {
+pub fn generate_note_kind_bridge_evm(chain: u64, address: &Address) -> Element {
     let mut bytes = [0u8; 32];
 
     // Big endian format: note_kind_format in bytes 0-2, chain in bytes 2-10, address in bytes 10-30
@@ -149,7 +149,7 @@ pub fn bridged_polygon_usdc_note_kind() -> Element {
         .copy_from_slice(&hex::decode("3c499c542cef5e3811e1192ce70d8cc03d5c3359").unwrap());
     let address = Address::new(address_bytes);
 
-    generate_note_kind_bridge_evm(chain, address)
+    generate_note_kind_bridge_evm(chain, &address)
 }
 
 #[cfg(test)]
@@ -165,7 +165,7 @@ mod tests {
             0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
         ]);
 
-        let result = generate_note_kind_bridge_evm(chain, address.clone());
+        let result = generate_note_kind_bridge_evm(chain, &address);
 
         // Verify the structure by extracting bytes
         let result_bytes = result.to_be_bytes();
@@ -188,7 +188,7 @@ mod tests {
         let chain = 0x0000u64;
         let address = Address::default();
 
-        let result = generate_note_kind_bridge_evm(chain, address.clone());
+        let result = generate_note_kind_bridge_evm(chain, &address);
         let result_bytes = result.to_be_bytes();
 
         // Check note_kind_format is in bytes 0-2
@@ -212,7 +212,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
         ]);
 
-        let result = generate_note_kind_bridge_evm(chain, address.clone());
+        let result = generate_note_kind_bridge_evm(chain, &address);
         let result_bytes = result.to_be_bytes();
 
         // Check note_kind_format is in bytes 0-2
@@ -233,7 +233,7 @@ mod tests {
         let chain = 0xFFFF_FFFF_FFFF_FFFF_u64;
         let address = Address::new([0xFF; 20]);
 
-        let result = generate_note_kind_bridge_evm(chain, address);
+        let result = generate_note_kind_bridge_evm(chain, &address);
         let result_bytes = result.to_be_bytes();
 
         // Check note_kind_format is in bytes 0-2
@@ -255,7 +255,7 @@ mod tests {
         let chain = 0x0123_4567_89AB_CDEF_u64;
         let address = Address::default();
 
-        let result = generate_note_kind_bridge_evm(chain, address);
+        let result = generate_note_kind_bridge_evm(chain, &address);
         let result_bytes = result.to_be_bytes();
 
         // In big endian, chain should match the to_be_bytes output

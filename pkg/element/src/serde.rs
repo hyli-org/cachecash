@@ -33,9 +33,10 @@ mod tests {
 
     #[proptest]
     fn elements_produce_identical_base_before_after_serialize(element: Element) {
-        let value = serde_json::to_value(element).unwrap();
-        let element_again: Element = serde_json::from_value(value).unwrap();
+        let example = Example { element };
+        let value = serde_json::to_value(&example).unwrap();
+        let example_again: Example = serde_json::from_value(value).unwrap();
 
-        assert_eq!(element, element_again);
+        assert_eq!(example, example_again);
     }
 }
