@@ -36,6 +36,7 @@ async-stripe = { version = "0.31", features = ["runtime-tokio-hyper"] }
 async-trait = "0.1"
 async-recursion = "1.1.1"
 async-stream = "0.3.6"
+anyhow = "1.0.93"
 base64 = "0.21.5"
 bb_rs = { git = "https://github.com/polybase/aztec-packages", rev = "1a8f9ee136df2184458667f018b496b57226855f" } # v0.82.2-polybase
 # bb_rs = { path = "/Users/hwq/Documents/polybase/aztec-packages/barretenberg/bb_rs" }
