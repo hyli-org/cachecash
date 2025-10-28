@@ -18,6 +18,7 @@ use zk_primitives::{HyliUtxo, ToBytes, Utxo, HYLI_BLOB_LENGTH_BYTES};
 
 use crate::{
     init::ContractDeployment,
+    metrics::FaucetMetrics,
     prover::{NoirProofArtifacts, NoirProver},
 };
 
@@ -46,12 +47,14 @@ pub struct HyliUtxoNoirProverCtx {
     pub node: Arc<dyn NodeApiClient + Send + Sync>,
     pub contract: ContractDeployment,
     pub verify_locally: bool,
+    pub metrics: FaucetMetrics,
 }
 
 pub struct HyliUtxoNoirProver {
     bus: HyliUtxoNoirProverBusClient,
     ctx: Arc<HyliUtxoNoirProverCtx>,
     prover: NoirProver,
+    metrics: FaucetMetrics,
 }
 
 impl Module for HyliUtxoNoirProver {
@@ -60,8 +63,14 @@ impl Module for HyliUtxoNoirProver {
     async fn build(bus: SharedMessageBus, ctx: Self::Context) -> Result<Self> {
         let bus = HyliUtxoNoirProverBusClient::new_from_bus(bus.new_handle()).await;
         let prover = NoirProver::new(ctx.verify_locally);
+        let metrics = ctx.metrics.clone();
 
-        Ok(Self { bus, ctx, prover })
+        Ok(Self {
+            bus,
+            ctx,
+            prover,
+            metrics,
+        })
     }
 
     async fn run(&mut self) -> Result<()> {
@@ -70,12 +79,13 @@ impl Module for HyliUtxoNoirProver {
         module_handle_messages! {
             on_self self,
             listen<HyliUtxoProofJob> job => {
+                self.metrics.track_noir_job_started();
                 let ctx = Arc::clone(&self.ctx);
                 let prover = self.prover.clone();
                 proof_tasks.spawn(async move { Self::execute_proof_job(ctx, prover, job).await });
             }
             Some(res) = proof_tasks.join_next() => {
-                Self::handle_task_completion(res);
+                self.handle_task_completion(res);
             }
         };
 
@@ -84,7 +94,9 @@ impl Module for HyliUtxoNoirProver {
 }
 
 impl HyliUtxoNoirProver {
-    fn handle_task_completion(result: Result<Result<()>, JoinError>) {
+    fn handle_task_completion(&self, result: Result<Result<()>, JoinError>) {
+        self.metrics.track_noir_job_finished();
+
         match result {
             Ok(Ok(())) => {}
             Ok(Err(err)) => {

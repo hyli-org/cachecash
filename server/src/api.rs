@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
+use crate::{
+    app::{build_note, FaucetMintCommand, FAUCET_MINT_AMOUNT},
+    metrics::FaucetMetrics,
+    types::{FaucetRequest, FaucetResponse},
+};
 use anyhow::Result;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::{Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -13,15 +18,9 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
+use sdk::ContractName;
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
-
-use crate::{
-    app::{build_note, FaucetMintCommand, FAUCET_MINT_AMOUNT},
-    types::{FaucetRequest, FaucetResponse},
-};
-use sdk::ContractName;
 
 pub struct ApiModule {
     bus: ApiModuleBusClient,
@@ -31,13 +30,14 @@ pub struct ApiModuleCtx {
     pub api: Arc<BuildApiContextInner>,
     pub default_amount: u64,
     pub contract_name: ContractName,
+    pub metrics: FaucetMetrics,
 }
 
 #[derive(Clone)]
 struct RouterCtx {
     default_amount: u64,
-    contract_name: String,
     bus: ApiModuleBusClient,
+    metrics: FaucetMetrics,
 }
 
 module_bus_client! {
@@ -55,8 +55,8 @@ impl Module for ApiModule {
 
         let router_ctx = RouterCtx {
             default_amount: ctx.default_amount,
-            contract_name: ctx.contract_name.0.clone(),
             bus: module_bus.clone(),
+            metrics: ctx.metrics.clone(),
         };
 
         let cors = CorsLayer::new()
@@ -96,8 +96,8 @@ async fn faucet(
 ) -> Result<Json<FaucetResponse>, ApiError> {
     let RouterCtx {
         default_amount,
-        contract_name: _,
         mut bus,
+        metrics,
     } = state;
 
     let default_amount = if default_amount == 0 {
@@ -107,19 +107,27 @@ async fn faucet(
     };
     let amount = request.amount.unwrap_or(default_amount);
     if amount == 0 {
+        metrics.record_failure("invalid_amount");
         return Err(ApiError::bad_request("amount must be greater than zero"));
     }
 
     let pubkey_hex = request.pubkey_hex.trim();
     if pubkey_hex.is_empty() {
+        metrics.record_failure("missing_pubkey");
         return Err(ApiError::bad_request("pubkey_hex must not be empty"));
     }
 
     let normalized_pubkey = pubkey_hex.strip_prefix("0x").unwrap_or(pubkey_hex);
-    let pubkey_bytes = hex::decode(normalized_pubkey)
-        .map_err(|err| ApiError::bad_request(format!("invalid pubkey_hex: {err}")))?;
+    let pubkey_bytes = match hex::decode(normalized_pubkey) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            metrics.record_failure("invalid_pubkey_hex");
+            return Err(ApiError::bad_request(format!("invalid pubkey_hex: {err}")));
+        }
+    };
 
     if pubkey_bytes.len() != 32 {
+        metrics.record_failure("invalid_pubkey_length");
         return Err(ApiError::bad_request("pubkey_hex must decode to 32 bytes"));
     }
 
@@ -134,9 +142,13 @@ async fn faucet(
         amount,
         note: note.clone(),
     })
-    .map_err(|err| ApiError::internal(err.to_string()))?;
+    .map_err(|err| {
+        metrics.record_failure("bus_send_failed");
+        ApiError::internal(err.to_string())
+    })?;
 
     let response = FaucetResponse { note };
+    metrics.record_success(amount);
 
     Ok(Json(response))
 }

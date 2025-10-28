@@ -16,6 +16,9 @@ use hyli_modules::{
         BuildApiContextInner, ModulesHandler,
     },
 };
+use opentelemetry_prometheus::exporter;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
+use prometheus::Registry;
 use sdk::{api::NodeInfo, verifiers, Calldata, ContractName, Verifier};
 use server::{
     api::{ApiModule, ApiModuleCtx},
@@ -23,6 +26,7 @@ use server::{
     conf::Conf,
     hyli_utxo_state_client::HyliUtxoStateExecutor,
     init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
+    metrics::FaucetMetrics,
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
     utils::load_utxo_state_proving_key,
 };
@@ -71,6 +75,20 @@ async fn main() -> Result<()> {
     init_tracing(&config.log_format)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
+    let registry = Registry::new();
+    let meter_provider = SdkMeterProvider::builder()
+        .with_reader(
+            exporter()
+                .with_registry(registry.clone())
+                .build()
+                .context("starting prometheus exporter")?,
+        )
+        .build();
+
+    opentelemetry::global::set_meter_provider(meter_provider.clone());
+
+    let faucet_metrics = FaucetMetrics::global(config.id.clone());
+
     let node_client = Arc::new(
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?,
     );
@@ -108,6 +126,7 @@ async fn main() -> Result<()> {
             node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
             contract: hyli_utxo_contract.clone(),
             verify_locally: true,
+            metrics: faucet_metrics.clone(),
         }))
         .await
         .context("building hyli_utxo Noir prover module")?;
@@ -131,6 +150,7 @@ async fn main() -> Result<()> {
             api: api_builder_ctx.clone(),
             default_amount: config.default_faucet_amount,
             contract_name: ContractName(config.contract_name.clone()),
+            metrics: faucet_metrics.clone(),
         }))
         .await
         .context("building API module")?;
@@ -183,7 +203,8 @@ async fn main() -> Result<()> {
         router,
         config.rest_server_max_body_size,
         openapi,
-    );
+    )
+    .with_registry(registry.clone());
 
     handler
         .build_module::<RestApi>(rest_context)
