@@ -23,9 +23,7 @@ pub struct FaucetMintCommand {
     pub note: Note,
 }
 
-impl BusMessage for FaucetMintCommand {
-    const CAPACITY: usize = LOW_CAPACITY;
-}
+impl BusMessage for FaucetMintCommand {}
 
 pub fn build_note(recipient_address: Element, amount: u64) -> Note {
     let minted_value = Element::new(amount);
@@ -87,11 +85,6 @@ impl Module for FaucetApp {
 
 impl FaucetApp {
     async fn process_request(&mut self, request: FaucetMintCommand) -> Result<()> {
-        let expected_value = Element::new(request.amount);
-        if request.note.value != expected_value {
-            bail!("note value does not match requested amount");
-        }
-
         let (blob_transaction, utxo) = self.build_transaction(&request.note)?;
 
         let tx_hash = self
@@ -356,9 +349,7 @@ mod tests {
 
         let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
 
-        let (blob_tx, utxo) = app
-            .build_transaction(&note)
-            .expect("build transaction");
+        let (blob_tx, utxo) = app.build_transaction(&note).expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);
 

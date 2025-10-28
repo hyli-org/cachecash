@@ -142,29 +142,9 @@ async fn faucet(
     })
     .map_err(|err| ApiError::internal(err.to_string()))?;
 
-    let response = FaucetResponse {
-        note,
-    };
+    let response = FaucetResponse { note };
 
     Ok(Json(response))
-}
-
-async fn faucet_log(
-    Path(username): Path<String>,
-    State(state): State<RouterCtx>,
-) -> Json<serde_json::Value> {
-    info!(
-        user = %username,
-        default_amount = state.default_amount,
-        contract = state.contract_name,
-        "Faucet endpoint invoked for user"
-    );
-
-    Json(json!({
-        "message": format!("Faucet request received for {username}"),
-        "default_amount": state.default_amount,
-        "contract_name": state.contract_name,
-    }))
 }
 
 #[derive(Debug)]
