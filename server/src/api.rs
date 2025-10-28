@@ -66,7 +66,6 @@ impl Module for ApiModule {
 
         let router = Router::new()
             .route("/_health", get(health))
-            .route("/api/faucet/{username}", get(faucet_log))
             .route("/api/faucet", post(faucet))
             .with_state(router_ctx)
             .layer(cors);
