@@ -78,6 +78,9 @@ class NodeService {
 
         const data = await this.request<FaucetResponse>("/api/faucet", {
             method: "POST",
+            headers: {
+                "X-Pubkey": normalizedPublicKey,
+            },
             body: JSON.stringify(payload),
         });
 
