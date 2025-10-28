@@ -400,81 +400,102 @@ function App() {
     }
   };
 
-  const sliceOrange = async (orangeId: number) => {
-    if (!playerName || !playerKeys) return;
-    try {
-      await window.orangeMutex.acquire();
-      const orange = oranges.find((o) => o.id === orangeId);
-      if (!orange || orange.sliced || window.slicedOranges.has(orangeId)) return;
+  // Submit the slice server-side without blocking future slices
+  const submitPumpkinSlice = useCallback(
+    async (publicKeyHex: string, playerLabel: string) => {
+      try {
+        if (!publicKeyHex) {
+          throw new Error("Missing player public key");
+        }
 
-      // Vibrate for 50ms when slicing an orange
+        const trimmedPlayerName = playerLabel.trim();
+        if (!trimmedPlayerName) {
+          throw new Error("Player name must not be empty");
+        }
+
+        const response = await nodeService.requestFaucet(publicKeyHex);
+        const { tx_hash: txHash, note } = response;
+        setSubmissionError(null);
+        const reference = txHash ?? deriveNoteReference(note);
+        if (reference) {
+          const stored: StoredNote = {
+            txHash: reference,
+            note: note ?? response,
+            storedAt: Date.now(),
+            player: trimmedPlayerName,
+          };
+          addStoredNote(trimmedPlayerName, stored);
+        }
+        const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
+        const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
+        setTransactions((prev) =>
+          [
+            {
+              title,
+              hash: shortHash || undefined,
+              timestamp: Date.now(),
+            },
+            ...prev,
+          ].slice(0, 10),
+        );
+      } catch (error) {
+        console.error("Failed to record slice", error);
+        setSubmissionError("We could not reach the server. Your score has not been updated.");
+      }
+    },
+    [setSubmissionError, setTransactions],
+  );
+
+  const sliceOrange = async (orangeId: number) => {
+    const keysSnapshot = playerKeys;
+    const nameSnapshot = playerName;
+    if (!nameSnapshot || !keysSnapshot) return;
+
+    const penaltySnapshot = bombPenalty;
+    let submissionPayload: { publicKey: string; playerLabel: string } | null = null;
+
+    await window.orangeMutex.acquire();
+    try {
+      const orange = oranges.find((o) => o.id === orangeId);
+      if (!orange || orange.sliced || window.slicedOranges.has(orangeId)) {
+        return;
+      }
+
       if ("vibrate" in navigator) {
         navigator.vibrate(150);
       }
 
-      // Play random slice sound
       const sliceSound = [slice1, slice2, slice3];
       const audio = new Audio(sliceSound[Math.floor(Math.random() * sliceSound.length)]);
       audio.volume = Math.max(0, Math.min(1, audio.volume * 0.84));
-      // Reset audio if already playing
       audio.currentTime = 0;
       audio.play();
 
-      // Créer l'effet de jus
       createJuiceEffect(orange.x, orange.y);
-
       addScorePopup(orange.x, orange.y, "+1", "positive");
 
       setOranges((prev) => prev.map((o) => (o.id === orangeId ? { ...o, sliced: true } : o)));
       window.slicedOranges.add(orangeId);
 
-      // Only send blob tx if no bomb penalty is active
-      if (bombPenalty === 0) {
-        try {
-          if (!playerKeys?.publicKey) {
-            throw new Error("Missing player public key");
-          }
-
-          const trimmedPlayerName = playerName.trim();
-          if (!trimmedPlayerName) {
-            throw new Error("Player name must not be empty");
-          }
-
-          const response = await nodeService.requestFaucet(playerKeys.publicKey);
-          const { tx_hash: txHash, note } = response;
-          setSubmissionError(null);
-          const reference = txHash ?? deriveNoteReference(note);
-          if (reference) {
-            const stored: StoredNote = {
-              txHash: reference,
-              note: note ?? response,
-              storedAt: Date.now(),
-              player: trimmedPlayerName,
-            };
-            addStoredNote(trimmedPlayerName, stored);
-          }
-          const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
-          const title = `+1 pumpkin${playerName ? ` for ${playerName}` : ""}`;
-          setTransactions((prev) =>
-            [
-              {
-                title,
-                hash: shortHash || undefined,
-                timestamp: Date.now(),
-              },
-              ...prev,
-            ].slice(0, 10),
-          );
-        } catch (error) {
-          console.error("Failed to record slice", error);
+      if (penaltySnapshot === 0) {
+        if (keysSnapshot.publicKey && nameSnapshot.trim()) {
+          submissionPayload = {
+            publicKey: keysSnapshot.publicKey,
+            playerLabel: nameSnapshot.trim(),
+          };
+        } else {
+          console.warn("Missing player data for faucet submission");
           setSubmissionError("We could not reach the server. Your score has not been updated.");
         }
       } else {
-        // Reduce bomb penalty
         setBombPenalty((prev) => (prev > 0 ? prev - 1 : 0));
       }
     } finally {
       window.orangeMutex.release();
+    }
+
+    if (submissionPayload) {
+      void submitPumpkinSlice(submissionPayload.publicKey, submissionPayload.playerLabel);
     }
   };
 
