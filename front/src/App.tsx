@@ -123,10 +123,12 @@ const BASE_ORANGE_SIZE = 200;
 const BASE_BOMB_SIZE = 200;
 const MOBILE_BREAKPOINT = 768;
 const SMALL_MOBILE_BREAKPOINT = 480;
-const SLICE_RATE_WINDOW_MS = 10_000;
-const SLICE_RATE_DISPLAY_MS = 1_000;
-const MAX_PUMPKINS_PER_SECOND = 5;
 const MAX_PENALTY_DISPLAY = 30;
+const GOAL_SEGMENTS = [
+  { target: 100, start: 0 },
+  { target: 200, start: 100 },
+  { target: 500, start: 200 },
+] as const;
 
 interface ViewportSpriteSizes {
   orangeSize: number;
@@ -210,8 +212,6 @@ function App() {
   const [scorePopups, setScorePopups] = useState<ScorePopup[]>([]);
   const nextScorePopupId = useRef(0);
   const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
-  const [sliceTimestamps, setSliceTimestamps] = useState<number[]>([]);
-  const [rateTick, setRateTick] = useState(() => Date.now());
   const [spriteSizes, setSpriteSizes] = useState<ViewportSpriteSizes>(() => {
     if (typeof window === "undefined") {
       return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
@@ -234,22 +234,6 @@ function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setRateTick(Date.now());
-      setSliceTimestamps((prev) => {
-        if (prev.length === 0) {
-          return prev;
-        }
-        const cutoff = Date.now() - SLICE_RATE_WINDOW_MS;
-        const filtered = prev.filter((timestamp) => timestamp >= cutoff);
-        return filtered.length === prev.length ? prev : filtered;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
-
   const orangeSize = spriteSizes.orangeSize;
   const bombSize = spriteSizes.bombSize;
   const orangeSliceThreshold = orangeSize / 2;
@@ -257,9 +241,15 @@ function App() {
   const offscreenBuffer = Math.max(orangeSize, 200);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const noteBalance = storedNotes.length;
-  const slicesPerSecond = sliceTimestamps.filter((timestamp) => timestamp >= rateTick - SLICE_RATE_DISPLAY_MS).length;
-  const clampedPumpkinRate = Math.min(slicesPerSecond, MAX_PUMPKINS_PER_SECOND);
-  const pumpkinRateDisplay = slicesPerSecond.toString();
+  const goalSegment =
+    noteBalance < GOAL_SEGMENTS[0].target
+      ? GOAL_SEGMENTS[0]
+      : noteBalance < GOAL_SEGMENTS[1].target
+      ? GOAL_SEGMENTS[1]
+      : GOAL_SEGMENTS[GOAL_SEGMENTS.length - 1];
+  const goalSpan = goalSegment.target - goalSegment.start;
+  const goalProgress = Math.min(Math.max((noteBalance - goalSegment.start) / goalSpan, 0), 1);
+  const goalValueDisplay = `${noteBalance.toLocaleString()} / ${goalSegment.target}`;
   const penaltyMeterPercent = Math.min(bombPenalty / MAX_PENALTY_DISPLAY, 1);
   const penaltyDisplayText = bombPenalty > 0 ? `${bombPenalty} pumpkins` : "None";
 
@@ -284,27 +274,8 @@ function App() {
   const handleLogout = useCallback(() => {
     setPlayerName("");
     setSubmissionError(null);
-    setSliceTimestamps([]);
   }, [setPlayerName, setSubmissionError]);
 
-  const [moreInfoModalOpacity, setMoreInfoModalOpacity] = useState(0);
-  const MODAL_ID = "boundless";
-  const [hideModal, setHideModal] = useState(localStorage.getItem("hideMoreInfoModal") === MODAL_ID);
-  useEffect(() => {
-    // After a couple second, turn on the modal
-    const timer = setTimeout(() => {
-      setMoreInfoModalOpacity(1);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
-  useEffect(() => {
-    // Save hide modal state to localStorage
-    if (!hideModal) {
-      localStorage.removeItem("hideMoreInfoModal");
-    } else {
-      localStorage.setItem("hideMoreInfoModal", MODAL_ID);
-    }
-  }, [hideModal]);
 
   const createJuiceEffect = useCallback((x: number, y: number) => {
     const particles: JuiceParticle[] = [];
@@ -408,8 +379,7 @@ function App() {
       addScorePopup(bomb.x, bomb.y, "-10", "negative");
 
       // Apply cumulative penalty
-      const newPenalty = bombPenalty + 10;
-      setBombPenalty(newPenalty);
+      setBombPenalty((prev) => prev + 10);
 
       // Trigger score shake animation
       setIsScoreShaking(true);
@@ -448,43 +418,39 @@ function App() {
 
       addScorePopup(orange.x, orange.y, "+1", "positive");
 
+      setOranges((prev) => prev.map((o) => (o.id === orangeId ? { ...o, sliced: true } : o)));
+      window.slicedOranges.add(orangeId);
+
       // Only send blob tx if no bomb penalty is active
       if (bombPenalty === 0) {
-        try {
-          const { tx_hash: txHash, note } = await nodeService.requestFaucet(playerName);
-          setSubmissionError(null);
-          const reference = txHash ?? deriveNoteReference(note);
-          const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
-          const title = `+1 pumpkin${playerName ? ` for ${playerName}` : ""}`;
-          setTransactions((prev) =>
-            [
-              {
-                title,
-                hash: shortHash || undefined,
-                timestamp: Date.now(),
-              },
-              ...prev,
-            ].slice(0, 10),
-          );
-          setSliceTimestamps((prev) => {
-            const now = Date.now();
-            const cutoff = now - SLICE_RATE_WINDOW_MS;
-            const filtered = prev.filter((timestamp) => timestamp >= cutoff);
-            return [...filtered, now];
+        const currentPlayerName = playerName;
+        const faucetPromise = nodeService.requestFaucet(currentPlayerName);
+
+        void faucetPromise
+          .then(({ tx_hash: txHash, note }) => {
+            const reference = txHash ?? deriveNoteReference(note);
+            const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
+            const title = `+1 pumpkin${currentPlayerName ? ` for ${currentPlayerName}` : ""}`;
+            setTransactions((prev) =>
+              [
+                {
+                  title,
+                  hash: shortHash || undefined,
+                  timestamp: Date.now(),
+                },
+                ...prev,
+              ].slice(0, 10),
+            );
+            setSubmissionError(null);
+          })
+          .catch((error) => {
+            console.error("Failed to record slice", error);
+            setSubmissionError("We could not reach the server. Your score has not been updated.");
           });
-        } catch (error) {
-          console.error("Failed to record slice", error);
-          setSubmissionError("We could not reach the server. Your score has not been updated.");
-        }
       } else {
         // Reduce bomb penalty
-        const newPenalty = bombPenalty - 1;
-        setBombPenalty(newPenalty);
+        setBombPenalty((prev) => (prev > 0 ? prev - 1 : 0));
       }
-
-      setOranges((prev) => prev.map((o) => (o.id === orangeId ? { ...o, sliced: true } : o)));
-
-      window.slicedOranges.add(orangeId);
     } finally {
       window.orangeMutex.release();
     }
@@ -791,7 +757,6 @@ function App() {
     if (!playerName) {
       setBombPenalty(0);
       setNameInput("");
-      setSliceTimestamps([]);
       return;
     }
 
@@ -1081,64 +1046,6 @@ top: `${particle.y}px`,*/
           />
         ))}
 
-        {false && (
-          <div
-            className={hideModal ? "" : "desktopOnly"}
-            style={{
-              display: "none",
-              position: "absolute",
-              bottom: "20px",
-              right: "20px",
-              backgroundColor: "rgba(0, 0, 0, 0.8)",
-              padding: "8px 16px",
-              borderRadius: "10px",
-              textAlign: "center",
-              zIndex: 1000,
-              color: "#ff6b6b",
-              boxShadow: "0 0 20px rgba(0, 0, 0, 0.5)",
-              maxWidth: "260px",
-              opacity: moreInfoModalOpacity,
-              transition: "opacity 0.5s ease-in-out",
-            }}
-          >
-            <button
-              onClick={() => setHideModal(true)}
-              style={{
-                position: "absolute",
-                top: 0,
-                right: 4,
-                background: "transparent",
-                border: "none",
-                color: "#ffffff",
-                fontSize: 20,
-                cursor: "pointer",
-                zIndex: 1001,
-              }}
-              aria-label="Close"
-            >
-              &times;
-            </button>
-            <h3
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: "10px",
-                alignItems: "center",
-                margin: "0 0 10px 0",
-              }}
-            >
-              Hyli x Boundless <img src="/berry.png" alt="Berrified" style={{ width: "24px" }}></img>{" "}
-            </h3>
-            <p style={{ textAlign: "left", fontSize: "0.9em" }}>
-              Hyli is partnering with Boundless for our Risc0 Proofs!
-              <br />
-              Read more on{" "}
-              <a style={{ color: "#ff9b6b" }} href="https://x.com/hyli_org/status/1938586176740598170">
-                X
-              </a>
-            </p>
-          </div>
-        )}
       </div>
 
       <footer className="nes-hud nes-hud--footer" style={{ marginBottom: "24px" }}>
@@ -1160,7 +1067,6 @@ top: `${particle.y}px`,*/
             <div className="nes-hud__card nes-hud__card--score">
               <div className="nes-hud__title">SCORE</div>
               <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
-              <div className="nes-hud__caption">CACHE BALANCE</div>
             </div>
           </div>
           <div className="nes-hud__status">
@@ -1187,13 +1093,13 @@ top: `${particle.y}px`,*/
                 submissionError
               ) : (
                 <div className="status-box status-box--rate">
-                  <div className="status-box__label">Slice rate</div>
+                  <div className="status-box__label">Next goal {goalSegment.target}</div>
                   <div className="status-box__row">
-                    <div className="status-box__value">{pumpkinRateDisplay} /s</div>
+                    <div className="status-box__value">{goalValueDisplay}</div>
                     <div className="status-box__meter">
                       <div
                         className="status-box__meter-fill"
-                        style={{ width: `${(clampedPumpkinRate / MAX_PUMPKINS_PER_SECOND) * 100}%` }}
+                        style={{ width: `${goalProgress * 100}%` }}
                       />
                     </div>
                   </div>

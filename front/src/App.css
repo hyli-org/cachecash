@@ -688,6 +688,11 @@
     .game-area {
         padding-bottom: 130px;
     }
+
+    .flex-modal {
+        width: calc(100vw - 32px);
+        padding: 18px 20px;
+    }
 }
 
 .wallet-address {
