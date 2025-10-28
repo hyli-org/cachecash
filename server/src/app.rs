@@ -3,7 +3,7 @@ use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
 use hash::hash_merge;
 use hyli_modules::{
-    bus::{command_response::Query, BusClientSender, SharedMessageBus},
+    bus::{BusClientSender, BusMessage, SharedMessageBus, LOW_CAPACITY},
     module_bus_client, module_handle_messages,
     modules::Module,
 };
@@ -19,19 +19,23 @@ pub const FAUCET_MINT_AMOUNT: u64 = 10;
 #[derive(Clone, Debug)]
 pub struct FaucetMintCommand {
     pub recipient_pubkey: Vec<u8>,
-    pub recipient_address: Element,
     pub amount: u64,
+    pub note: Note,
 }
 
-#[derive(Clone, Debug)]
-pub struct FaucetMintResult {
-    pub note: Note,
+impl BusMessage for FaucetMintCommand {
+    const CAPACITY: usize = LOW_CAPACITY;
+}
+
+pub fn build_note(recipient_address: Element, amount: u64) -> Note {
+    let minted_value = Element::new(amount);
+    Note::new(recipient_address, minted_value)
 }
 
 module_bus_client! {
 pub struct FaucetBusClient {
     sender(HyliUtxoProofJob),
-    receiver(Query<FaucetMintCommand, FaucetMintResult>),
+    receiver(FaucetMintCommand),
 }
 }
 
@@ -72,8 +76,8 @@ impl Module for FaucetApp {
     async fn run(&mut self) -> Result<()> {
         module_handle_messages! {
             on_self self,
-            command_response<FaucetMintCommand, FaucetMintResult> cmd => {
-                self.process_request(cmd.clone()).await
+            listen<FaucetMintCommand> cmd => {
+                self.process_request(cmd).await?;
             }
         };
 
@@ -82,9 +86,13 @@ impl Module for FaucetApp {
 }
 
 impl FaucetApp {
-    async fn process_request(&mut self, request: FaucetMintCommand) -> Result<FaucetMintResult> {
-        let (blob_transaction, recipient_note, utxo) =
-            self.build_transaction(request.recipient_address, request.amount)?;
+    async fn process_request(&mut self, request: FaucetMintCommand) -> Result<()> {
+        let expected_value = Element::new(request.amount);
+        if request.note.value != expected_value {
+            bail!("note value does not match requested amount");
+        }
+
+        let (blob_transaction, utxo) = self.build_transaction(&request.note)?;
 
         let tx_hash = self
             .client
@@ -98,20 +106,11 @@ impl FaucetApp {
             warn!(error = %err, "failed to enqueue Noir proof job");
         }
 
-        Ok(FaucetMintResult {
-            note: recipient_note,
-        })
+        Ok(())
     }
 
-    fn build_transaction(
-        &mut self,
-        recipient_address: Element,
-        amount: u64,
-    ) -> Result<(BlobTransaction, Note, Utxo)> {
-        let minted_value = Element::new(amount);
-
-        let recipient_note = Note::new(recipient_address, minted_value);
-        let utxo = Utxo::new_mint([recipient_note.clone(), Note::padding_note()]);
+    fn build_transaction(&mut self, note: &Note) -> Result<(BlobTransaction, Utxo)> {
+        let utxo = Utxo::new_mint([note.clone(), Note::padding_note()]);
 
         let leaf_elements = utxo.leaf_elements();
         self.notes_root = leaf_elements[2];
@@ -166,7 +165,7 @@ impl FaucetApp {
         };
         let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
 
-        Ok((blob_transaction, recipient_note, utxo))
+        Ok((blob_transaction, utxo))
     }
 
     fn enqueue_proof_job(
@@ -355,8 +354,10 @@ mod tests {
 
         let recipient_address = deterministic_address("alice");
 
-        let (blob_tx, _note, utxo) = app
-            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
+        let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
+
+        let (blob_tx, utxo) = app
+            .build_transaction(&note)
             .expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);

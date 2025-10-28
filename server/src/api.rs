@@ -9,10 +9,7 @@ use axum::{
     Json, Router,
 };
 use hyli_modules::{
-    bus::{
-        command_response::{CmdRespClient, Query},
-        SharedMessageBus,
-    },
+    bus::{BusClientSender, SharedMessageBus},
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
@@ -21,7 +18,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::{
-    app::{FaucetMintCommand, FaucetMintResult, FAUCET_MINT_AMOUNT},
+    app::{build_note, FaucetMintCommand, FAUCET_MINT_AMOUNT},
     types::{FaucetRequest, FaucetResponse},
 };
 use sdk::ContractName;
@@ -46,7 +43,7 @@ struct RouterCtx {
 module_bus_client! {
     #[derive(Debug)]
     pub struct ApiModuleBusClient {
-        sender(Query<FaucetMintCommand, FaucetMintResult>),
+        sender(FaucetMintCommand),
     }
 }
 
@@ -136,20 +133,38 @@ async fn faucet(
     address_bytes.copy_from_slice(&pubkey_bytes);
     let recipient_address = element::Element::from_be_bytes(address_bytes);
 
-    let mint_result = bus
-        .request(FaucetMintCommand {
-            recipient_pubkey: pubkey_bytes,
-            recipient_address,
-            amount,
-        })
-        .await
-        .map_err(|err| ApiError::internal(err.to_string()))?;
+    let note = build_note(recipient_address, amount);
+
+    bus.send(FaucetMintCommand {
+        recipient_pubkey: pubkey_bytes,
+        amount,
+        note: note.clone(),
+    })
+    .map_err(|err| ApiError::internal(err.to_string()))?;
 
     let response = FaucetResponse {
-        note: mint_result.note,
+        note,
     };
 
     Ok(Json(response))
+}
+
+async fn faucet_log(
+    Path(username): Path<String>,
+    State(state): State<RouterCtx>,
+) -> Json<serde_json::Value> {
+    info!(
+        user = %username,
+        default_amount = state.default_amount,
+        contract = state.contract_name,
+        "Faucet endpoint invoked for user"
+    );
+
+    Json(json!({
+        "message": format!("Faucet request received for {username}"),
+        "default_amount": state.default_amount,
+        "contract_name": state.contract_name,
+    }))
 }
 
 #[derive(Debug)]
