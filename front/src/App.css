@@ -318,6 +318,17 @@
     border-radius: 4px;
 }
 
+.pixel-button--flex {
+    align-self: center;
+    background: linear-gradient(135deg, #ff8a75 0%, #ffc08d 60%, #fff0a8 100%);
+    color: #2b0d23;
+    box-shadow: 0 6px 16px rgba(255, 126, 98, 0.4);
+}
+
+.pixel-button--flex:hover {
+    box-shadow: 0 8px 20px rgba(255, 126, 98, 0.45);
+}
+
 .nes-hud__status {
     display: flex;
     gap: 14px;
@@ -687,6 +698,11 @@
 
     .game-area {
         padding-bottom: 130px;
+    }
+
+    .flex-modal {
+        width: calc(100vw - 32px);
+        padding: 18px 20px;
     }
 }
 
@@ -1404,4 +1420,86 @@ pre {
     .score-popup {
         font-size: 16px;
     }
+}
+.flex-modal__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 2, 18, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.flex-modal {
+    position: relative;
+    width: min(360px, calc(100vw - 40px));
+    background: linear-gradient(135deg, rgba(34, 12, 44, 0.95), rgba(16, 5, 26, 0.95));
+    border: 3px solid rgba(255, 152, 95, 0.8);
+    border-radius: 12px;
+    padding: 24px 28px;
+    text-align: center;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 0 0 3px rgba(255, 190, 120, 0.2);
+}
+
+.flex-modal__close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: #ffe9d6;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.flex-modal__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    margin-bottom: 14px;
+    font-family: "Silkscreen", "Courier New", monospace;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    border-radius: 6px;
+    background: rgba(255, 130, 120, 0.2);
+    border: 1px solid rgba(255, 150, 120, 0.6);
+    color: #ffe7d9;
+}
+
+.flex-modal__content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.flex-modal__headline {
+    font-family: "Silkscreen", "Courier New", monospace;
+    letter-spacing: 0.1em;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: rgba(255, 220, 190, 0.85);
+}
+
+.flex-modal__balance {
+    font-family: "Silkscreen", "Courier New", monospace;
+    font-size: clamp(1.6rem, 6vw, 2.2rem);
+    color: #fff7c8;
+    text-shadow: 0 0 16px rgba(255, 200, 120, 0.7);
+}
+
+.flex-modal__caption {
+    font-family: "Silkscreen", "Courier New", monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: rgba(255, 210, 160, 0.75);
+}
+
+.flex-modal .pixel-button {
+    width: 100%;
 }

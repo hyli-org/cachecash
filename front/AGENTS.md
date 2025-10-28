@@ -1,32 +1,19 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/main.tsx` boots the Vite + React app; `App.tsx` owns top-level routing.
-- UI pieces live in `src/components`; reusable hooks belong in `src/hooks`; clients and config helpers sit under `src/services`.
-- Domain types stay in `src/types`; media go in `src/audio`; keep shared styles in `src/App.css` and overrides in `src/index.css`.
-- Public assets stay in `public/`; keep `index.html` minimal.
-- Runtime config comes from `import.meta.env` (see `src/services/config.ts`); keep `.env*` values out of git.
-- REST helpers live in `src/services/NodeService.ts`; adjust those endpoint paths as the backend evolves.
+Source lives in `src/`; `src/main.tsx` boots Vite + React and defers routing to `App.tsx`. Group UI under `src/components`, shared hooks under `src/hooks`, and API/config clients under `src/services` (e.g., `NodeService.ts`). Persist domain models in `src/types`, audio in `src/audio`, and global styles in `src/App.css` with overrides in `src/index.css`. Public assets and HTML shells stay in `public/` and `index.html`. Keep runtime configuration in `src/services/config.ts` and consume via `import.meta.env`.
 
 ## Build, Test, and Development Commands
-- `bun install` (or `npm install`) syncs dependencies; commit the resulting `bun.lockb` when it changes.
-- `bun run dev` launches the Vite dev server with hot reload at `http://localhost:5173`.
-- `bun run build` performs `tsc -b` type checks and emits production assets into `dist/`.
-- `bun run lint` enforces ESLint + TypeScript rules; resolve warnings before opening a pull request.
-- `bun run preview` serves the built bundle locally to test deployment behavior.
+Run `bun install` (or `npm install`) to sync dependencies and preserve `bun.lockb`. Use `bun run dev` for the hot-reload dev server at `http://localhost:5173`. `bun run build` executes `tsc -b` and emits production assets to `dist/`. `bun run lint` enforces ESLint + TypeScript rules; resolve warnings before review. Preview the bundled app with `bun run preview`.
 
 ## Coding Style & Naming Conventions
-- Use TypeScript with ES modules and React function components; favor hooks over class state.
-- Follow Prettier (`.prettierrc`): four-space indentation and 120-character max line length; run `bun x prettier --write .` on larger refactors.
-- Components use `PascalCase`, hooks `useCamelCase`, utilities `camelCase.ts`; place component-specific styles or Tailwind classes beside their owners.
-- Environment keys must be camel-cased and prefixed with `VITE_` so Vite exposes them to the client.
+Write TypeScript ES modules and functional React components. Follow the repository Prettier config: four-space indentation and a 120-character line limit (`bun x prettier --write .`). Use `PascalCase` for components, `useCamelCase` for hooks, and `camelCase.ts` for utilities. Environment variables must be camel-cased and prefixed with `VITE_` to surface in Vite builds.
 
 ## Testing Guidelines
-- Automated tests are not yet configured; accompany new features with a Vitest + React Testing Library plan, placing specs in `src/__tests__/` or alongside components as `Component.test.tsx`.
-- Until the suite is formalized, document manual QA steps in your PR and exercise core flows (player name entry, config fetch failure) via `bun run dev`.
-- Target meaningful edge cases and mock async services to keep tests hermetic once the harness lands.
+Vitest + React Testing Library are the target stack. Place specs in `src/__tests__/` or alongside components as `Component.test.tsx`. While automated coverage is evolving, accompany features with a manual QA checklist covering flows such as player name entry and config fetch failures. Mock async services to keep tests deterministic when you add them.
 
 ## Commit & Pull Request Guidelines
-- Write concise, imperative commit subjects (≤50 chars) with optional scope, e.g., `feat: add chip deck animation`; add bullet bodies for rationale when needed.
-- PRs must summarize the change, link issues or tickets, list environment or migration steps (`cp .env.example .env`), and attach UI screenshots or clips when visuals change.
-- Call out remaining risks or follow-ups, note any dependency updates, and request focused reviewers for domain-specific code.
+Commit subjects should be imperative and ≤50 characters (e.g., `feat: add chip deck animation`); add short bullet bodies for context as needed. Pull requests must summarize scope, link tickets, list setup steps like `cp .env.example .env`, and include UI screenshots or clips for visual changes. Highlight remaining risks, dependency updates, and call for domain-specific reviewers.
+
+## Security & Configuration Tips
+Do not commit `.env*` files or secrets. Rely on `import.meta.env` for runtime config and document expected variables in the PR. Keep REST endpoint paths synchronized with the backend by updating `src/services/NodeService.ts` as APIs evolve.
