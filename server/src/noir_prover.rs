@@ -19,7 +19,6 @@ use zk_primitives::{HyliUtxo, ToBytes, Utxo, HYLI_BLOB_LENGTH_BYTES};
 use crate::{
     init::ContractDeployment,
     prover::{NoirProofArtifacts, NoirProver},
-    tx::HYLI_UTXO_CONTRACT_NAME,
 };
 
 #[derive(Clone, Debug)]
@@ -109,7 +108,9 @@ impl HyliUtxoNoirProver {
         prover: NoirProver,
         job: HyliUtxoProofJob,
     ) -> Result<()> {
-        let hyli_utxo = Self::build_hyli_utxo(&job)?;
+        let contract = ctx.contract.clone();
+        let contract_name = contract.contract_name.0.clone();
+        let hyli_utxo = Self::build_hyli_utxo(&contract_name, &job)?;
 
         if job.blob_index > job.tx_blob_count {
             bail!(
@@ -125,7 +126,7 @@ impl HyliUtxoNoirProver {
             %tx_hash_str,
             identity = %job.identity.0,
             identity_len = job.identity.0.len(),
-            blob_contract_name = %HYLI_UTXO_CONTRACT_NAME,
+            blob_contract_name = %contract_name,
             tx_blob_count = job.tx_blob_count,
             blob_index = job.blob_index,
             "Preparing hyli_utxo Noir proof"
@@ -150,8 +151,6 @@ impl HyliUtxoNoirProver {
 
         let proof_bytes = proof.to_bytes();
 
-        let contract = ctx.contract.clone();
-
         let (proof_tx, _outputs) = prover.build_proof_transaction(
             &contract,
             NoirProofArtifacts {
@@ -170,14 +169,14 @@ impl HyliUtxoNoirProver {
         Ok(())
     }
 
-    pub(crate) fn build_hyli_utxo(job: &HyliUtxoProofJob) -> Result<HyliUtxo> {
+    pub(crate) fn build_hyli_utxo(contract_name: &str, job: &HyliUtxoProofJob) -> Result<HyliUtxo> {
         let identity_str = job.identity.0.clone();
         if identity_str.len() > u8::MAX as usize {
             bail!("identity '{}' exceeds Noir payload limit", identity_str);
         }
 
         let padded_identity = pad_right_with_null(&identity_str, 256)?;
-        let padded_contract_name = pad_right_with_null(HYLI_UTXO_CONTRACT_NAME, 256)?;
+        let padded_contract_name = pad_right_with_null(contract_name, 256)?;
 
         Ok(HyliUtxo {
             version: 1,
@@ -189,7 +188,7 @@ impl HyliUtxoNoirProver {
             index: job.blob_index,
             blob_number: 1,
             blob_index: job.blob_index,
-            blob_contract_name_len: HYLI_UTXO_CONTRACT_NAME.len() as u8,
+            blob_contract_name_len: contract_name.len() as u8,
             blob_contract_name: padded_contract_name,
             blob_capacity: HYLI_BLOB_LENGTH_BYTES as u32,
             blob_len: HYLI_BLOB_LENGTH_BYTES as u32,

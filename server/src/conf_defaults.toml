@@ -11,3 +11,5 @@ da_read_from = "127.0.0.1:4141"
 buffer_blocks = 0
 max_txs_per_proof = 32
 tx_working_window_size = 128
+utxo_contract_name = "hyli_utxo"
+utxo_state_contract_name = "hyli-utxo-state"

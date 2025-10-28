@@ -22,12 +22,8 @@ use server::{
     app::{FaucetApp, FaucetAppContext},
     conf::Conf,
     hyli_utxo_state_client::HyliUtxoStateExecutor,
-    init::{
-        hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit,
-        HYLI_UTXO_STATE_CONTRACT_NAME,
-    },
+    init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
-    tx::HYLI_UTXO_CONTRACT_NAME,
     utils::load_utxo_state_proving_key,
 };
 use tracing::info;
@@ -64,11 +60,12 @@ async fn main() -> Result<()> {
         config.default_faucet_amount = amount;
     }
     if let Some(contract_name) = args.contract_name {
+        config.utxo_contract_name = contract_name.clone();
         config.contract_name = contract_name;
     }
 
-    if config.contract_name != HYLI_UTXO_CONTRACT_NAME {
-        config.contract_name = HYLI_UTXO_CONTRACT_NAME.to_string();
+    if config.contract_name != config.utxo_contract_name {
+        config.contract_name = config.utxo_contract_name.clone();
     }
 
     init_tracing(&config.log_format)
@@ -78,8 +75,8 @@ async fn main() -> Result<()> {
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?,
     );
 
-    let hyli_utxo_contract = hyli_utxo_noir_deployment();
-    let hyli_utxo_state_contract = hyli_utxo_state_deployment();
+    let hyli_utxo_contract = hyli_utxo_noir_deployment(&config.utxo_contract_name);
+    let hyli_utxo_state_contract = hyli_utxo_state_deployment(&config.utxo_state_contract_name);
     let contracts = vec![
         ContractInit {
             deployment: hyli_utxo_contract.clone(),
@@ -118,6 +115,8 @@ async fn main() -> Result<()> {
     handler
         .build_module::<FaucetApp>(FaucetAppContext {
             client: node_client.as_ref().clone(),
+            utxo_contract_name: config.utxo_contract_name.clone(),
+            utxo_state_contract_name: config.utxo_state_contract_name.clone(),
         })
         .await
         .context("building faucet module")?;
@@ -150,7 +149,7 @@ async fn main() -> Result<()> {
         .build_module::<AutoProver<HyliUtxoStateExecutor>>(Arc::new(AutoProverCtx {
             data_directory: data_directory.clone(),
             prover: prover.clone(),
-            contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
+            contract_name: ContractName(config.utxo_state_contract_name.clone()),
             node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
             default_state: HyliUtxoStateExecutor::default(),
             buffer_blocks: config.buffer_blocks,

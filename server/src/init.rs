@@ -4,10 +4,7 @@ use hyli_utxo_state::HyliUtxoState;
 use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
 use tracing::info;
 
-use crate::tx::HYLI_UTXO_CONTRACT_NAME;
 use contracts::HYLI_UTXO_STATE_VK;
-
-pub const HYLI_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
 
 const HYLI_UTXO_NOIR_VK: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -37,19 +34,19 @@ impl ContractDeployment {
     }
 }
 
-pub fn hyli_utxo_noir_deployment() -> ContractDeployment {
+pub fn hyli_utxo_noir_deployment(contract_name: &str) -> ContractDeployment {
     ContractDeployment {
-        contract_name: ContractName(HYLI_UTXO_CONTRACT_NAME.to_string()),
+        contract_name: ContractName(contract_name.to_string()),
         program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
         state_commitment: StateCommitment(vec![0u8; 4]),
         timeout_window: None,
     }
 }
 
-pub fn hyli_utxo_state_deployment() -> ContractDeployment {
+pub fn hyli_utxo_state_deployment(contract_name: &str) -> ContractDeployment {
     let hyli_utxo_state = HyliUtxoState::default();
     ContractDeployment {
-        contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
+        contract_name: ContractName(contract_name.to_string()),
         program_id: ProgramId(HYLI_UTXO_STATE_VK.to_vec()),
         state_commitment: hyli_utxo_state.commitment(),
         timeout_window: None,

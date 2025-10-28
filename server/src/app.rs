@@ -13,10 +13,9 @@ use tracing::{info, warn};
 use zk_primitives::{Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
 
 use crate::{
-    init::HYLI_UTXO_STATE_CONTRACT_NAME,
     keys::KeyMaterial,
     noir_prover::HyliUtxoProofJob,
-    tx::{FAUCET_IDENTITY_PREFIX, HYLI_UTXO_CONTRACT_NAME},
+    tx::FAUCET_IDENTITY_PREFIX,
 };
 
 pub const FAUCET_MINT_AMOUNT: u64 = 10;
@@ -42,6 +41,8 @@ pub struct FaucetBusClient {
 #[derive(Clone)]
 pub struct FaucetAppContext {
     pub client: NodeApiHttpClient,
+    pub utxo_contract_name: String,
+    pub utxo_state_contract_name: String,
 }
 
 pub struct FaucetApp {
@@ -50,6 +51,8 @@ pub struct FaucetApp {
     notes_root: Element,
     nullifier_root: Element,
     note_index: u64,
+    utxo_contract_name: String,
+    utxo_state_contract_name: String,
 }
 
 impl Module for FaucetApp {
@@ -64,6 +67,8 @@ impl Module for FaucetApp {
             notes_root: Element::ZERO,
             nullifier_root: Element::ZERO,
             note_index: 0,
+            utxo_contract_name: ctx.utxo_contract_name,
+            utxo_state_contract_name: ctx.utxo_state_contract_name,
         })
     }
 
@@ -149,7 +154,7 @@ impl FaucetApp {
 
         let state_action: HyliUtxoStateAction = state_commitments;
 
-        let contract_name = HYLI_UTXO_CONTRACT_NAME.to_string();
+        let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
         let hyli_utxo_data = BlobData(blob_bytes);
         let state_blob_data = BlobData(
@@ -160,7 +165,7 @@ impl FaucetApp {
             data: hyli_utxo_data,
         };
         let state_blob = Blob {
-            contract_name: ContractName(HYLI_UTXO_STATE_CONTRACT_NAME.to_string()),
+            contract_name: ContractName(self.utxo_state_contract_name.clone()),
             data: state_blob_data,
         };
         let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
@@ -178,7 +183,7 @@ impl FaucetApp {
             .blobs
             .iter()
             .enumerate()
-            .find(|(_, blob)| blob.contract_name.0 == HYLI_UTXO_CONTRACT_NAME)
+            .find(|(_, blob)| blob.contract_name.0 == self.utxo_contract_name)
         else {
             bail!("hyli_utxo blob not found in transaction payload");
         };
@@ -264,11 +269,14 @@ mod tests {
     use tokio::time::{sleep, timeout, Duration};
     use zk_primitives::HyliUtxo;
 
+    const TEST_UTXO_CONTRACT_NAME: &str = "hyli_utxo";
+    const TEST_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
+
     fn find_hyli_blob(blobs: &[Blob]) -> (usize, &[u8]) {
         blobs
             .iter()
             .enumerate()
-            .find(|(_, blob)| blob.contract_name.0 == HYLI_UTXO_CONTRACT_NAME)
+            .find(|(_, blob)| blob.contract_name.0 == TEST_UTXO_CONTRACT_NAME)
             .map(|(idx, blob)| (idx, blob.data.0.as_slice()))
             .expect("hyli_utxo blob not found")
     }
@@ -353,6 +361,8 @@ mod tests {
         let context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
+            utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
+            utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
         };
 
         let mut app = FaucetApp::build(bus, context)
@@ -382,12 +392,14 @@ mod tests {
             blob_index: blob_index as u32,
         };
 
-        let hyli_utxo = HyliUtxoNoirProver::build_hyli_utxo(&job).expect("build hyli utxo");
+        let hyli_utxo =
+            HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
+                .expect("build hyli utxo");
 
         assert_eq!(hyli_utxo.identity_len as usize, identity.len());
         assert_eq!(
             hyli_utxo.blob_contract_name_len as usize,
-            HYLI_UTXO_CONTRACT_NAME.len(),
+            TEST_UTXO_CONTRACT_NAME.len(),
             "contract name length should match expected contract name length"
         );
         assert_eq!(hyli_utxo.identity.len(), 256);
@@ -412,6 +424,8 @@ mod tests {
         let context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
+            utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
+            utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
         };
 
         let mut app = FaucetApp::build(bus, context)
@@ -428,7 +442,7 @@ mod tests {
             .blobs
             .iter()
             .enumerate()
-            .find(|(_, blob)| blob.contract_name.0 == HYLI_UTXO_STATE_CONTRACT_NAME)
+            .find(|(_, blob)| blob.contract_name.0 == TEST_UTXO_STATE_CONTRACT_NAME)
             .expect("state blob present");
 
         let state_action: HyliUtxoStateAction =
@@ -503,6 +517,8 @@ mod tests {
         let context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
+            utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
+            utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
         };
 
         let mut app = FaucetApp::build(bus, context)
@@ -529,7 +545,9 @@ mod tests {
             blob_index: blob_index as u32,
         };
 
-        let hyli_utxo = HyliUtxoNoirProver::build_hyli_utxo(&job).expect("build hyli utxo");
+        let hyli_utxo =
+            HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
+                .expect("build hyli utxo");
 
         let proof = hyli_utxo.prove().expect("generate hyli_utxo proof");
 
@@ -548,7 +566,7 @@ mod tests {
         let program_id = ProgramId("MockProver".as_bytes().to_vec());
         let verifier: Verifier = "mock".into();
 
-        let contract_name = ContractName::new(HYLI_UTXO_STATE_CONTRACT_NAME);
+        let contract_name = ContractName::new(TEST_UTXO_STATE_CONTRACT_NAME);
         let contract = Contract {
             name: contract_name.clone(),
             program_id: program_id.clone(),
@@ -593,6 +611,8 @@ mod tests {
         let faucet_context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
+            utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
+            utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
         };
         let mut faucet = FaucetApp::build(faucet_bus, faucet_context)
             .await

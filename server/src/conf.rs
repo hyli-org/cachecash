@@ -15,6 +15,8 @@ pub struct Conf {
     pub buffer_blocks: u32,
     pub max_txs_per_proof: usize,
     pub tx_working_window_size: usize,
+    pub utxo_contract_name: String,
+    pub utxo_state_contract_name: String,
 }
 
 impl Conf {
