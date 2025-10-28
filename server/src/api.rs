@@ -22,7 +22,6 @@ use tracing::info;
 
 use crate::{
     app::{FaucetMintCommand, FaucetMintResult, FAUCET_MINT_AMOUNT},
-    keys::derive_key_material,
     types::{FaucetRequest, FaucetResponse},
 };
 use sdk::ContractName;
@@ -120,12 +119,27 @@ async fn faucet(
         return Err(ApiError::bad_request("amount must be greater than zero"));
     }
 
-    let key_material =
-        derive_key_material(name).map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let pubkey_hex = request.pubkey_hex.trim();
+    if pubkey_hex.is_empty() {
+        return Err(ApiError::bad_request("pubkey_hex must not be empty"));
+    }
+
+    let normalized_pubkey = pubkey_hex.strip_prefix("0x").unwrap_or(pubkey_hex);
+    let pubkey_bytes = hex::decode(normalized_pubkey)
+        .map_err(|err| ApiError::bad_request(format!("invalid pubkey_hex: {err}")))?;
+
+    if pubkey_bytes.len() != 32 {
+        return Err(ApiError::bad_request("pubkey_hex must decode to 32 bytes"));
+    }
+
+    let mut address_bytes = [0u8; 32];
+    address_bytes.copy_from_slice(&pubkey_bytes);
+    let recipient_address = element::Element::from_be_bytes(address_bytes);
 
     let mint_result = bus
         .request(FaucetMintCommand {
-            key_material: key_material.clone(),
+            recipient_pubkey: pubkey_bytes,
+            recipient_address,
             amount,
         })
         .await
@@ -136,24 +150,6 @@ async fn faucet(
     };
 
     Ok(Json(response))
-}
-
-async fn faucet_log(
-    Path(username): Path<String>,
-    State(state): State<RouterCtx>,
-) -> Json<serde_json::Value> {
-    info!(
-        user = %username,
-        default_amount = state.default_amount,
-        contract = state.contract_name,
-        "Faucet endpoint invoked for user"
-    );
-
-    Json(json!({
-        "message": format!("Faucet request received for {username}"),
-        "default_amount": state.default_amount,
-        "contract_name": state.contract_name,
-    }))
 }
 
 #[derive(Debug)]

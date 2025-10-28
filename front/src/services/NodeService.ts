@@ -63,13 +63,24 @@ class NodeService {
         }
     }
 
-    async requestFaucet(playerName: string, amount?: number): Promise<FaucetResponse> {
+    async requestFaucet(playerName: string, publicKeyHex: string, amount?: number): Promise<FaucetResponse> {
         const trimmedName = playerName.trim();
         if (!trimmedName) {
             throw new Error("Player name must not be empty");
         }
 
-        const payload: Record<string, unknown> = { name: trimmedName };
+        const normalizedPublicKey = publicKeyHex.trim().replace(/^0x/i, "");
+        if (normalizedPublicKey.length === 0) {
+            throw new Error("Public key must not be empty");
+        }
+        if (normalizedPublicKey.length !== 64) {
+            throw new Error("Public key must be a 32-byte hex string");
+        }
+
+        const payload: Record<string, unknown> = {
+            name: trimmedName,
+            pubkey_hex: normalizedPublicKey,
+        };
         if (typeof amount === "number") {
             payload.amount = amount;
         }

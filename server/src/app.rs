@@ -12,17 +12,14 @@ use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity, TxHash};
 use tracing::{info, warn};
 use zk_primitives::{Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
 
-use crate::{
-    keys::KeyMaterial,
-    noir_prover::HyliUtxoProofJob,
-    tx::FAUCET_IDENTITY_PREFIX,
-};
+use crate::{noir_prover::HyliUtxoProofJob, tx::FAUCET_IDENTITY_PREFIX};
 
 pub const FAUCET_MINT_AMOUNT: u64 = 10;
 
 #[derive(Clone, Debug)]
 pub struct FaucetMintCommand {
-    pub key_material: KeyMaterial,
+    pub recipient_pubkey: Vec<u8>,
+    pub recipient_address: Element,
     pub amount: u64,
 }
 
@@ -87,7 +84,7 @@ impl Module for FaucetApp {
 impl FaucetApp {
     async fn process_request(&mut self, request: FaucetMintCommand) -> Result<FaucetMintResult> {
         let (blob_transaction, recipient_note, utxo) =
-            self.build_transaction(&request.key_material, request.amount)?;
+            self.build_transaction(request.recipient_address, request.amount)?;
 
         let tx_hash = self
             .client
@@ -108,13 +105,12 @@ impl FaucetApp {
 
     fn build_transaction(
         &mut self,
-        key_material: &KeyMaterial,
+        recipient_address: Element,
         amount: u64,
     ) -> Result<(BlobTransaction, Note, Utxo)> {
-        let private_key = Element::from_be_bytes(key_material.private_key);
         let minted_value = Element::new(amount);
 
-        let recipient_note = Note::new(private_key, minted_value);
+        let recipient_note = Note::new(recipient_address, minted_value);
         let utxo = Utxo::new_mint([recipient_note.clone(), Note::padding_note()]);
 
         let leaf_elements = utxo.leaf_elements();
@@ -219,51 +215,29 @@ impl FaucetApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        hyli_utxo_state_client::HyliUtxoStateExecutor, keys::derive_key_material,
-        noir_prover::HyliUtxoNoirProver,
-    };
+    use crate::{hyli_utxo_state_client::HyliUtxoStateExecutor, noir_prover::HyliUtxoNoirProver};
     use barretenberg::{Prove, Verify};
     use client_sdk::{
         helpers::{test::MockProver, ClientSdkProver},
         rest_client::test::NodeApiMockClient,
         transaction_builder::TxExecutorHandler,
     };
+    use element::Element;
     use hyli_modules::{
         bus::{dont_use_this, metrics::BusMetrics, SharedMessageBus},
         modules::prover::{AutoProver, AutoProverCtx},
     };
     use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+    use sdk::hyli_model_utils::TimestampMs;
     use sdk::{
-        AggregateSignature,
-        Block,
-        BlockHeight,
-        BlockStakingData,
-        Blob,
-        BlobIndex,
-        BlobTransaction,
-        Calldata,
-        ConsensusProposal,
-        ConsensusProposalHash,
-        Contract,
-        ContractName,
-        DataProposalHash,
-        NodeStateBlock,
-        NodeStateEvent,
-        ProgramId,
-        StatefulEvent,
-        StatefulEvents,
-        TimeoutWindow,
-        Transaction,
-        TxContext,
-        TxHash,
-        TxId,
-        ValidatorPublicKey,
-        Verifier,
+        AggregateSignature, Blob, BlobIndex, BlobTransaction, Block, BlockHeight, BlockStakingData,
+        Calldata, ConsensusProposal, ConsensusProposalHash, Contract, ContractName,
+        DataProposalHash, NodeStateBlock, NodeStateEvent, ProgramId, StatefulEvent, StatefulEvents,
+        TimeoutWindow, Transaction, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
         HYLI_TESTNET_CHAIN_ID,
     };
     use sdk::{Hashed, LaneId, SignedBlock};
-    use sdk::hyli_model_utils::TimestampMs;
+    use sha3::{Digest, Sha3_256};
     use std::{collections::BTreeMap, sync::Arc};
     use tempfile::tempdir;
     use tokio::time::{sleep, timeout, Duration};
@@ -271,6 +245,13 @@ mod tests {
 
     const TEST_UTXO_CONTRACT_NAME: &str = "hyli_utxo";
     const TEST_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
+
+    fn deterministic_address(label: &str) -> Element {
+        let mut hasher = Sha3_256::new();
+        hasher.update(label.as_bytes());
+        let digest: [u8; 32] = hasher.finalize().into();
+        Element::from_be_bytes(digest)
+    }
 
     fn find_hyli_blob(blobs: &[Blob]) -> (usize, &[u8]) {
         blobs
@@ -287,7 +268,10 @@ mod tests {
         block_height: u64,
     ) -> NodeStateBlock {
         let tx_hash = blob_tx.hashed();
-        let tx_id = TxId(DataProposalHash(format!("dp-{block_height}")), tx_hash.clone());
+        let tx_id = TxId(
+            DataProposalHash(format!("dp-{block_height}")),
+            tx_hash.clone(),
+        );
         let tx_ctx = Arc::new(TxContext {
             lane_id: LaneId(ValidatorPublicKey(vec![0u8; 32])),
             block_hash: ConsensusProposalHash(format!("block-{block_height}")),
@@ -369,10 +353,10 @@ mod tests {
             .await
             .expect("building faucet app");
 
-        let key_material = derive_key_material("alice").expect("key material");
+        let recipient_address = deterministic_address("alice");
 
         let (blob_tx, _note, utxo) = app
-            .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
+            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
             .expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);
@@ -392,9 +376,8 @@ mod tests {
             blob_index: blob_index as u32,
         };
 
-        let hyli_utxo =
-            HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
-                .expect("build hyli utxo");
+        let hyli_utxo = HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
+            .expect("build hyli utxo");
 
         assert_eq!(hyli_utxo.identity_len as usize, identity.len());
         assert_eq!(
@@ -432,10 +415,10 @@ mod tests {
             .await
             .expect("building faucet app");
 
-        let key_material = derive_key_material("state-order-test").expect("key material");
+        let recipient_address = deterministic_address("state-order-test");
 
         let (blob_tx, recipient_note, utxo) = app
-            .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
+            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
             .expect("build transaction");
 
         let (state_index, state_blob) = blob_tx
@@ -525,10 +508,10 @@ mod tests {
             .await
             .expect("building faucet app");
 
-        let key_material = derive_key_material("noir-proof-test").expect("key material");
+        let recipient_address = deterministic_address("noir-proof-test");
 
         let (blob_tx, _note, utxo) = app
-            .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
+            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
             .expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);
@@ -545,9 +528,8 @@ mod tests {
             blob_index: blob_index as u32,
         };
 
-        let hyli_utxo =
-            HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
-                .expect("build hyli utxo");
+        let hyli_utxo = HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
+            .expect("build hyli utxo");
 
         let proof = hyli_utxo.prove().expect("generate hyli_utxo proof");
 
@@ -577,8 +559,7 @@ mod tests {
         api_client.add_contract(contract.clone());
 
         let data_dir = tempdir().expect("tempdir");
-        let prover_arc: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> =
-            mock_prover.clone();
+        let prover_arc: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> = mock_prover.clone();
         let node_arc: Arc<dyn NodeApiClient + Send + Sync> = api_client.clone();
 
         let ctx = Arc::new(AutoProverCtx {
@@ -593,12 +574,9 @@ mod tests {
             tx_working_window_size: 1,
         });
 
-        let auto_prover = AutoProver::<HyliUtxoStateExecutor>::build(
-            shared_bus.new_handle(),
-            ctx,
-        )
-        .await
-        .expect("build autoprover");
+        let auto_prover = AutoProver::<HyliUtxoStateExecutor>::build(shared_bus.new_handle(), ctx)
+            .await
+            .expect("build autoprover");
 
         let auto_prover_handle = tokio::spawn(async move {
             let mut prover = auto_prover;
@@ -617,9 +595,9 @@ mod tests {
         let mut faucet = FaucetApp::build(faucet_bus, faucet_context)
             .await
             .expect("build faucet app");
-        let key_material = derive_key_material("autoprover-test").expect("key material");
+        let recipient_address = deterministic_address("autoprover-test");
         let (blob_tx, _, _) = faucet
-            .build_transaction(&key_material, FAUCET_MINT_AMOUNT)
+            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
             .expect("build transaction");
         api_client.set_block_height(BlockHeight(0));
         let block = build_node_state_block(blob_tx.clone(), contract.clone(), 0);
@@ -657,7 +635,10 @@ mod tests {
         .expect("proof timeout");
 
         assert_eq!(proof.contract_name, contract_name);
-        assert!(!proof.proof.0.is_empty(), "proof payload should not be empty");
+        assert!(
+            !proof.proof.0.is_empty(),
+            "proof payload should not be empty"
+        );
 
         auto_prover_handle.abort();
         let _ = auto_prover_handle.await;

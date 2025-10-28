@@ -175,7 +175,12 @@ function App() {
     const storedPrivate = localStorage.getItem(`keys:${storedPlayer}:private`);
     const storedPublic = localStorage.getItem(`keys:${storedPlayer}:public`);
 
-    if (storedPrivate && storedPublic) {
+    if (
+      storedPrivate &&
+      storedPublic &&
+      storedPrivate.length === 64 &&
+      storedPublic.length === 64
+    ) {
       return { privateKey: storedPrivate, publicKey: storedPublic };
     }
 
@@ -424,7 +429,7 @@ function App() {
   };
 
   const sliceOrange = async (orangeId: number) => {
-    if (!playerName) return;
+    if (!playerName || !playerKeys) return;
     try {
       await window.orangeMutex.acquire();
       const orange = oranges.find((o) => o.id === orangeId);
@@ -451,7 +456,11 @@ function App() {
       // Only send blob tx if no bomb penalty is active
       if (bombPenalty === 0) {
         try {
-          const { tx_hash: txHash, note } = await nodeService.requestFaucet(playerName);
+          if (!playerKeys?.publicKey) {
+            throw new Error("Missing player public key");
+          }
+
+          const { tx_hash: txHash, note } = await nodeService.requestFaucet(playerName, playerKeys.publicKey);
           setSubmissionError(null);
           const reference = txHash ?? deriveNoteReference(note);
           const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;

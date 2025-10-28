@@ -6,6 +6,7 @@ use zk_primitives::Note;
 #[derive(Debug, Deserialize)]
 pub struct FaucetRequest {
     pub name: String,
+    pub pubkey_hex: String,
     #[serde(default)]
     pub amount: Option<u64>,
 }

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use hyli_verifiers::noir_utils;
 use sdk::{HyliOutput, ProgramId, ProofData, ProofTransaction, Verifier};
 
@@ -69,10 +69,8 @@ impl NoirProver {
             noir_utils::split_public_inputs(&proof_data.0, &artifacts.program_id.0)
                 .ok_or_else(|| anyhow!("failed to split Noir public inputs from proof"))?;
 
-        let outputs = vec![
-            noir_utils::parse_noir_output(public_inputs)
-                .context("parsing Noir public inputs into HyliOutput")?,
-        ];
+        let outputs = vec![noir_utils::parse_noir_output(public_inputs)
+            .context("parsing Noir public inputs into HyliOutput")?];
         // };
 
         let proof_tx = ProofTransaction {

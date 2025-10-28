@@ -21,9 +21,11 @@ export const deriveKeyPairFromName = (name: string): DerivedKeyPair => {
 
   const privateKeyHex = SHA256(normalized).toString();
   const key = curve.keyFromPrivate(privateKeyHex, "hex");
+  const privateKey = key.getPrivate("hex").padStart(64, "0");
+  const publicKeyX = key.getPublic().getX().toString(16).padStart(64, "0");
 
   return {
-    privateKey: key.getPrivate("hex"),
-    publicKey: key.getPublic(true, "hex"),
+    privateKey,
+    publicKey: publicKeyX,
   };
 };

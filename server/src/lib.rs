@@ -3,7 +3,6 @@ pub mod app;
 pub mod conf;
 pub mod hyli_utxo_state_client;
 pub mod init;
-pub mod keys;
 pub mod noir_prover;
 pub mod prover;
 pub mod tx;
