@@ -32,7 +32,7 @@ impl Conf {
 
         builder
             .add_source(
-                Environment::with_prefix("zfruit")
+                Environment::with_prefix("CACHECASH")
                     .separator("__")
                     .prefix_separator("_")
                     .list_separator(","),
