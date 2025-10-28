@@ -4,7 +4,6 @@ use crate::backend::DefaultBackend;
 use crate::circuits::get_bytecode_from_program;
 use crate::prove::prove;
 use crate::traits::{Prove, Verify};
-use crate::util::write_to_temp_file;
 use crate::verify::{VerificationKey, VerificationKeyHash, verify};
 use core::iter::Iterator;
 use element::Base;
@@ -13,7 +12,6 @@ use noirc_abi::{InputMap, input_parser::InputValue};
 use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use zk_primitives::{
     AggUtxo, AggUtxoProof, AggUtxoProofBytes, AggUtxoPublicInput, MerklePath, ToBytes,
     UtxoProofBundleWithMerkleProofs, bytes_to_elements,
@@ -26,7 +24,6 @@ const KEY_FIELDS: &[u8] = include_bytes!("../../../../fixtures/keys/agg_utxo_key
 lazy_static! {
     static ref PROGRAM_ARTIFACT: ProgramArtifact = serde_json::from_str(PROGRAM).unwrap();
     static ref PROGRAM_COMPILED: CompiledProgram = CompiledProgram::from(PROGRAM_ARTIFACT.clone());
-    static ref PROGRAM_PATH: PathBuf = write_to_temp_file(PROGRAM.as_bytes(), ".json");
     static ref BYTECODE: Vec<u8> = get_bytecode_from_program(PROGRAM);
     pub static ref AGG_UTXO_VERIFICATION_KEY: VerificationKey =
         VerificationKey(serde_json::from_slice(KEY_FIELDS).unwrap());

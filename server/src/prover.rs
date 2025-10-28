@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use hyli_verifiers::noir_utils;
 use sdk::{HyliOutput, ProgramId, ProofData, ProofTransaction, Verifier};
 
@@ -34,23 +34,20 @@ impl NoirProofArtifacts {
 #[derive(Clone)]
 pub struct NoirProver {
     verifier: Verifier,
-    verify_locally: bool,
 }
 
 impl NoirProver {
     /// Create a new prover instance.
-    pub fn new(verify_locally: bool) -> Self {
+    pub fn new() -> Self {
         Self {
             verifier: Verifier(sdk::verifiers::NOIR.to_string()),
-            verify_locally,
         }
     }
 
     /// Create a [`ProofTransaction`] for the provided artifacts.
     ///
-    /// When `verify_locally` is enabled, the proof is checked using the Noir verifier shipped
-    /// with the Hyli toolchain before returning the transaction. The corresponding
-    /// [`HyliOutput`] values are returned for convenience.
+    /// The Noir proof embeds public inputs, which we decode into [`HyliOutput`] values
+    /// for convenience before returning the transaction.
     pub fn build_proof_transaction(
         &self,
         contract: &ContractDeployment,
@@ -58,10 +55,6 @@ impl NoirProver {
     ) -> Result<(ProofTransaction, Vec<HyliOutput>)> {
         let proof_data = ProofData(artifacts.proof.clone());
 
-        // let outputs = if self.verify_locally {
-        //     noir::verify(&proof_data, &artifacts.program_id)
-        //         .context("verifying Noir proof locally")?
-        // } else {
         // For callers that skip verification we still expose decoded outputs so the API response
         // remains consistent.
 
@@ -69,10 +62,8 @@ impl NoirProver {
             noir_utils::split_public_inputs(&proof_data.0, &artifacts.program_id.0)
                 .ok_or_else(|| anyhow!("failed to split Noir public inputs from proof"))?;
 
-        let outputs = vec![
-            noir_utils::parse_noir_output(public_inputs)
-                .context("parsing Noir public inputs into HyliOutput")?,
-        ];
+        let outputs = vec![noir_utils::parse_noir_output(public_inputs)
+            .context("parsing Noir public inputs into HyliOutput")?];
         // };
 
         let proof_tx = ProofTransaction {
@@ -83,5 +74,11 @@ impl NoirProver {
         };
 
         Ok((proof_tx, outputs))
+    }
+}
+
+impl Default for NoirProver {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -115,7 +115,7 @@ impl HyliUtxo {
             write_index += HYLI_BLOB_HASH_BYTE_LENGTH;
         }
 
-        for field in nullifiers.iter() {
+        for field in &nullifiers {
             blob[write_index..write_index + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&field.to_be_bytes());
             write_index += HYLI_BLOB_HASH_BYTE_LENGTH;
@@ -128,15 +128,13 @@ impl HyliUtxo {
 fn pad_string(value: &str, target_len: usize) -> String {
     assert!(
         value.len() <= target_len,
-        "string '{}' exceeds maximum length {}",
-        value,
-        target_len
+        "string '{value}' exceeds maximum length {target_len}"
     );
 
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     padded
 }

@@ -3,7 +3,6 @@ mod circuits;
 mod execute;
 mod prove;
 mod traits;
-mod util;
 pub mod verify;
 
 pub use circuits::AGG_UTXO_VERIFICATION_KEY_HASH;

@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+acvm = { workspace = true }
 element = { workspace = true }
 
 rand = { workspace = true, optional = true }
 serde = { workspace = true }
 hex = { workspace = true }
+once_cell = { workspace = true }
 bn254_blackbox_solver = { workspace = true }
 
 [dev-dependencies]

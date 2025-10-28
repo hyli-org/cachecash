@@ -16,14 +16,14 @@ pub struct FaucetResponse {
 }
 
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
-pub enum ZfruitAction {
+pub enum CachecashAction {
     Faucet {
         recipient_pubkey: Vec<u8>,
         amount: u64,
     },
 }
 
-impl ContractAction for ZfruitAction {
+impl ContractAction for CachecashAction {
     fn as_blob(
         &self,
         contract_name: ContractName,

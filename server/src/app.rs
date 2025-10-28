@@ -229,40 +229,18 @@ mod tests {
         modules::prover::{AutoProver, AutoProverCtx},
     };
     use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+    use sdk::hyli_model_utils::TimestampMs;
     use sdk::{
-        AggregateSignature,
-        Block,
-        BlockHeight,
-        BlockStakingData,
-        Blob,
-        BlobIndex,
-        BlobTransaction,
-        Calldata,
-        ConsensusProposal,
-        ConsensusProposalHash,
-        Contract,
-        ContractName,
-        DataProposalHash,
-        NodeStateBlock,
-        NodeStateEvent,
-        ProgramId,
-        StatefulEvent,
-        StatefulEvents,
-        TimeoutWindow,
-        Transaction,
-        TxContext,
-        TxHash,
-        TxId,
-        ValidatorPublicKey,
-        Verifier,
+        AggregateSignature, Blob, BlobIndex, BlobTransaction, Block, BlockHeight, BlockStakingData,
+        Calldata, ConsensusProposal, ConsensusProposalHash, Contract, ContractName,
+        DataProposalHash, NodeStateBlock, NodeStateEvent, ProgramId, StatefulEvent, StatefulEvents,
+        TimeoutWindow, Transaction, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
         HYLI_TESTNET_CHAIN_ID,
     };
     use sdk::{Hashed, LaneId, SignedBlock};
-    use sdk::hyli_model_utils::TimestampMs;
     use std::{collections::BTreeMap, sync::Arc};
     use tempfile::tempdir;
     use tokio::time::{sleep, timeout, Duration};
-    use zk_primitives::HyliUtxo;
 
     fn find_hyli_blob(blobs: &[Blob]) -> (usize, &[u8]) {
         blobs
@@ -279,7 +257,10 @@ mod tests {
         block_height: u64,
     ) -> NodeStateBlock {
         let tx_hash = blob_tx.hashed();
-        let tx_id = TxId(DataProposalHash(format!("dp-{block_height}")), tx_hash.clone());
+        let tx_id = TxId(
+            DataProposalHash(format!("dp-{block_height}")),
+            tx_hash.clone(),
+        );
         let tx_ctx = Arc::new(TxContext {
             lane_id: LaneId(ValidatorPublicKey(vec![0u8; 32])),
             block_hash: ConsensusProposalHash(format!("block-{block_height}")),
@@ -559,8 +540,7 @@ mod tests {
         api_client.add_contract(contract.clone());
 
         let data_dir = tempdir().expect("tempdir");
-        let prover_arc: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> =
-            mock_prover.clone();
+        let prover_arc: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> = mock_prover.clone();
         let node_arc: Arc<dyn NodeApiClient + Send + Sync> = api_client.clone();
 
         let ctx = Arc::new(AutoProverCtx {
@@ -575,12 +555,9 @@ mod tests {
             tx_working_window_size: 1,
         });
 
-        let auto_prover = AutoProver::<HyliUtxoStateExecutor>::build(
-            shared_bus.new_handle(),
-            ctx,
-        )
-        .await
-        .expect("build autoprover");
+        let auto_prover = AutoProver::<HyliUtxoStateExecutor>::build(shared_bus.new_handle(), ctx)
+            .await
+            .expect("build autoprover");
 
         let auto_prover_handle = tokio::spawn(async move {
             let mut prover = auto_prover;
@@ -637,7 +614,10 @@ mod tests {
         .expect("proof timeout");
 
         assert_eq!(proof.contract_name, contract_name);
-        assert!(!proof.proof.0.is_empty(), "proof payload should not be empty");
+        assert!(
+            !proof.proof.0.is_empty(),
+            "proof payload should not be empty"
+        );
 
         auto_prover_handle.abort();
         let _ = auto_prover_handle.await;

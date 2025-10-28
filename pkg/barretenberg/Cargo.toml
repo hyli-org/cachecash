@@ -6,6 +6,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = { workspace = true }
 element = { workspace = true }
 zk-primitives = { workspace = true }
 lazy_static = "1.4"
@@ -18,9 +19,7 @@ nargo = { workspace = true }
 noirc_abi = { workspace = true }
 noirc_driver = { workspace = true }
 noirc_artifacts = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
-borsh = { workspace = true }
 bincode = { workspace = true }
 base64 = { workspace = true }
 flate2 = { workspace = true }

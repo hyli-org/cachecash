@@ -46,7 +46,6 @@ module_bus_client! {
 pub struct HyliUtxoNoirProverCtx {
     pub node: Arc<dyn NodeApiClient + Send + Sync>,
     pub contract: ContractDeployment,
-    pub verify_locally: bool,
 }
 
 pub struct HyliUtxoNoirProver {
@@ -60,7 +59,7 @@ impl Module for HyliUtxoNoirProver {
 
     async fn build(bus: SharedMessageBus, ctx: Self::Context) -> Result<Self> {
         let bus = HyliUtxoNoirProverBusClient::new_from_bus(bus.new_handle()).await;
-        let prover = NoirProver::new(ctx.verify_locally);
+        let prover = NoirProver::new();
 
         Ok(Self { bus, ctx, prover })
     }
@@ -208,7 +207,7 @@ pub(crate) fn pad_right_with_null(value: &str, target_len: usize) -> Result<Stri
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     Ok(padded)
 }

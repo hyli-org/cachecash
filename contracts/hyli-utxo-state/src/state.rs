@@ -38,7 +38,7 @@ impl HyliUtxoZkVmBatch {
 
     pub fn extend_with(&mut self, next: HyliUtxoZkVmBatch) {
         let mut merged = Vec::with_capacity(next.remaining.len() + 1 + self.remaining.len());
-        merged.extend(next.remaining.into_iter());
+        merged.extend(next.remaining);
         merged.push(next.current);
         merged.extend(std::mem::take(&mut self.remaining));
         self.remaining = merged;
@@ -256,7 +256,7 @@ impl sdk::TransactionalZkContract for HyliUtxoZkVmBatch {
     }
 }
 
-pub fn hyli_utxo_blob<'a>(calldata: &'a Calldata) -> Result<&'a [u8], String> {
+pub fn hyli_utxo_blob(calldata: &Calldata) -> Result<&[u8], String> {
     calldata
         .blobs
         .iter()
@@ -338,13 +338,11 @@ mod tests {
         assert_eq!(batch.remaining.len(), 2);
 
         // Advance to next step; commitment should still reflect the applied step.
-        let _ =
-            <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
+        let _ = <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
         assert_root(&batch, 2);
         assert_eq!(batch.remaining.len(), 1);
 
-        let _ =
-            <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
+        let _ = <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
         assert_root(&batch, 3);
         assert_eq!(batch.remaining.len(), 0);
     }

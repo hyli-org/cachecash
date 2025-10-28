@@ -4,7 +4,6 @@ use crate::{
     circuits::get_bytecode_from_program,
     prove::prove,
     traits::{Prove, Verify},
-    util::write_to_temp_file,
     verify::{VerificationKey, VerificationKeyHash, verify},
 };
 use element::Base;
@@ -12,22 +11,22 @@ use lazy_static::lazy_static;
 use noirc_abi::{InputMap, input_parser::InputValue};
 use noirc_artifacts::program::ProgramArtifact;
 use noirc_driver::CompiledProgram;
-use std::path::PathBuf;
 use zk_primitives::{
     Migrate, MigrateProof, MigrateProofBytes, MigratePublicInput, ToBytes, bytes_to_elements,
 };
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/migrate.json");
 const KEY: &[u8] = include_bytes!("../../../../fixtures/keys/migrate_key/vk");
-const KEY_FIELDS: &[u8] = include_bytes!("../../../../fixtures/keys/migrate_key_fields.json");
 
 lazy_static! {
     static ref PROGRAM_ARTIFACT: ProgramArtifact = serde_json::from_str(PROGRAM).unwrap();
     static ref PROGRAM_COMPILED: CompiledProgram = CompiledProgram::from(PROGRAM_ARTIFACT.clone());
-    static ref PROGRAM_PATH: PathBuf = write_to_temp_file(PROGRAM.as_bytes(), ".json");
     static ref BYTECODE: Vec<u8> = get_bytecode_from_program(PROGRAM);
     pub static ref MIGRATE_VERIFICATION_KEY: VerificationKey = {
-        let fields = serde_json::from_slice::<Vec<Base>>(KEY_FIELDS).unwrap();
+        let fields = serde_json::from_slice::<Vec<Base>>(include_bytes!(
+            "../../../../fixtures/keys/migrate_key_fields.json"
+        ))
+        .unwrap();
         VerificationKey(fields)
     };
     pub static ref MIGRATE_VERIFICATION_KEY_HASH: VerificationKeyHash = VerificationKeyHash(
@@ -115,7 +114,6 @@ impl Verify for MigrateProof {
 mod tests {
     use super::*;
     use element::Element;
-    use hash::hash_merge;
     use zk_primitives::get_address_for_private_key;
 
     #[test]
@@ -124,7 +122,7 @@ mod tests {
         let owner_pk = Element::from(101u64);
 
         let new_address = get_address_for_private_key(owner_pk);
-        let old_address = hash_merge([owner_pk, Element::ZERO]);
+        let old_address = hash::poseidon_alt_hash_2([owner_pk, Element::ZERO]);
 
         let migrate = Migrate {
             owner_pk,
