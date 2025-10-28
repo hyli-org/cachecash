@@ -1,6 +1,3 @@
-import { addStoredNote } from "./noteStorage";
-import { StoredNote } from "../types/note";
-
 type MaybeFaucetNote = {
     kind?: string;
     contract?: string;
@@ -63,12 +60,7 @@ class NodeService {
         }
     }
 
-    async requestFaucet(playerName: string, publicKeyHex: string, amount?: number): Promise<FaucetResponse> {
-        const trimmedName = playerName.trim();
-        if (!trimmedName) {
-            throw new Error("Player name must not be empty");
-        }
-
+    async requestFaucet(publicKeyHex: string, amount?: number): Promise<FaucetResponse> {
         const normalizedPublicKey = publicKeyHex.trim().replace(/^0x/i, "");
         if (normalizedPublicKey.length === 0) {
             throw new Error("Public key must not be empty");
@@ -78,7 +70,6 @@ class NodeService {
         }
 
         const payload: Record<string, unknown> = {
-            name: trimmedName,
             pubkey_hex: normalizedPublicKey,
         };
         if (typeof amount === "number") {
@@ -101,30 +92,8 @@ class NodeService {
             throw new Error("Unexpected faucet response");
         }
 
-        if (hasTxHash || hasNote) {
-            const reference = hasTxHash ? data.tx_hash : deriveNoteReference(data.note);
-            if (reference) {
-                const stored: StoredNote = {
-                    txHash: reference,
-                    note: hasNote ? data.note : data,
-                    storedAt: Date.now(),
-                    player: trimmedName,
-                };
-                addStoredNote(trimmedName, stored);
-            }
-        }
-
         return data;
     }
 }
 
 export const nodeService = new NodeService();
-
-function deriveNoteReference(note: MaybeFaucetNote | null | undefined): string | undefined {
-    if (!note || typeof note !== "object") {
-        return undefined;
-    }
-
-    const candidates = [note.psi, note.address, note.contract, note.value, note.kind];
-    return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
-}

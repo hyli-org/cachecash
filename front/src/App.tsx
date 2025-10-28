@@ -12,6 +12,8 @@ import bombSound from "./audio/bomb.mp3";
 import { declareCustomElement } from "testnet-maintenance-widget";
 import { useStoredNotes } from "./hooks/useStoredNotes";
 import { useDebugMode } from "./hooks/useDebugMode";
+import { addStoredNote } from "./services/noteStorage";
+import { StoredNote } from "./types/note";
 declareCustomElement();
 
 // Mutex implementation
@@ -433,9 +435,24 @@ function App() {
             throw new Error("Missing player public key");
           }
 
-          const { tx_hash: txHash, note } = await nodeService.requestFaucet(playerName, playerKeys.publicKey);
+          const trimmedPlayerName = playerName.trim();
+          if (!trimmedPlayerName) {
+            throw new Error("Player name must not be empty");
+          }
+
+          const response = await nodeService.requestFaucet(playerKeys.publicKey);
+          const { tx_hash: txHash, note } = response;
           setSubmissionError(null);
           const reference = txHash ?? deriveNoteReference(note);
+          if (reference) {
+            const stored: StoredNote = {
+              txHash: reference,
+              note: note ?? response,
+              storedAt: Date.now(),
+              player: trimmedPlayerName,
+            };
+            addStoredNote(trimmedPlayerName, stored);
+          }
           const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
           const title = `+1 pumpkin${playerName ? ` for ${playerName}` : ""}`;
           setTransactions((prev) =>

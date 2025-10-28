@@ -100,11 +100,6 @@ async fn faucet(
         mut bus,
     } = state;
 
-    let name = request.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name must not be empty"));
-    }
-
     let default_amount = if default_amount == 0 {
         FAUCET_MINT_AMOUNT
     } else {
