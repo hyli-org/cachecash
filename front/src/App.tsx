@@ -276,7 +276,6 @@ function App() {
     setSubmissionError(null);
   }, [setPlayerName, setSubmissionError]);
 
-  const [showFlex, setShowFlex] = useState(false);
 
   const createJuiceEffect = useCallback((x: number, y: number) => {
     const particles: JuiceParticle[] = [];
@@ -1068,13 +1067,6 @@ top: `${particle.y}px`,*/
             <div className="nes-hud__card nes-hud__card--score">
               <div className="nes-hud__title">SCORE</div>
               <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
-              <button
-                type="button"
-                className="pixel-button pixel-button--compact pixel-button--flex"
-                onClick={() => setShowFlex(true)}
-              >
-                FLEX
-              </button>
             </div>
           </div>
           <div className="nes-hud__status">
@@ -1119,30 +1111,6 @@ top: `${particle.y}px`,*/
       </footer>
 
       {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
-
-      {showFlex && (
-        <div className="flex-modal__backdrop">
-          <div className="flex-modal">
-            <button
-              type="button"
-              className="flex-modal__close"
-              onClick={() => setShowFlex(false)}
-              aria-label="Close"
-            >
-              ×
-            </button>
-            <div className="flex-modal__badge">Flex Mode</div>
-            <div className="flex-modal__content">
-              <p className="flex-modal__headline">{playerName || "Player"} is sitting on</p>
-              <div className="flex-modal__balance">{noteBalance.toLocaleString()} notes</div>
-              <p className="flex-modal__caption">That’s some serious CacheCash energy.</p>
-            </div>
-            <button type="button" className="pixel-button pixel-button--compact" onClick={() => setShowFlex(false)}>
-              CLOSE
-            </button>
-          </div>
-        </div>
-      )}
 
     </div>
   );
