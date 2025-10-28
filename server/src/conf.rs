@@ -7,7 +7,6 @@ pub struct Conf {
     pub log_format: String,
     pub rest_server_port: u16,
     pub rest_server_max_body_size: usize,
-    pub contract_name: String,
     pub default_faucet_amount: u64,
     pub node_url: String,
     pub data_directory: String,

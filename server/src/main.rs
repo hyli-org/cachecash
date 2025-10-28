@@ -64,12 +64,7 @@ async fn main() -> Result<()> {
         config.default_faucet_amount = amount;
     }
     if let Some(contract_name) = args.contract_name {
-        config.utxo_contract_name = contract_name.clone();
-        config.contract_name = contract_name;
-    }
-
-    if config.contract_name != config.utxo_contract_name {
-        config.contract_name = config.utxo_contract_name.clone();
+        config.utxo_contract_name = contract_name;
     }
 
     init_tracing(&config.log_format)
@@ -149,7 +144,7 @@ async fn main() -> Result<()> {
         .build_module::<ApiModule>(Arc::new(ApiModuleCtx {
             api: api_builder_ctx.clone(),
             default_amount: config.default_faucet_amount,
-            contract_name: ContractName(config.contract_name.clone()),
+            contract_name: ContractName(config.utxo_contract_name.clone()),
             metrics: faucet_metrics.clone(),
         }))
         .await
@@ -212,7 +207,7 @@ async fn main() -> Result<()> {
         .context("building REST API module")?;
 
     info!(
-        contract = %config.contract_name,
+        contract = %config.utxo_contract_name,
         amount = config.default_faucet_amount,
         port = config.rest_server_port,
         "Starting zfruit faucet server",
