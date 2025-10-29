@@ -130,6 +130,7 @@ const SMALL_MOBILE_BREAKPOINT = 480;
 const MAX_PENALTY_DISPLAY = 30;
 const SLICE_SPEED_WINDOW_MS = 8000; // Rolling window for slices per second
 const MAX_SLICE_SPEED = 5; // Upper bound for gauge visualization
+const SECRET_VIDEO_POOL: string[] = ["/videos/clip1.mp4", "/videos/clip2.mp4", "/videos/clip3.mp4"];
 
 interface ViewportSpriteSizes {
   orangeSize: number;
@@ -232,6 +233,8 @@ function App() {
     typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
   );
   const previousScoreboardCollapsedRef = useRef(isScoreboardCollapsed);
+  const [isSecretVideoOpen, setIsSecretVideoOpen] = useState(false);
+  const [secretVideoSources, setSecretVideoSources] = useState<string[]>([]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -248,6 +251,19 @@ function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  const selectSecretVideos = useCallback(() => {
+    if (SECRET_VIDEO_POOL.length === 0) {
+      setSecretVideoSources([]);
+      return;
+    }
+    const shuffled = [...SECRET_VIDEO_POOL].sort(() => Math.random() - 0.5);
+    setSecretVideoSources(shuffled.slice(0, 2));
+  }, []);
+
+  useEffect(() => {
+    selectSecretVideos();
+  }, [selectSecretVideos]);
 
   useEffect(() => {
     if (isMobileLayout) {
@@ -346,6 +362,16 @@ function App() {
       setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
     }
   }, [isMobileLayout]);
+
+  const handleToggleSecretVideo = useCallback(() => {
+    if (isMobileLayout || SECRET_VIDEO_POOL.length === 0) {
+      return;
+    }
+    if (!isSecretVideoOpen) {
+      selectSecretVideos();
+    }
+    setIsSecretVideoOpen((prev) => !prev);
+  }, [isMobileLayout, isSecretVideoOpen, selectSecretVideos]);
 
   const handleToggleScoreboard = useCallback(() => {
     setIsScoreboardCollapsed((prev) => !prev);
@@ -996,24 +1022,36 @@ function App() {
         transactions={transactions}
         setTransactions={setTransactions}
         isMobile={isMobileLayout}
+        isSecretVideoOpen={isSecretVideoOpen}
       />
 
       <div className="pumpkin-title">
-        <div className={titleBadgeClassName}>Cache Cash</div>
+        <button type="button" className="pumpkin-title__badge-button" onClick={handleToggleSecretVideo}>
+          <span className={titleBadgeClassName} aria-hidden="true">
+            Cache Cash
+          </span>
+        </button>
       </div>
-      <div
-        ref={gameAreaRef}
+      <div className="game-layout">
+        {!isMobileLayout && isSecretVideoOpen && secretVideoSources[0] && (
+          <aside className="secret-video-panel secret-video-panel--left" aria-label="Secret Video">
+            <video src={secretVideoSources[0]} playsInline autoPlay muted loop />
+          </aside>
+        )}
 
-        className={gameAreaClassName}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        style={{ touchAction: "none" }} // Prevent default touch actions
-      >
+        <div
+          ref={gameAreaRef}
+
+          className={gameAreaClassName}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{ touchAction: "none" }} // Prevent default touch actions
+        >
         <maintenance-widget />
 
         {!playerName && (
@@ -1172,6 +1210,13 @@ top: `${particle.y}px`,*/
           />
         ))}
 
+        </div>
+
+        {!isMobileLayout && isSecretVideoOpen && secretVideoSources[1] && (
+          <aside className="secret-video-panel secret-video-panel--right" aria-label="Secret Video">
+            <video src={secretVideoSources[1]} playsInline autoPlay muted loop />
+          </aside>
+        )}
       </div>
       {(!isMobileLayout || !isScoreboardCollapsed) && (
         <footer className={`nes-hud nes-hud--footer${isMobileLayout ? " nes-hud--footer-mobile" : ""}`}>
@@ -1266,7 +1311,6 @@ top: `${particle.y}px`,*/
       {isManageModalOpen && playerName && (
         <ManageNotesModal playerName={playerName} notes={storedNotes} onClose={handleCloseManageModal} />
       )}
-
       {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
 
     </div>

@@ -10,9 +10,10 @@ interface TransactionListProps {
     transactions: Transaction[];
     setTransactions: (callback: (prev: Transaction[]) => Transaction[]) => void;
     isMobile?: boolean;
+    isSecretVideoOpen?: boolean;
 }
 
-export const TransactionList = ({ transactions, setTransactions, isMobile = false }: TransactionListProps) => {
+export const TransactionList = ({ transactions, setTransactions, isMobile = false, isSecretVideoOpen = false }: TransactionListProps) => {
     useEffect(() => {
         const timeout = setTimeout(() => {
             setTransactions((prev) => prev.filter((tx) => Date.now() - tx.timestamp < 3000));
@@ -25,7 +26,9 @@ export const TransactionList = ({ transactions, setTransactions, isMobile = fals
         return null;
     }
 
-    const visibleTransactions = isMobile ? transactions.slice(0, 2) : transactions;
+    const visibleTransactions = isMobile
+        ? transactions.slice(0, 2)
+        : transactions.slice(0, isSecretVideoOpen ? 4 : transactions.length);
 
     return (
         <div className="transaction-list">
