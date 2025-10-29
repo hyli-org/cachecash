@@ -976,15 +976,22 @@ function App() {
     return () => cancelAnimationFrame(animationFrame);
   }, []);
 
-  const appClassName = `App${isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""}`;
+  const appClassName = `App${bombPenalty > 0 ? " App--penalty" : ""}${
+    isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""
+  }`;
+  const titleBadgeClassName = `pumpkin-title__badge${bombPenalty > 0 ? " pumpkin-title__badge--warning" : ""}`;
   const gameAreaClassName = "game-area";
 
   return (
     <div className={appClassName}>
-      <TransactionList transactions={transactions} setTransactions={setTransactions} />
+      <TransactionList
+        transactions={transactions}
+        setTransactions={setTransactions}
+        isMobile={isMobileLayout}
+      />
 
       <div className="pumpkin-title">
-        <div className="pumpkin-title__badge">Cache Cash</div>
+        <div className={titleBadgeClassName}>Cache Cash</div>
       </div>
       <div
         ref={gameAreaRef}

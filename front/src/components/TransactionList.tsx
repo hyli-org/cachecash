@@ -9,9 +9,10 @@ interface Transaction {
 interface TransactionListProps {
     transactions: Transaction[];
     setTransactions: (callback: (prev: Transaction[]) => Transaction[]) => void;
+    isMobile?: boolean;
 }
 
-export const TransactionList = ({ transactions, setTransactions }: TransactionListProps) => {
+export const TransactionList = ({ transactions, setTransactions, isMobile = false }: TransactionListProps) => {
     useEffect(() => {
         const timeout = setTimeout(() => {
             setTransactions((prev) => prev.filter((tx) => Date.now() - tx.timestamp < 3000));
@@ -24,9 +25,11 @@ export const TransactionList = ({ transactions, setTransactions }: TransactionLi
         return null;
     }
 
+    const visibleTransactions = isMobile ? transactions.slice(0, 2) : transactions;
+
     return (
         <div className="transaction-list">
-            {transactions.map((tx) => (
+            {visibleTransactions.map((tx) => (
                 <div key={tx.timestamp} className="transaction-list__item">
                     <div className="transaction-list__title">{tx.title}</div>
                     {tx.hash ? <div className="transaction-list__hash">{tx.hash}</div> : null}
