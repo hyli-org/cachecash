@@ -37,6 +37,38 @@
     margin: 0;
 }
 
+.ready-overlay__content {
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: rgba(255, 223, 210, 0.9);
+}
+
+.ready-overlay__section h3 {
+    margin: 0 0 6px;
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 186, 130, 0.9);
+}
+
+.ready-overlay__section p {
+    margin: 0 0 6px;
+}
+
+.ready-overlay__section ol {
+    margin: 0 0 6px;
+    padding-left: 18px;
+}
+
+.ready-overlay__section a {
+    color: #ffda9b;
+    text-decoration: underline;
+}
+
 
 .ready-overlay__form {
     display: flex;

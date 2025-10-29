@@ -1056,8 +1056,33 @@ function App() {
 
         {!playerName && (
           <div className="ready-overlay">
-            <h2 className="ready-overlay__title">Ready To Play?</h2>
-            <p className="ready-overlay__subtitle">Enter your name below</p>
+            <h2 className="ready-overlay__title">Welcome to CacheCash!</h2>
+            <div className="ready-overlay__content">
+              <section className="ready-overlay__section">
+                <h3>The game</h3>
+                <ol>
+                  <li>Slice pumpkins</li>
+                  <li>If you slice a skull, you get a 10 pumpkin penalty. Avoid them!</li>
+                </ol>
+              </section>
+              <section className="ready-overlay__section">
+                <h3>Why it matters</h3>
+                <p>
+                  CacheCash is a lightweight private faucet built on Hyli, proved by Noir and SP1 and inspired by
+                  Payy.
+                </p>
+                <p>
+                  Read more about CacheCash: <a href="https://blog.hyli.org" target="_blank" rel="noreferrer">blog post</a>
+                </p>
+                <p>
+                  See the source code: <a href="https://github.com/hyli-org/cachecash" target="_blank" rel="noreferrer">github</a>
+                </p>
+              </section>
+              <section className="ready-overlay__section">
+                <h3>Disclaimer</h3>
+                <p>Pumpkins are not a token and has no real value. This demo game is not incentivized.</p>
+              </section>
+            </div>
             <form className="ready-overlay__form" onSubmit={handleNameSubmit}>
               <input
                 id="player-name"
@@ -1071,7 +1096,6 @@ function App() {
               />
               <button type="submit" className="pixel-button">START</button>
             </form>
-            <p className="ready-overlay__hint">The game starts after you add your name</p>
           </div>
         )}
         {oranges.map((orange) => (
