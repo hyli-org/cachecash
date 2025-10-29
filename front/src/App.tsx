@@ -231,6 +231,7 @@ function App() {
   const [isScoreboardCollapsed, setIsScoreboardCollapsed] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
   );
+  const previousScoreboardCollapsedRef = useRef(isScoreboardCollapsed);
 
   useEffect(() => {
     const handleResize = () => {
@@ -332,12 +333,19 @@ function App() {
     if (!playerName) {
       return;
     }
+    if (isMobileLayout) {
+      previousScoreboardCollapsedRef.current = isScoreboardCollapsed;
+      setIsScoreboardCollapsed(true);
+    }
     setIsManageModalOpen(true);
-  }, [playerName]);
+  }, [playerName, isMobileLayout, isScoreboardCollapsed]);
 
   const handleCloseManageModal = useCallback(() => {
     setIsManageModalOpen(false);
-  }, []);
+    if (isMobileLayout) {
+      setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
+    }
+  }, [isMobileLayout]);
 
   const handleToggleScoreboard = useCallback(() => {
     setIsScoreboardCollapsed((prev) => !prev);
@@ -978,7 +986,7 @@ function App() {
 
   const appClassName = `App${bombPenalty > 0 ? " App--penalty" : ""}${
     isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""
-  }`;
+  }${isManageModalOpen ? " App--modal-open" : ""}`;
   const titleBadgeClassName = `pumpkin-title__badge${bombPenalty > 0 ? " pumpkin-title__badge--warning" : ""}`;
   const gameAreaClassName = "game-area";
 
@@ -1166,10 +1174,7 @@ top: `${particle.y}px`,*/
 
       </div>
       {(!isMobileLayout || !isScoreboardCollapsed) && (
-        <footer
-          className={`nes-hud nes-hud--footer${isMobileLayout ? " nes-hud--footer-mobile" : ""}`}
-          style={{ marginBottom: "24px" }}
-        >
+        <footer className={`nes-hud nes-hud--footer${isMobileLayout ? " nes-hud--footer-mobile" : ""}`}>
           <div className="nes-hud__panel nes-hud__panel--pixel">
             <div className="nes-hud__grid">
             <div className="nes-hud__card nes-hud__card--player">

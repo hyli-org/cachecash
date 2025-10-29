@@ -1,4 +1,5 @@
 import { ChangeEvent, DragEvent, useCallback, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { StoredNote } from "../types/note";
 import { createNotesArchive, readNotesArchive } from "../services/noteArchive";
 import { setStoredNotes } from "../services/noteStorage";
@@ -195,7 +196,7 @@ export function ManageNotesModal({ playerName, notes, onClose }: ManageNotesModa
         [isUploading, processArchive],
     );
 
-    return (
+    const modalContent = (
         <div className="manage-notes-modal__backdrop" role="presentation">
             <div className="manage-notes-modal" role="dialog" aria-modal="true" aria-labelledby="manage-notes-title">
                 <div className="manage-notes-modal__header">
@@ -254,4 +255,10 @@ export function ManageNotesModal({ playerName, notes, onClose }: ManageNotesModa
             </div>
         </div>
     );
+
+    if (typeof document === "undefined") {
+        return modalContent;
+    }
+
+    return createPortal(modalContent, document.body);
 }
