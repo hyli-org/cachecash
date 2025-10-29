@@ -225,6 +225,12 @@ function App() {
     }
     return computeSpriteSizes(window.innerWidth);
   });
+  const [isMobileLayout, setIsMobileLayout] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
+  );
+  const [isScoreboardCollapsed, setIsScoreboardCollapsed] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
+  );
 
   useEffect(() => {
     const handleResize = () => {
@@ -235,11 +241,20 @@ function App() {
         }
         return next;
       });
+      setIsMobileLayout(window.innerWidth <= SMALL_MOBILE_BREAKPOINT);
     };
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    if (isMobileLayout) {
+      setIsScoreboardCollapsed(true);
+    } else {
+      setIsScoreboardCollapsed(false);
+    }
+  }, [isMobileLayout]);
 
   const orangeSize = spriteSizes.orangeSize;
   const bombSize = spriteSizes.bombSize;
@@ -322,6 +337,10 @@ function App() {
 
   const handleCloseManageModal = useCallback(() => {
     setIsManageModalOpen(false);
+  }, []);
+
+  const handleToggleScoreboard = useCallback(() => {
+    setIsScoreboardCollapsed((prev) => !prev);
   }, []);
 
 
@@ -957,8 +976,11 @@ function App() {
     return () => cancelAnimationFrame(animationFrame);
   }, []);
 
+  const appClassName = `App${isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""}`;
+  const gameAreaClassName = "game-area";
+
   return (
-    <div className="App">
+    <div className={appClassName}>
       <TransactionList transactions={transactions} setTransactions={setTransactions} />
 
       <div className="pumpkin-title">
@@ -967,7 +989,7 @@ function App() {
       <div
         ref={gameAreaRef}
 
-        className="game-area"
+        className={gameAreaClassName}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1136,10 +1158,13 @@ top: `${particle.y}px`,*/
         ))}
 
       </div>
-
-      <footer className="nes-hud nes-hud--footer" style={{ marginBottom: "24px" }}>
-        <div className="nes-hud__panel nes-hud__panel--pixel">
-          <div className="nes-hud__grid">
+      {(!isMobileLayout || !isScoreboardCollapsed) && (
+        <footer
+          className={`nes-hud nes-hud--footer${isMobileLayout ? " nes-hud--footer-mobile" : ""}`}
+          style={{ marginBottom: "24px" }}
+        >
+          <div className="nes-hud__panel nes-hud__panel--pixel">
+            <div className="nes-hud__grid">
             <div className="nes-hud__card nes-hud__card--player">
               <div className="nes-hud__title">PLAYER</div>
               <div className="nes-hud__score nes-hud__score--player">{playerName || "---"}</div>
@@ -1210,8 +1235,21 @@ top: `${particle.y}px`,*/
               )}
             </div>
           </div>
+          </div>
+        </footer>
+      )}
+
+      {isMobileLayout && (
+        <div className="mobile-scoreboard-toggle">
+          <button
+            type="button"
+            className="pixel-button pixel-button--ghost mobile-scoreboard-toggle__button"
+            onClick={handleToggleScoreboard}
+          >
+            {isScoreboardCollapsed ? "Show Scoreboard" : "Hide Scoreboard"}
+          </button>
         </div>
-      </footer>
+      )}
 
       {isManageModalOpen && playerName && (
         <ManageNotesModal playerName={playerName} notes={storedNotes} onClose={handleCloseManageModal} />

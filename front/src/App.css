@@ -178,6 +178,11 @@
     box-shadow: 0 0 0 3px rgba(255, 210, 127, 0.4);
 }
 
+.pixel-button:focus,
+.player-name-button:focus {
+    outline: none;
+}
+
 .pixel-button--ghost {
     background: rgba(26, 9, 32, 0.8);
     color: #ffdca8;
@@ -578,6 +583,10 @@
     color: rgba(255, 206, 116, 0.8);
 }
 
+.mobile-scoreboard-toggle {
+    display: none;
+}
+
 .manage-notes-modal__backdrop {
     position: fixed;
     inset: 0;
@@ -770,15 +779,19 @@
         z-index: 12;
     }
 
+    .nes-hud--footer-mobile {
+        bottom: 46px;
+    }
+
     .nes-hud__panel {
         width: calc(100% - 16px);
         margin: 0 auto;
-        padding: 10px 10px;
-        gap: 8px;
+        padding: 8px 8px;
+        gap: 6px;
     }
 
     .nes-hud__grid {
-        gap: 8px;
+        gap: 6px;
     }
 
     .nes-hud__card {
@@ -851,8 +864,45 @@
         height: 3px;
     }
 
+    .pumpkin-title__badge {
+        font-size: clamp(0.7rem, 3.6vw, 0.95rem);
+        letter-spacing: 0.12em;
+        padding: 10px 18px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .mobile-scoreboard-toggle {
+        position: fixed;
+        bottom: 6px;
+        left: 0;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 20;
+    }
+
+    .mobile-scoreboard-toggle__button {
+        pointer-events: auto;
+        font-size: 0.56rem;
+        letter-spacing: 0.14em;
+        padding: 6px 18px;
+    }
+
     .game-area {
-        padding-bottom: 130px;
+        height: 45vh;
+        margin: 12px 8px 110px;
+    }
+
+    .App--scoreboard-collapsed {
+        padding-bottom: 60px;
+    }
+
+    .App--scoreboard-collapsed .game-area {
+        height: 70vh;
+        margin: 16px 10px 70px;
     }
 
     .flex-modal {
@@ -1089,6 +1139,7 @@ body {
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
     user-select: none;
     -webkit-user-select: none;
+    transition: height 0.3s ease, margin 0.3s ease;
 }
 
 .score-popup {
