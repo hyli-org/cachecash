@@ -297,9 +297,9 @@
     margin: 8px 0 0;
     width: 100%;
     font-family: "Silkscreen", "Courier New", monospace;
-    font-size: 0.65rem;
-    letter-spacing: 0.06em;
-    line-height: 1.35;
+    font-size: clamp(0.48rem, 1.2vw, 0.62rem);
+    letter-spacing: 0.08em;
+    line-height: 1.4;
     color: rgba(255, 244, 234, 0.85);
     text-align: center;
 }
@@ -308,9 +308,9 @@
     margin: 8px 0 0;
     width: 100%;
     font-family: "Silkscreen", "Courier New", monospace;
-    font-size: 0.65rem;
-    letter-spacing: 0.06em;
-    line-height: 1.35;
+    font-size: clamp(0.48rem, 1.2vw, 0.62rem);
+    letter-spacing: 0.08em;
+    line-height: 1.4;
     color: rgba(255, 244, 234, 0.85);
     text-align: center;
 }
@@ -782,8 +782,8 @@
     }
 
     .nes-hud__card {
-        padding: 8px;
-        gap: 4px;
+        padding: 6px;
+        gap: 3px;
         min-height: auto;
     }
 
@@ -793,17 +793,26 @@
     }
 
     .nes-hud__score {
-        font-size: clamp(1.2rem, 7vw, 1.5rem);
+        font-size: clamp(0.85rem, 5vw, 1.1rem);
         min-width: 0;
+        letter-spacing: 0.08em;
+        line-height: 0.92;
     }
 
     .nes-hud__score--player {
-        font-size: clamp(0.95rem, 5.5vw, 1.3rem);
+        font-size: clamp(0.68rem, 4vw, 0.95rem);
+        letter-spacing: 0.08em;
     }
 
     .nes-hud__caption {
         font-size: 0.58rem;
         letter-spacing: 0.08em;
+    }
+
+    .nes-hud__score-subtitle,
+    .nes-hud__player-subtitle {
+        font-size: clamp(0.26rem, 1.8vw, 0.36rem);
+        line-height: 1.2;
     }
 
     .pixel-button--compact {
@@ -814,31 +823,32 @@
     .nes-hud__status {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        gap: 5px;
         align-items: stretch;
     }
 
     .nes-hud__status-item {
-        padding: 5px 6px;
+        padding: 3px 4px;
         min-width: 0;
     }
 
     .status-box__label {
-        font-size: 0.5rem;
+        font-size: 0.38rem;
+        letter-spacing: 0.12em;
     }
 
     .status-box__value {
-        font-size: clamp(0.85rem, 4.5vw, 1.05rem);
+        font-size: clamp(0.6rem, 3.5vw, 0.85rem);
     }
 
     .status-box__row {
         flex-direction: column;
         align-items: stretch;
-        gap: 5px;
+        gap: 3px;
     }
 
     .status-box__meter {
-        height: 6px;
+        height: 3px;
     }
 
     .game-area {

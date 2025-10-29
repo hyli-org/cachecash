@@ -3,6 +3,28 @@ import { StoredNote } from "../types/note";
 import { createNotesArchive, readNotesArchive } from "../services/noteArchive";
 import { setStoredNotes } from "../services/noteStorage";
 
+function createNoteKey(note: StoredNote): string {
+    if (typeof note.txHash === "string" && note.txHash.length > 0) {
+        return note.txHash;
+    }
+    return `${note.player ?? ""}-${note.storedAt}`;
+}
+
+function mergeNotes(existing: StoredNote[], incoming: StoredNote[]): StoredNote[] {
+    const seen = new Set(existing.map(createNoteKey));
+    const uniqueIncoming = incoming.filter((note) => {
+        const key = createNoteKey(note);
+        if (seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+
+    const merged = [...uniqueIncoming, ...existing];
+    return merged.sort((a, b) => b.storedAt - a.storedAt);
+}
+
 interface ManageNotesModalProps {
     playerName: string;
     notes: StoredNote[];
@@ -88,7 +110,8 @@ export function ManageNotesModal({ playerName, notes, onClose }: ManageNotesModa
                     return;
                 }
 
-                setStoredNotes(playerName, data.notes);
+                const mergedNotes = mergeNotes(notes, data.notes);
+                setStoredNotes(playerName, mergedNotes);
                 setStatus(`_uploaded notes for ${playerName}_`);
             } catch (uploadError) {
                 console.error("Failed to upload notes archive", uploadError);
