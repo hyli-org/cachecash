@@ -1062,7 +1062,7 @@ function App() {
                 <h3>The game</h3>
                 <ol>
                   <li>Slice pumpkins</li>
-                  <li>If you slice a skull, you get a 10 pumpkin penalty. Avoid them!</li>
+                  <li>Avoid skulls</li>
                 </ol>
               </section>
               <section className="ready-overlay__section">
@@ -1080,7 +1080,7 @@ function App() {
               </section>
               <section className="ready-overlay__section">
                 <h3>Disclaimer</h3>
-                <p>Pumpkins are not a token and has no real value. This demo game is not incentivized.</p>
+                <p>This demo game is not incentivized. Pumpkins have no monetary value.</p>
               </section>
             </div>
             <form className="ready-overlay__form" onSubmit={handleNameSubmit}>
@@ -1255,7 +1255,7 @@ top: `${particle.y}px`,*/
                   className="pixel-button pixel-button--ghost pixel-button--compact"
                   onClick={handleLogout}
                 >
-                  SWITCH
+                  DISCONNECT
                 </button>
               )}
               <div className="nes-hud__player-subtitle">
@@ -1271,7 +1271,7 @@ top: `${particle.y}px`,*/
                 onClick={handleOpenManageModal}
                 disabled={!playerName}
               >
-                MANAGE
+                SETTINGS
               </button>
               <div className="nes-hud__score-subtitle">
                 <span>Your score lives only in your browser and can reset anytime.</span>
