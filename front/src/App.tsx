@@ -248,7 +248,7 @@ function App() {
   const offscreenBuffer = Math.max(orangeSize, 200);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const noteBalance = storedNotes.length;
-  const [sliceTimestamps, setSliceTimestamps] = useState<number[]>([]);
+  const sliceTimestampsRef = useRef<number[]>([]);
   const [rawSliceSpeed, setRawSliceSpeed] = useState(0);
   const [debouncedSliceSpeed] = useDebounce(rawSliceSpeed, 200);
   const penaltyMeterPercent = Math.min(bombPenalty / MAX_PENALTY_DISPLAY, 1);
@@ -257,40 +257,38 @@ function App() {
   useEffect(() => {
     if (!playerName) {
       setIsManageModalOpen(false);
-      setSliceTimestamps([]);
+      sliceTimestampsRef.current = [];
       setRawSliceSpeed(0);
     }
   }, [playerName]);
+
+  const updateSliceSpeed = useCallback(() => {
+    const now = Date.now();
+    const cutoff = now - SLICE_SPEED_WINDOW_MS;
+    const filtered = sliceTimestampsRef.current.filter((timestamp) => timestamp >= cutoff);
+    sliceTimestampsRef.current = filtered;
+    if (filtered.length === 0) {
+      setRawSliceSpeed(0);
+      return;
+    }
+
+    const earliest = filtered[0];
+    const elapsedMs = Math.max(now - earliest, 1);
+    const rate = filtered.length / (elapsedMs / 1000);
+    setRawSliceSpeed(rate);
+  }, []);
 
   useEffect(() => {
     if (!playerName) {
       setRawSliceSpeed(0);
-      setSliceTimestamps([]);
+      sliceTimestampsRef.current = [];
       return;
     }
 
-    const tick = () => {
-      setSliceTimestamps((prev) => {
-        const now = Date.now();
-        const cutoff = now - SLICE_SPEED_WINDOW_MS;
-        const filtered = prev.filter((timestamp) => timestamp >= cutoff);
-        if (filtered.length === 0) {
-          setRawSliceSpeed(0);
-          return filtered;
-        }
-
-        const earliest = filtered[0];
-        const elapsedMs = Math.max(now - earliest, 1);
-        const rate = filtered.length / (elapsedMs / 1000);
-        setRawSliceSpeed(rate);
-        return filtered;
-      });
-    };
-
-    tick();
-    const interval = window.setInterval(tick, 400);
+    updateSliceSpeed();
+    const interval = window.setInterval(updateSliceSpeed, 400);
     return () => window.clearInterval(interval);
-  }, [playerName]);
+  }, [playerName, updateSliceSpeed]);
 
   const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setNameInput(event.target.value);
@@ -468,11 +466,11 @@ function App() {
             player: trimmedPlayerName,
           };
           addStoredNote(trimmedPlayerName, stored);
-          setSliceTimestamps((prev) => {
-            const next = [...prev, Date.now()];
-            const windowStart = Date.now() - SLICE_SPEED_WINDOW_MS;
-            return next.filter((timestamp) => timestamp >= windowStart);
-          });
+          const now = Date.now();
+          sliceTimestampsRef.current = [...sliceTimestampsRef.current, now].filter(
+            (timestamp) => timestamp >= now - SLICE_SPEED_WINDOW_MS,
+          );
+          updateSliceSpeed();
         }
         const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
         const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
@@ -490,8 +488,8 @@ function App() {
         console.error("Failed to record slice", error);
         setSubmissionError("We could not reach the server. Your score has not been updated.");
       }
-    },
-    [setSubmissionError, setTransactions],
+  },
+    [setSubmissionError, setTransactions, updateSliceSpeed],
   );
 
   const sliceOrange = async (orangeId: number) => {
