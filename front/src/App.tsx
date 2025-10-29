@@ -5,6 +5,7 @@ import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
 
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
+import { ManageNotesModal } from "./components/ManageNotesModal";
 import slice1 from "./audio/slice1.mp3";
 import slice2 from "./audio/slice2.mp3";
 import slice3 from "./audio/slice3.mp3";
@@ -13,6 +14,7 @@ import { declareCustomElement } from "testnet-maintenance-widget";
 import { useStoredNotes } from "./hooks/useStoredNotes";
 import { useDebugMode } from "./hooks/useDebugMode";
 import { addStoredNote } from "./services/noteStorage";
+import { useDebounce } from "use-debounce";
 import { StoredNote } from "./types/note";
 declareCustomElement();
 
@@ -126,11 +128,8 @@ const BASE_BOMB_SIZE = 200;
 const MOBILE_BREAKPOINT = 768;
 const SMALL_MOBILE_BREAKPOINT = 480;
 const MAX_PENALTY_DISPLAY = 30;
-const GOAL_SEGMENTS = [
-  { target: 100, start: 0 },
-  { target: 200, start: 100 },
-  { target: 500, start: 200 },
-] as const;
+const SLICE_SPEED_WINDOW_MS = 8000; // Rolling window for slices per second
+const MAX_SLICE_SPEED = 5; // Upper bound for gauge visualization
 
 interface ViewportSpriteSizes {
   orangeSize: number;
@@ -169,6 +168,7 @@ function App() {
   const debugMode = useDebugMode();
   const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
   const { notes: storedNotes, clearNotes } = useStoredNotes(playerName);
+  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
   const [playerKeys, setPlayerKeys] = useState<DerivedKeyPair | null>(() => {
     const storedPlayer = localStorage.getItem("playerName");
@@ -248,17 +248,49 @@ function App() {
   const offscreenBuffer = Math.max(orangeSize, 200);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const noteBalance = storedNotes.length;
-  const goalSegment =
-    noteBalance < GOAL_SEGMENTS[0].target
-      ? GOAL_SEGMENTS[0]
-      : noteBalance < GOAL_SEGMENTS[1].target
-      ? GOAL_SEGMENTS[1]
-      : GOAL_SEGMENTS[GOAL_SEGMENTS.length - 1];
-  const goalSpan = goalSegment.target - goalSegment.start;
-  const goalProgress = Math.min(Math.max((noteBalance - goalSegment.start) / goalSpan, 0), 1);
-  const goalValueDisplay = `${noteBalance.toLocaleString()} / ${goalSegment.target}`;
+  const [sliceTimestamps, setSliceTimestamps] = useState<number[]>([]);
+  const [rawSliceSpeed, setRawSliceSpeed] = useState(0);
+  const [debouncedSliceSpeed] = useDebounce(rawSliceSpeed, 200);
   const penaltyMeterPercent = Math.min(bombPenalty / MAX_PENALTY_DISPLAY, 1);
   const penaltyDisplayText = bombPenalty > 0 ? `${bombPenalty} pumpkins` : "None";
+
+  useEffect(() => {
+    if (!playerName) {
+      setIsManageModalOpen(false);
+      setSliceTimestamps([]);
+      setRawSliceSpeed(0);
+    }
+  }, [playerName]);
+
+  useEffect(() => {
+    if (!playerName) {
+      setRawSliceSpeed(0);
+      setSliceTimestamps([]);
+      return;
+    }
+
+    const tick = () => {
+      setSliceTimestamps((prev) => {
+        const now = Date.now();
+        const cutoff = now - SLICE_SPEED_WINDOW_MS;
+        const filtered = prev.filter((timestamp) => timestamp >= cutoff);
+        if (filtered.length === 0) {
+          setRawSliceSpeed(0);
+          return filtered;
+        }
+
+        const earliest = filtered[0];
+        const elapsedMs = Math.max(now - earliest, 1);
+        const rate = filtered.length / (elapsedMs / 1000);
+        setRawSliceSpeed(rate);
+        return filtered;
+      });
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 400);
+    return () => window.clearInterval(interval);
+  }, [playerName]);
 
   const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     setNameInput(event.target.value);
@@ -282,6 +314,17 @@ function App() {
     setPlayerName("");
     setSubmissionError(null);
   }, [setPlayerName, setSubmissionError]);
+
+  const handleOpenManageModal = useCallback(() => {
+    if (!playerName) {
+      return;
+    }
+    setIsManageModalOpen(true);
+  }, [playerName]);
+
+  const handleCloseManageModal = useCallback(() => {
+    setIsManageModalOpen(false);
+  }, []);
 
 
   const createJuiceEffect = useCallback((x: number, y: number) => {
@@ -425,6 +468,11 @@ function App() {
             player: trimmedPlayerName,
           };
           addStoredNote(trimmedPlayerName, stored);
+          setSliceTimestamps((prev) => {
+            const next = [...prev, Date.now()];
+            const windowStart = Date.now() - SLICE_SPEED_WINDOW_MS;
+            return next.filter((timestamp) => timestamp >= windowStart);
+          });
         }
         const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
         const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
@@ -1106,10 +1154,24 @@ top: `${particle.y}px`,*/
                   SWITCH
                 </button>
               )}
+              <div className="nes-hud__player-subtitle">
+                <span>This is a purely experimental project, it's not connected to any airdrop or token rewards.</span>
+              </div>
             </div>
             <div className="nes-hud__card nes-hud__card--score">
               <div className="nes-hud__title">SCORE</div>
               <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
+              <button
+                type="button"
+                className="pixel-button pixel-button--ghost pixel-button--compact"
+                onClick={handleOpenManageModal}
+                disabled={!playerName}
+              >
+                MANAGE
+              </button>
+              <div className="nes-hud__score-subtitle">
+                <span>Your score lives only in your browser and can reset anytime.</span>
+              </div>
             </div>
           </div>
           <div className="nes-hud__status">
@@ -1136,13 +1198,13 @@ top: `${particle.y}px`,*/
                 submissionError
               ) : (
                 <div className="status-box status-box--rate">
-                  <div className="status-box__label">Next goal {goalSegment.target}</div>
+                  <div className="status-box__label">Slice speed</div>
                   <div className="status-box__row">
-                    <div className="status-box__value">{goalValueDisplay}</div>
+                    <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
                     <div className="status-box__meter">
                       <div
                         className="status-box__meter-fill"
-                        style={{ width: `${goalProgress * 100}%` }}
+                        style={{ width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%` }}
                       />
                     </div>
                   </div>
@@ -1152,6 +1214,10 @@ top: `${particle.y}px`,*/
           </div>
         </div>
       </footer>
+
+      {isManageModalOpen && playerName && (
+        <ManageNotesModal playerName={playerName} notes={storedNotes} onClose={handleCloseManageModal} />
+      )}
 
       {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
 

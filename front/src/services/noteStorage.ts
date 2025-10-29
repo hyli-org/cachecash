@@ -135,6 +135,16 @@ export function addStoredNote(playerName: string, entry: StoredNote): void {
     notify(resolved.playerKey, next);
 }
 
+export function setStoredNotes(playerName: string | undefined | null, entries: StoredNote[]): void {
+    const resolved = resolvePlayer(playerName);
+    if (!resolved) {
+        return;
+    }
+
+    writeToStorageResolved(resolved, entries);
+    notify(resolved.playerKey, entries);
+}
+
 export function getStoredNotes(playerName: string | undefined | null): StoredNote[] {
     const resolved = resolvePlayer(playerName);
     if (!resolved) {

@@ -293,15 +293,42 @@
     letter-spacing: 0.14em;
 }
 
+.nes-hud__score-subtitle {
+    margin: 8px 0 0;
+    width: 100%;
+    font-family: "Silkscreen", "Courier New", monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    line-height: 1.35;
+    color: rgba(255, 244, 234, 0.85);
+    text-align: center;
+}
+
+.nes-hud__player-subtitle {
+    margin: 8px 0 0;
+    width: 100%;
+    font-family: "Silkscreen", "Courier New", monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    line-height: 1.35;
+    color: rgba(255, 244, 234, 0.85);
+    text-align: center;
+}
+
+.nes-hud__score-subtitle span,
+.nes-hud__player-subtitle span {
+    display: block;
+}
+
 .nes-hud__score.is-shaking {
     animation: shake 0.8s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
 .nes-hud__score--player {
-    font-size: clamp(1.4rem, 3vw, 2.2rem);
-    color: #ffe7d9;
-    text-shadow: 0 0 12px rgba(255, 170, 100, 0.5);
-    letter-spacing: 0.12em;
+    font-size: clamp(1.9rem, 4vw, 2.8rem);
+    color: #fff2a8;
+    text-shadow: 0 0 14px rgba(255, 170, 100, 0.8);
+    letter-spacing: 0.14em;
 }
 
 .nes-hud__caption {
@@ -549,6 +576,135 @@
     letter-spacing: 0.08em;
     text-align: center;
     color: rgba(255, 206, 116, 0.8);
+}
+
+.manage-notes-modal__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 2, 12, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 1400;
+}
+
+.manage-notes-modal {
+    width: min(420px, 100%);
+    background: linear-gradient(135deg, rgba(38, 12, 44, 0.96), rgba(18, 6, 28, 0.94));
+    border: 4px solid #ff985f;
+    box-shadow: 0 16px 0 #1a0613, inset 0 0 0 2px rgba(30, 10, 30, 0.9);
+    padding: 24px 28px;
+    font-family: "Silkscreen", "Courier New", monospace;
+    color: #ffe7d9;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.manage-notes-modal__header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.manage-notes-modal__eyebrow {
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255, 206, 116, 0.85);
+}
+
+.manage-notes-modal__title {
+    font-size: clamp(1.4rem, 3vw, 1.8rem);
+    letter-spacing: 0.2em;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.manage-notes-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+}
+
+.manage-notes-modal__description {
+    margin: 0;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: rgba(255, 217, 180, 0.75);
+}
+
+.manage-notes-modal__count {
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    color: rgba(255, 244, 234, 0.9);
+}
+
+.manage-notes-modal__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.manage-notes-modal__actions .pixel-button {
+    width: 100%;
+}
+
+.manage-notes-modal__upload {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.manage-notes-modal__upload.is-active {
+    background: rgba(17, 6, 28, 0.6);
+    box-shadow: inset 0 0 0 2px rgba(255, 152, 95, 0.45);
+}
+
+.manage-notes-modal__upload-button {
+    width: 100%;
+}
+
+.manage-notes-modal__upload-button.is-drag-over {
+    box-shadow: 0 0 0 3px rgba(255, 210, 127, 0.35);
+    background: rgba(38, 12, 44, 0.85);
+}
+
+.manage-notes-modal__upload-hint {
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    color: rgba(255, 244, 234, 0.75);
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.manage-notes-modal__file-input {
+    display: none;
+}
+
+.manage-notes-modal__message {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+}
+
+.manage-notes-modal__message--error {
+    color: #ff8e8e;
+}
+
+.manage-notes-modal__message--status {
+    color: #c4ffce;
+}
+
+.manage-notes-modal__footer {
+    display: flex;
+    justify-content: center;
 }
 
 @media (max-width: 720px) {
