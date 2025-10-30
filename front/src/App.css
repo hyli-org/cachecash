@@ -117,7 +117,7 @@
 
 .pumpkin-title__badge {
     font-family: "Silkscreen", "Courier New", monospace;
-    font-size: clamp(2rem, 5vw, 3rem);
+    font-size: clamp(1.6rem, 4vw, 2.5rem);
     letter-spacing: 0.2em;
     color: #ffe7d9;
     text-transform: uppercase;
@@ -825,26 +825,22 @@
 
     .App {
         min-height: 100vh;
-        padding-bottom: 140px;
+        padding-bottom: 24px;
     }
 
     .nes-hud {
-        padding: 6px 8px 0;
+        padding: 6px 8px;
     }
 
     .nes-hud--footer {
-        margin-top: 0;
-        margin-bottom: 0;
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        z-index: 12;
+        position: static;
+        margin: 16px 8px 0;
+        width: auto;
     }
 
     .nes-hud__panel {
-        width: calc(100% - 14px);
-        margin: 0 auto 6px;
+        width: 100%;
+        margin: 0;
         padding: 8px 10px;
         gap: 6px;
         background: linear-gradient(135deg, rgba(18, 6, 24, 0.95), rgba(9, 2, 18, 0.94));
@@ -859,7 +855,8 @@
         padding: 8px 10px;
         gap: 6px;
         min-height: auto;
-        width: 100%;
+        width: min(100%, 320px);
+        margin: 0 auto;
     }
 
     .nes-hud__title {
@@ -899,14 +896,11 @@
         display: none;
     }
 
-    .game-layout {
-        gap: 10px;
-    }
-
     .game-area {
         flex: 1;
-        height: calc(100vh - 170px);
-        margin: 12px 8px 0;
+        min-height: calc(100vh - 320px);
+        height: auto;
+        margin: 12px 8px 16px;
         border-radius: 16px;
     }
 
@@ -1722,6 +1716,45 @@ pre {
         height: 100%;
         display: block;
         object-fit: cover;
+    }
+}
+
+@media (min-width: 1024px) and (max-width: 1440px) {
+    .nes-hud__panel {
+        width: 75%;
+    }
+
+    .nes-hud__grid {
+        gap: 12px;
+    }
+
+    .nes-hud__card {
+        padding: 12px 16px;
+        gap: 10px;
+    }
+
+    .nes-hud__score {
+        font-size: clamp(1.4rem, 2.4vw, 1.9rem);
+    }
+
+    .nes-hud__score--player {
+        font-size: clamp(1rem, 2vw, 1.5rem);
+    }
+
+    .nes-hud__title {
+        font-size: 0.58rem;
+    }
+
+    .pixel-button--compact {
+        font-size: 0.62rem;
+        padding: 7px 12px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .pumpkin-title__badge {
+        font-size: clamp(1.4rem, 3.2vw, 2.2rem);
+        padding: 14px 28px;
     }
 }
 
