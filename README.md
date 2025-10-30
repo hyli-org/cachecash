@@ -42,6 +42,53 @@ Prerequisites:
 - [Noir](https://noir-lang.org/docs/getting_started/installation/)
 - [Running Hyli devnet](https://docs.hyli.org/quickstart/run/)
 
+### Local development
+
+1. Start the Hyli devnet locally (or point to a remote devnet) so the node RPC is reachable at `http://127.0.0.1:4321` and the DA reader at `127.0.0.1:4141`.
+2. (Optional) Copy the default server configuration if you want to tweak ports or node URLs:
+
+   ```bash
+   cp server/src/conf_defaults.toml config.toml
+   ```
+
+   You can also override individual keys at runtime with environment variables such as `CACHECASH__NODE_URL=http://devnet-host:4321`.
+3. Run the CacheCash server from the repository root:
+
+   ```bash
+   cargo run --release --manifest-path server/Cargo.toml
+   ```
+
+   The first boot generates and caches the SP1 proving key under `data/hyli_utxo_state_pk.bin`, so expect an extra minute the very first time.
+4. In a second terminal, install frontend dependencies (uses Bun to stay in sync with `bun.lockb`) and start the Vite dev server:
+
+   ```bash
+   cd front
+   bun install
+   bun run dev
+   ```
+
+   If you prefer npm, run `npm install` followed by `npm run dev`; the values in `front/.env` control which endpoints the UI talks to.
+5. Open <http://localhost:5173> in your browser and start playing.
+
+### Docker
+
+- Backend:
+
+  ```bash
+  docker build -f Dockerfile.server -t cachecash-server .
+  docker run --network host cachecash-server
+  ```
+
+  Supply a custom `config.toml` via a bind mount (e.g. `-v $(pwd)/config.toml:/app/config.toml`) or environment variables if the devnet is not on localhost.
+- Frontend:
+
+  ```bash
+  docker build -f Dockerfile.ui -t cachecash-ui .
+  docker run -p 5173:80 cachecash-ui
+  ```
+
+  Set `VITE_*` variables with `-e` flags when you need the UI to target non-default endpoints.
+
 ## Inspired by
 
 - [Payy](https://docs.payy.network/payy-network/whitepaper)
