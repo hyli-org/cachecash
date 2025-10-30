@@ -229,10 +229,8 @@ function App() {
   const [isMobileLayout, setIsMobileLayout] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
   );
-  const [isScoreboardCollapsed, setIsScoreboardCollapsed] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
-  );
-  const previousScoreboardCollapsedRef = useRef(isScoreboardCollapsed);
+  const [isScoreboardCollapsed, setIsScoreboardCollapsed] = useState(false);
+  const previousScoreboardCollapsedRef = useRef(false);
   const [isSecretVideoOpen, setIsSecretVideoOpen] = useState(false);
   const [secretVideoSources, setSecretVideoSources] = useState<string[]>([]);
 
@@ -266,9 +264,7 @@ function App() {
   }, [selectSecretVideos]);
 
   useEffect(() => {
-    if (isMobileLayout) {
-      setIsScoreboardCollapsed(true);
-    } else {
+    if (!isMobileLayout) {
       setIsScoreboardCollapsed(false);
     }
   }, [isMobileLayout]);
@@ -372,10 +368,6 @@ function App() {
     }
     setIsSecretVideoOpen((prev) => !prev);
   }, [isMobileLayout, isSecretVideoOpen, selectSecretVideos]);
-
-  const handleToggleScoreboard = useCallback(() => {
-    setIsScoreboardCollapsed((prev) => !prev);
-  }, []);
 
 
   const createJuiceEffect = useCallback((x: number, y: number) => {
@@ -1243,93 +1235,114 @@ top: `${particle.y}px`,*/
         )}
       </div>
       {(!isMobileLayout || !isScoreboardCollapsed) && (
-        <footer className={`nes-hud nes-hud--footer${isMobileLayout ? " nes-hud--footer-mobile" : ""}`}>
+        <footer className="nes-hud nes-hud--footer">
           <div className="nes-hud__panel nes-hud__panel--pixel">
             <div className="nes-hud__grid">
-            <div className="nes-hud__card nes-hud__card--player">
-              <div className="nes-hud__title">PLAYER</div>
-              <div className="nes-hud__score nes-hud__score--player">{playerName || "---"}</div>
-              {playerName && (
-                <button
-                  type="button"
-                  className="pixel-button pixel-button--ghost pixel-button--compact"
-                  onClick={handleLogout}
-                >
-                  DISCONNECT
-                </button>
+              {!isMobileLayout && (
+                <>
+                  <div className="nes-hud__card nes-hud__card--player">
+                    <div className="nes-hud__title">PLAYER</div>
+                    <div className="nes-hud__score nes-hud__score--player">{playerName || "---"}</div>
+                    {playerName && (
+                      <button
+                        type="button"
+                        className="pixel-button pixel-button--ghost pixel-button--compact"
+                        onClick={handleLogout}
+                      >
+                        DISCONNECT
+                      </button>
+                    )}
+                    <div className="nes-hud__player-subtitle">
+                      <span>This is a purely experimental project, it's not connected to any airdrop or token rewards.</span>
+                    </div>
+                  </div>
+                  <div className="nes-hud__card nes-hud__card--score">
+                    <div className="nes-hud__title">SCORE</div>
+                    <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
+                    <button
+                      type="button"
+                      className="pixel-button pixel-button--ghost pixel-button--compact"
+                      onClick={handleOpenManageModal}
+                      disabled={!playerName}
+                    >
+                      SETTINGS
+                    </button>
+                    <div className="nes-hud__score-subtitle">
+                      <span>Your score lives only in your browser and can reset anytime.</span>
+                    </div>
+                  </div>
+                </>
               )}
-              <div className="nes-hud__player-subtitle">
-                <span>This is a purely experimental project, it's not connected to any airdrop or token rewards.</span>
-              </div>
-            </div>
-            <div className="nes-hud__card nes-hud__card--score">
-              <div className="nes-hud__title">SCORE</div>
-              <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
-              <button
-                type="button"
-                className="pixel-button pixel-button--ghost pixel-button--compact"
-                onClick={handleOpenManageModal}
-                disabled={!playerName}
-              >
-                SETTINGS
-              </button>
-              <div className="nes-hud__score-subtitle">
-                <span>Your score lives only in your browser and can reset anytime.</span>
-              </div>
-            </div>
-          </div>
-          <div className="nes-hud__status">
-            <div className={`nes-hud__status-item nes-hud__status-item--penalty ${bombPenalty > 0 ? "is-active" : ""}`}>
-              <div className="status-box status-box--penalty">
-                <div className="status-box__label">Penalty</div>
-                <div className="status-box__row">
-                  <div className="status-box__value">{penaltyDisplayText}</div>
-                  <div className="status-box__meter">
-                    <div
-                      className="status-box__meter-fill"
-                      style={{ width: `${penaltyMeterPercent * 100}%` }}
-                    />
+
+              {isMobileLayout && (
+                <div className="nes-hud__card nes-hud__card--score">
+                  <div className="nes-hud__title">SCORE</div>
+                  <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
+                  <div className="nes-hud__score-actions">
+                    {playerName && (
+                      <button
+                        type="button"
+                        className="pixel-button pixel-button--ghost pixel-button--compact"
+                        onClick={handleLogout}
+                      >
+                        DISCONNECT
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="pixel-button pixel-button--ghost pixel-button--compact"
+                      onClick={handleOpenManageModal}
+                      disabled={!playerName}
+                    >
+                      SETTINGS
+                    </button>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
-            <div
-              className={`nes-hud__status-item ${
-                submissionError ? "nes-hud__status-item--error is-active" : "nes-hud__status-item--rate is-active"
-              }`}
-            >
-              {submissionError ? (
-                submissionError
-              ) : (
-                <div className="status-box status-box--rate">
-                  <div className="status-box__label">Slice speed</div>
-                  <div className="status-box__row">
-                    <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
-                    <div className="status-box__meter">
-                      <div
-                        className="status-box__meter-fill"
-                        style={{ width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%` }}
-                      />
+
+            {!isMobileLayout && (
+              <div className="nes-hud__status">
+                <div className={`nes-hud__status-item nes-hud__status-item--penalty ${bombPenalty > 0 ? "is-active" : ""}`}>
+                  <div className="status-box status-box--penalty">
+                    <div className="status-box__label">Penalty</div>
+                    <div className="status-box__row">
+                      <div className="status-box__value">{penaltyDisplayText}</div>
+                      <div className="status-box__meter">
+                        <div
+                          className="status-box__meter-fill"
+                          style={{ width: `${penaltyMeterPercent * 100}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
+                <div
+                  className={`nes-hud__status-item ${
+                    submissionError ? "nes-hud__status-item--error is-active" : "nes-hud__status-item--rate is-active"
+                  }`}
+                >
+                  {submissionError ? (
+                    submissionError
+                  ) : (
+                    <div className="status-box status-box--rate">
+                      <div className="status-box__label">Slice speed</div>
+                      <div className="status-box__row">
+                        <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
+                        <div className="status-box__meter">
+                          <div
+                            className="status-box__meter-fill"
+                            style={{ width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </footer>
-      )}
-
-      {isMobileLayout && (
-        <div className="mobile-scoreboard-toggle">
-          <button
-            type="button"
-            className="pixel-button pixel-button--ghost mobile-scoreboard-toggle__button"
-            onClick={handleToggleScoreboard}
-          >
-            {isScoreboardCollapsed ? "Show Scoreboard" : "Hide Scoreboard"}
-          </button>
-        </div>
       )}
 
       {isManageModalOpen && playerName && (
