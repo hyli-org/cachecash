@@ -1760,32 +1760,32 @@ pre {
 
 @media (max-width: 480px) {
     .ready-overlay {
-        width: min(92vw, 200px);
-        padding: 12px 14px;
-        gap: 6px;
+        width: min(90vw, 240px);
+        padding: 16px 18px;
+        gap: 8px;
     }
 
     .ready-overlay__content {
-        font-size: 0.5rem;
-        gap: 5px;
+        font-size: 0.62rem;
+        gap: 6px;
     }
 
     .ready-overlay__section h3 {
-        font-size: 0.54rem;
+        font-size: 0.66rem;
     }
 
     .ready-overlay__section ol {
-        padding-left: 12px;
+        padding-left: 14px;
     }
 
     .player-name-input {
-        font-size: 0.58rem;
-        padding: 5px 7px;
+        font-size: 0.72rem;
+        padding: 7px 9px;
     }
 
     .ready-overlay__form .pixel-button {
-        font-size: 0.6rem;
-        padding: 6px 7px;
+        font-size: 0.74rem;
+        padding: 7px 10px;
     }
     .pumpkin-title {
         padding: 18px 12px 4px;
