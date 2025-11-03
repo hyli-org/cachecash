@@ -135,6 +135,24 @@ export function addStoredNote(playerName: string, entry: StoredNote): void {
     notify(resolved.playerKey, next);
 }
 
+export function replaceStoredNote(playerName: string, existingTxHash: string, entry: StoredNote): void {
+    const resolved = resolvePlayer(playerName);
+    if (!resolved) {
+        return;
+    }
+
+    const existing = readFromStorageResolved(resolved);
+    const index = existing.findIndex((note) => note.txHash === existingTxHash);
+    if (index === -1) {
+        return;
+    }
+
+    const next = [...existing];
+    next[index] = entry;
+    writeToStorageResolved(resolved, next);
+    notify(resolved.playerKey, next);
+}
+
 export function setStoredNotes(playerName: string | undefined | null, entries: StoredNote[]): void {
     const resolved = resolvePlayer(playerName);
     if (!resolved) {

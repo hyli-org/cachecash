@@ -13,7 +13,7 @@ import bombSound from "./audio/bomb.mp3";
 import { declareCustomElement } from "testnet-maintenance-widget";
 import { useStoredNotes } from "./hooks/useStoredNotes";
 import { useDebugMode } from "./hooks/useDebugMode";
-import { addStoredNote } from "./services/noteStorage";
+import { addStoredNote, replaceStoredNote } from "./services/noteStorage";
 import { useDebounce } from "use-debounce";
 import { StoredNote } from "./types/note";
 declareCustomElement();
@@ -165,6 +165,13 @@ const deriveNoteReference = (note: unknown): string | undefined => {
   return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
 };
 
+const generateOptimisticReference = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `optimistic-${crypto.randomUUID()}`;
+  }
+  return `optimistic-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
 function App() {
   const debugMode = useDebugMode();
   const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
@@ -274,7 +281,6 @@ function App() {
   const orangeSliceThreshold = orangeSize / 2;
   const bombSliceThreshold = bombSize / 2;
   const offscreenBuffer = Math.max(orangeSize, 200);
-  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const noteBalance = storedNotes.length;
   const sliceTimestampsRef = useRef<number[]>([]);
   const [rawSliceSpeed, setRawSliceSpeed] = useState(0);
@@ -331,15 +337,13 @@ function App() {
         return;
       }
       setPlayerName(trimmed);
-      setSubmissionError(null);
     },
-    [nameInput, setPlayerName, setSubmissionError],
+    [nameInput, setPlayerName],
   );
 
   const handleLogout = useCallback(() => {
     setPlayerName("");
-    setSubmissionError(null);
-  }, [setPlayerName, setSubmissionError]);
+  }, [setPlayerName]);
 
   const handleOpenManageModal = useCallback(() => {
     if (!playerName) {
@@ -488,7 +492,13 @@ function App() {
 
   // Submit the slice server-side without blocking future slices
   const submitPumpkinSlice = useCallback(
-    async (publicKeyHex: string, playerLabel: string) => {
+    async (
+      publicKeyHex: string,
+      playerLabel: string,
+      optimisticReference: string,
+      storedAt: number,
+      transactionTimestamp: number,
+    ) => {
       try {
         if (!publicKeyHex) {
           throw new Error("Missing player public key");
@@ -501,40 +511,35 @@ function App() {
 
         const response = await nodeService.requestFaucet(publicKeyHex);
         const { tx_hash: txHash, note } = response;
-        setSubmissionError(null);
         const reference = txHash ?? deriveNoteReference(note);
-        if (reference) {
-          const stored: StoredNote = {
-            txHash: reference,
-            note: note ?? response,
-            storedAt: Date.now(),
-            player: trimmedPlayerName,
-          };
-          addStoredNote(trimmedPlayerName, stored);
-          const now = Date.now();
-          sliceTimestampsRef.current = [...sliceTimestampsRef.current, now].filter(
-            (timestamp) => timestamp >= now - SLICE_SPEED_WINDOW_MS,
-          );
-          updateSliceSpeed();
-        }
-        const shortHash = reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
-        const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
+        const resolvedReference = reference ?? optimisticReference;
+
+        const stored: StoredNote = {
+          txHash: resolvedReference,
+          note: note ?? response,
+          storedAt,
+          player: trimmedPlayerName,
+        };
+        replaceStoredNote(trimmedPlayerName, optimisticReference, stored);
+
+        const shortHash =
+          reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
+
         setTransactions((prev) =>
-          [
-            {
-              title,
-              hash: shortHash || undefined,
-              timestamp: Date.now(),
-            },
-            ...prev,
-          ].slice(0, 10),
+          prev.map((tx) =>
+            tx.timestamp === transactionTimestamp
+              ? {
+                  ...tx,
+                  hash: shortHash ?? undefined,
+                }
+              : tx,
+          ),
         );
       } catch (error) {
         console.error("Failed to record slice", error);
-        setSubmissionError("We could not reach the server. Your score has not been updated.");
       }
-  },
-    [setSubmissionError, setTransactions, updateSliceSpeed],
+    },
+    [setTransactions],
   );
 
   const sliceOrange = async (orangeId: number) => {
@@ -543,7 +548,15 @@ function App() {
     if (!nameSnapshot || !keysSnapshot) return;
 
     const penaltySnapshot = bombPenalty;
-    let submissionPayload: { publicKey: string; playerLabel: string } | null = null;
+    let submissionPayload:
+      | {
+          publicKey: string;
+          playerLabel: string;
+          optimisticReference: string;
+          storedAt: number;
+          transactionTimestamp: number;
+        }
+      | null = null;
 
     await window.orangeMutex.acquire();
     try {
@@ -569,14 +582,47 @@ function App() {
       window.slicedOranges.add(orangeId);
 
       if (penaltySnapshot === 0) {
-        if (keysSnapshot.publicKey && nameSnapshot.trim()) {
+        const trimmedPlayerName = nameSnapshot.trim();
+        const now = Date.now();
+        const optimisticReference = generateOptimisticReference();
+
+        if (trimmedPlayerName) {
+          const optimisticNote: StoredNote = {
+            txHash: optimisticReference,
+            note: { status: "optimistic" },
+            storedAt: now,
+            player: trimmedPlayerName,
+          };
+          addStoredNote(trimmedPlayerName, optimisticNote);
+        }
+
+        sliceTimestampsRef.current = [...sliceTimestampsRef.current, now].filter(
+          (timestamp) => timestamp >= now - SLICE_SPEED_WINDOW_MS,
+        );
+        updateSliceSpeed();
+
+        const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
+        const transactionTimestamp = now;
+        setTransactions((prev) =>
+          [
+            {
+              title,
+              timestamp: transactionTimestamp,
+            },
+            ...prev,
+          ].slice(0, 10),
+        );
+
+        if (keysSnapshot.publicKey && trimmedPlayerName) {
           submissionPayload = {
             publicKey: keysSnapshot.publicKey,
-            playerLabel: nameSnapshot.trim(),
+            playerLabel: trimmedPlayerName,
+            optimisticReference,
+            storedAt: now,
+            transactionTimestamp,
           };
         } else {
           console.warn("Missing player data for faucet submission");
-          setSubmissionError("We could not reach the server. Your score has not been updated.");
         }
       } else {
         setBombPenalty((prev) => (prev > 0 ? prev - 1 : 0));
@@ -586,7 +632,13 @@ function App() {
     }
 
     if (submissionPayload) {
-      void submitPumpkinSlice(submissionPayload.publicKey, submissionPayload.playerLabel);
+      void submitPumpkinSlice(
+        submissionPayload.publicKey,
+        submissionPayload.playerLabel,
+        submissionPayload.optimisticReference,
+        submissionPayload.storedAt,
+        submissionPayload.transactionTimestamp,
+      );
     }
   };
 
@@ -1267,9 +1319,6 @@ top: `${particle.y}px`,*/
                     >
                       SETTINGS
                     </button>
-                    <div className="nes-hud__score-subtitle">
-                      <span>Your score lives only in your browser and can reset anytime.</span>
-                    </div>
                   </div>
                 </>
               )}
@@ -1317,27 +1366,19 @@ top: `${particle.y}px`,*/
                     </div>
                   </div>
                 </div>
-                <div
-                  className={`nes-hud__status-item ${
-                    submissionError ? "nes-hud__status-item--error is-active" : "nes-hud__status-item--rate is-active"
-                  }`}
-                >
-                  {submissionError ? (
-                    submissionError
-                  ) : (
-                    <div className="status-box status-box--rate">
-                      <div className="status-box__label">Slice speed</div>
-                      <div className="status-box__row">
-                        <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
-                        <div className="status-box__meter">
-                          <div
-                            className="status-box__meter-fill"
-                            style={{ width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%` }}
-                          />
-                        </div>
+                <div className="nes-hud__status-item nes-hud__status-item--rate is-active">
+                  <div className="status-box status-box--rate">
+                    <div className="status-box__label">Slice speed</div>
+                    <div className="status-box__row">
+                      <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
+                      <div className="status-box__meter">
+                        <div
+                          className="status-box__meter-fill"
+                          style={{ width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%` }}
+                        />
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             )}
