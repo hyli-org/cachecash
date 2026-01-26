@@ -76,7 +76,7 @@ pub fn hash_merge<const N: usize>(elements: [Element; N]) -> Element {
     }
 
     let inputs = elements.iter().map(|e| e.to_base()).collect::<Vec<_>>();
-    let hash = bn254_blackbox_solver::poseidon_hash(&inputs, false).unwrap();
+    let hash = bn254_blackbox_solver::poseidon_hash(&inputs).unwrap();
 
     Element::from_base(hash)
 }

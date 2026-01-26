@@ -26,10 +26,11 @@ mkdir -p $REPO_ROOT/fixtures/keys
 
 # Get all program names from the workspace - the ordering of these is important,
 # as the hash from utxo is used in agg_utxo, and agg_utxo used in agg_agg
-PROGRAMS=("utxo" "agg_utxo" "agg_agg" "signature" "points" "migrate")
+PROGRAMS=("utxo" "hyli_utxo" "agg_utxo" "agg_agg" "signature" "points" "migrate")
 
-# Define which programs should use the recursive flag
-RECURSIVE_PROGRAMS=("agg_utxo" "utxo")
+# Define which programs should use the recursive flag (for IVC/recursive verification)
+# Note: Changed to standalone mode - no longer using IVC for these circuits
+RECURSIVE_PROGRAMS=()
 
 # Function to check if a program should use recursive flag
 is_recursive() {
@@ -53,15 +54,12 @@ for NAME in "${PROGRAMS[@]}"; do
   echo "$(echo "$NAME" | tr '[:lower:]' '[:upper:]')"
   echo "================"
 
-  if is_recursive "$NAME"; then
-    echo "Generating verification key for $NAME with recursive flag"
-    $BACKEND write_vk ${oracle_hash_args[@]} --scheme ultra_honk --honk_recursion 1 --init_kzg_accumulator -b $REPO_ROOT/fixtures/programs/${NAME}.json -o $REPO_ROOT/fixtures/keys/ --output_format bytes_and_fields \
-      && mv $REPO_ROOT/fixtures/keys/{vk,${NAME}_key} && mv $REPO_ROOT/fixtures/keys/{vk_fields.json,${NAME}_key_fields.json}
-  else
-    echo "Generating verification key for $NAME"
-    $BACKEND write_vk ${oracle_hash_args[@]} --scheme ultra_honk -b $REPO_ROOT/fixtures/programs/${NAME}.json -o $REPO_ROOT/fixtures/keys/ --output_format bytes_and_fields \
-      && mv $REPO_ROOT/fixtures/keys/{vk,${NAME}_key} && mv $REPO_ROOT/fixtures/keys/{vk_fields.json,${NAME}_key_fields.json}
-  fi
+  echo "Generating verification key for $NAME with standalone verifier type"
+  # Note: New barretenberg (v2.0+) no longer supports --output_format bytes_and_fields
+  # It only generates binary 'vk' and 'vk_hash' files
+  $BACKEND write_vk ${oracle_hash_args[@]} --scheme ultra_honk --verifier_type standalone -b $REPO_ROOT/fixtures/programs/${NAME}.json -o $REPO_ROOT/fixtures/keys/ \
+    && mv $REPO_ROOT/fixtures/keys/vk $REPO_ROOT/fixtures/keys/${NAME}_key \
+    && mv $REPO_ROOT/fixtures/keys/vk_hash $REPO_ROOT/fixtures/keys/${NAME}_key_hash
 
   # Print verification key hash as u256 and hex
   echo "Verification key hash for $NAME:"

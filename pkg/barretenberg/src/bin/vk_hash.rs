@@ -37,7 +37,7 @@ fn main() {
 
     let verification_key = VerificationKey(vk_fields);
 
-    let hash = match poseidon_hash(&verification_key.0, false) {
+    let hash = match poseidon_hash(&verification_key.0) {
         Ok(hash) => hash,
         Err(e) => {
             eprintln!("Error computing Poseidon hash: {e}");

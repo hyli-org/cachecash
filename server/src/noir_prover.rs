@@ -3,9 +3,6 @@ use std::{sync::Arc, time::Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use barretenberg::Prove;
 use client_sdk::rest_client::NodeApiClient;
-use element::Element;
-use ethnum::U256;
-use hex_literal::hex;
 use hyli_modules::{
     bus::{BusMessage, SharedMessageBus, LOW_CAPACITY},
     module_bus_client, module_handle_messages,
@@ -132,22 +129,7 @@ impl HyliUtxoNoirProver {
             );
         }
 
-        let tx_hash_str = job.tx_hash.0.clone();
-
-        tracing::debug!(
-            %tx_hash_str,
-            identity = %job.identity.0,
-            identity_len = job.identity.0.len(),
-            blob_contract_name = %contract_name,
-            tx_blob_count = job.tx_blob_count,
-            blob_index = job.blob_index,
-            "Preparing hyli_utxo Noir proof"
-        );
-
-        if tracing::enabled!(tracing::Level::DEBUG) {
-            let prover_toml = build_prover_toml(&hyli_utxo);
-            tracing::debug!(%prover_toml, "Generated hyli_utxo Prover.toml");
-        }
+        let tx_hash_str = hex::encode(&job.tx_hash.0);
 
         let prove_start = Instant::now();
         let proof = hyli_utxo
@@ -196,7 +178,7 @@ impl HyliUtxoNoirProver {
             next_state: [0u8; 4],
             identity_len: identity_str.len() as u8,
             identity: padded_identity,
-            tx_hash: job.tx_hash.0.clone(),
+            tx_hash: hex::encode(&job.tx_hash.0),
             index: job.blob_index,
             blob_number: 1,
             blob_index: job.blob_index,
@@ -222,123 +204,4 @@ pub(crate) fn pad_right_with_null(value: &str, target_len: usize) -> Result<Stri
         padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
     }
     Ok(padded)
-}
-
-fn build_prover_toml(utxo: &HyliUtxo) -> String {
-    use serde::Serialize;
-
-    #[derive(Serialize)]
-    struct SerializableNote {
-        address: String,
-        contract: String,
-        kind: String,
-        psi: String,
-        value: String,
-    }
-
-    #[derive(Serialize)]
-    struct SerializableInputNote {
-        secret_key: String,
-        note: SerializableNote,
-    }
-
-    #[derive(Serialize)]
-    struct ProverInputs<'a> {
-        version: u32,
-        initial_state_len: u32,
-        initial_state: [u8; 4],
-        next_state_len: u32,
-        next_state: [u8; 4],
-        identity_len: u8,
-        identity: &'a str,
-        tx_hash: &'a str,
-        index: u32,
-        blob_number: u32,
-        blob_index: u32,
-        blob_contract_name_len: u8,
-        blob_contract_name: &'a str,
-        blob_capacity: u32,
-        blob_len: u32,
-        blob: Vec<u8>,
-        tx_blob_count: u32,
-        success: bool,
-        input_notes: Vec<SerializableInputNote>,
-        output_notes: Vec<SerializableNote>,
-        pmessage4: String,
-        commitments: Vec<String>,
-        messages: Vec<String>,
-    }
-
-    fn display_element(el: Element) -> String {
-        let bytes = el.to_be_bytes();
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
-        let mut value = U256::from_be_bytes(arr);
-        let modulus = U256::from_be_bytes(hex!(
-            "30644E72E131A029B85045B68181585D2833E84879B9709143E1F593F0000001"
-        ));
-        value %= modulus;
-        value.to_string()
-    }
-
-    let serialize_note = |input: &zk_primitives::InputNote| SerializableInputNote {
-        secret_key: display_element(input.secret_key),
-        note: SerializableNote {
-            address: display_element(input.note.address),
-            contract: display_element(input.note.contract),
-            kind: display_element(input.note.kind),
-            psi: display_element(input.note.psi),
-            value: display_element(input.note.value),
-        },
-    };
-    let serialize_output = |note: &zk_primitives::Note| SerializableNote {
-        address: display_element(note.address),
-        contract: display_element(note.contract),
-        kind: display_element(note.kind),
-        psi: display_element(note.psi),
-        value: display_element(note.value),
-    };
-    let commitments: Vec<_> = utxo
-        .commitments()
-        .iter()
-        .map(|c| display_element(*c))
-        .collect();
-    let messages: Vec<_> = utxo
-        .messages()
-        .iter()
-        .map(|m| display_element(*m))
-        .collect();
-
-    let inputs = ProverInputs {
-        version: utxo.version,
-        initial_state_len: utxo.initial_state.len() as u32,
-        initial_state: utxo.initial_state,
-        next_state_len: utxo.next_state.len() as u32,
-        next_state: utxo.next_state,
-        identity_len: utxo.identity_len,
-        identity: &utxo.identity,
-        tx_hash: &utxo.tx_hash,
-        index: utxo.index,
-        blob_number: utxo.blob_number,
-        blob_index: utxo.blob_index,
-        blob_contract_name_len: utxo.blob_contract_name_len,
-        blob_contract_name: &utxo.blob_contract_name,
-        blob_capacity: utxo.blob_capacity,
-        blob_len: utxo.blob_len,
-        blob: utxo.blob.to_vec(),
-        tx_blob_count: utxo.tx_blob_count,
-        success: utxo.success,
-        input_notes: utxo.utxo.input_notes.iter().map(serialize_note).collect(),
-        output_notes: utxo
-            .utxo
-            .output_notes
-            .iter()
-            .map(serialize_output)
-            .collect(),
-        pmessage4: display_element(utxo.utxo.messages()[4]),
-        commitments,
-        messages,
-    };
-
-    toml::to_string(&inputs).expect("serialize Prover.toml")
 }

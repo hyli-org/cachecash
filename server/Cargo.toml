@@ -24,6 +24,7 @@ element = { workspace = true }
 hash = { workspace = true }
 zk-primitives = { workspace = true }
 hyli-modules = { workspace = true, features = ["test"] }
+hyli-turmoil-shims = { workspace = true }
 opentelemetry = "0.28"
 opentelemetry-prometheus = "0.28"
 opentelemetry_sdk = { version = "0.28", features = ["metrics"] }

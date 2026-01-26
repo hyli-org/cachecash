@@ -3,7 +3,7 @@ use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
 use hash::hash_merge;
 use hyli_modules::{
-    bus::{BusClientSender, BusMessage, SharedMessageBus, LOW_CAPACITY},
+    bus::{BusClientSender, BusMessage, SharedMessageBus},
     module_bus_client, module_handle_messages,
     modules::Module,
 };

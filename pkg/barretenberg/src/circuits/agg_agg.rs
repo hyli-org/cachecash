@@ -32,7 +32,7 @@ lazy_static! {
     pub static ref AGG_AGG_VERIFICATION_KEY: VerificationKey =
         VerificationKey(serde_json::from_slice(KEY_FIELDS).unwrap());
     pub static ref AGG_AGG_VERIFICATION_KEY_HASH: VerificationKeyHash = VerificationKeyHash(
-        bn254_blackbox_solver::poseidon_hash(&AGG_AGG_VERIFICATION_KEY.0, false).unwrap()
+        bn254_blackbox_solver::poseidon_hash(&AGG_AGG_VERIFICATION_KEY.0).unwrap()
     );
 }
 

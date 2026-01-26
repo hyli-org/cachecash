@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, ChangeEvent, FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent, FormEvent } from "react";
 import "./App.css";
 import { nodeService } from "./services/NodeService";
 import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
@@ -6,6 +6,8 @@ import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
 import { ManageNotesModal } from "./components/ManageNotesModal";
+import { TransferModal } from "./components/TransferModal";
+import { transferService } from "./services/TransferService";
 import slice1 from "./audio/slice1.mp3";
 import slice2 from "./audio/slice2.mp3";
 import slice3 from "./audio/slice3.mp3";
@@ -13,6 +15,7 @@ import bombSound from "./audio/bomb.mp3";
 import { declareCustomElement } from "testnet-maintenance-widget";
 import { useStoredNotes } from "./hooks/useStoredNotes";
 import { useDebugMode } from "./hooks/useDebugMode";
+import { useEncryptedNotes } from "./hooks/useEncryptedNotes";
 import { addStoredNote, replaceStoredNote } from "./services/noteStorage";
 import { useDebounce } from "use-debounce";
 import { StoredNote } from "./types/note";
@@ -177,6 +180,7 @@ function App() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
   const { notes: storedNotes, clearNotes } = useStoredNotes(playerName);
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
   const [playerKeys, setPlayerKeys] = useState<DerivedKeyPair | null>(() => {
     const storedPlayer = localStorage.getItem("playerName");
@@ -203,6 +207,29 @@ function App() {
       return null;
     }
   });
+
+  // Callbacks for encrypted notes hook (memoized to prevent infinite loops)
+  const handleNotesReceived = useCallback((notes: any[]) => {
+    console.log(`Received ${notes.length} encrypted notes`);
+  }, []);
+
+  const handleNotesError = useCallback((error: Error) => {
+    console.error("Encrypted notes polling error:", error);
+  }, []);
+
+  // Poll for encrypted notes (received transfers)
+  useEncryptedNotes(playerKeys, playerName, {
+    enabled: !!playerKeys && !!playerName,
+    onNotesReceived: handleNotesReceived,
+    onError: handleNotesError,
+  });
+
+  // Compute available notes for transfers (memoized to prevent infinite loops)
+  const availableNotesForTransfer = useMemo(() => {
+    if (!playerKeys || !playerName) return [];
+    return transferService.getSpendableNotes(storedNotes, playerKeys.privateKey, playerName);
+  }, [storedNotes, playerKeys, playerName]);
+
   const [oranges, setOranges] = useState<Orange[]>([]);
   const [bombs, setBombs] = useState<Bomb[]>([]);
   const [bombPenalty, setBombPenalty] = useState(() => {
@@ -358,6 +385,24 @@ function App() {
 
   const handleCloseManageModal = useCallback(() => {
     setIsManageModalOpen(false);
+    if (isMobileLayout) {
+      setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
+    }
+  }, [isMobileLayout]);
+
+  const handleOpenTransferModal = useCallback(() => {
+    if (!playerName) {
+      return;
+    }
+    if (isMobileLayout) {
+      previousScoreboardCollapsedRef.current = isScoreboardCollapsed;
+      setIsScoreboardCollapsed(true);
+    }
+    setIsTransferModalOpen(true);
+  }, [playerName, isMobileLayout, isScoreboardCollapsed]);
+
+  const handleCloseTransferModal = useCallback(() => {
+    setIsTransferModalOpen(false);
     if (isMobileLayout) {
       setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
     }
@@ -1056,7 +1101,7 @@ function App() {
 
   const appClassName = `App${bombPenalty > 0 ? " App--penalty" : ""}${
     isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""
-  }${isManageModalOpen ? " App--modal-open" : ""}`;
+  }${isManageModalOpen || isTransferModalOpen ? " App--modal-open" : ""}`;
   const titleBadgeClassName = `pumpkin-title__badge${bombPenalty > 0 ? " pumpkin-title__badge--warning" : ""}`;
   const gameAreaClassName = "game-area";
 
@@ -1311,14 +1356,24 @@ top: `${particle.y}px`,*/
                   <div className="nes-hud__card nes-hud__card--score">
                     <div className="nes-hud__title">SCORE</div>
                     <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
-                    <button
-                      type="button"
-                      className="pixel-button pixel-button--ghost pixel-button--compact"
-                      onClick={handleOpenManageModal}
-                      disabled={!playerName}
-                    >
-                      SETTINGS
-                    </button>
+                    <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+                      <button
+                        type="button"
+                        className="pixel-button pixel-button--ghost pixel-button--compact"
+                        onClick={handleOpenTransferModal}
+                        disabled={!playerName}
+                      >
+                        SEND
+                      </button>
+                      <button
+                        type="button"
+                        className="pixel-button pixel-button--ghost pixel-button--compact"
+                        onClick={handleOpenManageModal}
+                        disabled={!playerName}
+                      >
+                        SETTINGS
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
@@ -1337,6 +1392,14 @@ top: `${particle.y}px`,*/
                         DISCONNECT
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className="pixel-button pixel-button--ghost pixel-button--compact"
+                      onClick={handleOpenTransferModal}
+                      disabled={!playerName}
+                    >
+                      SEND
+                    </button>
                     <button
                       type="button"
                       className="pixel-button pixel-button--ghost pixel-button--compact"
@@ -1388,6 +1451,14 @@ top: `${particle.y}px`,*/
 
       {isManageModalOpen && playerName && (
         <ManageNotesModal playerName={playerName} notes={storedNotes} onClose={handleCloseManageModal} />
+      )}
+      {isTransferModalOpen && playerName && playerKeys && (
+        <TransferModal
+          playerName={playerName}
+          keyPair={playerKeys}
+          availableNotes={availableNotesForTransfer}
+          onClose={handleCloseTransferModal}
+        />
       )}
       {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
 

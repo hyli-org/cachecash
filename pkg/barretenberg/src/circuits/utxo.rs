@@ -33,7 +33,7 @@ lazy_static! {
         VerificationKey(fields)
     };
     pub static ref UTXO_VERIFICATION_KEY_HASH: VerificationKeyHash = VerificationKeyHash(
-        bn254_blackbox_solver::poseidon_hash(&UTXO_VERIFICATION_KEY.0, false).unwrap()
+        bn254_blackbox_solver::poseidon_hash(&UTXO_VERIFICATION_KEY.0).unwrap()
     );
 }
 

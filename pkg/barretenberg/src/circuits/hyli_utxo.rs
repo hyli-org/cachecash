@@ -34,7 +34,7 @@ lazy_static! {
         VerificationKey(fields)
     };
     pub static ref HYLI_UTXO_VERIFICATION_KEY_HASH: VerificationKeyHash = VerificationKeyHash(
-        bn254_blackbox_solver::poseidon_hash(&HYLI_UTXO_VERIFICATION_KEY.0, false).unwrap()
+        bn254_blackbox_solver::poseidon_hash(&HYLI_UTXO_VERIFICATION_KEY.0).unwrap()
     );
 }
 
@@ -51,7 +51,7 @@ impl Prove for HyliUtxo {
             &BYTECODE,
             KEY,
             &inputs,
-            true,
+            false, // Changed from true - recursion/IPA accumulation not needed for standalone proofs
             false,
         )?;
 

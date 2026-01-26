@@ -5,6 +5,7 @@ pub mod hyli_utxo_state_client;
 pub mod init;
 pub mod metrics;
 pub mod noir_prover;
+pub mod note_store;
 pub mod prover;
 pub mod tx;
 pub mod types;

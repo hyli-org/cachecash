@@ -2,6 +2,13 @@ import { StoredNote } from "../types/note";
 
 export const STORED_NOTES_PREFIX = "storedNotes:" as const;
 const LEGACY_STORAGE_KEY = "storedNotes";
+const PENDING_TRANSFERS_PREFIX = "pendingTransfers:" as const;
+const PENDING_TRANSFER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+export interface PendingTransfer {
+  spentNoteHashes: string[];
+  timestamp: number;
+}
 
 type Listener = (notes: StoredNote[]) => void;
 const listeners = new Map<string, Set<Listener>>();
@@ -223,4 +230,100 @@ export function isStoredNotesStorageKey(key: string | null | undefined, playerNa
     }
 
     return key === resolved.storageKey;
+}
+
+// ---- Pending Transfer Management ----
+
+function getPendingTransfersKey(playerName: string | undefined | null): string | null {
+    const playerKey = normalizePlayerKey(playerName);
+    if (!playerKey) {
+        return null;
+    }
+    return `${PENDING_TRANSFERS_PREFIX}${playerKey}`;
+}
+
+function readPendingTransfers(playerName: string | undefined | null): PendingTransfer[] {
+    const key = getPendingTransfersKey(playerName);
+    if (!key || !hasStorage()) {
+        return [];
+    }
+
+    try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) {
+            return [];
+        }
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            // Filter out expired pending transfers
+            const now = Date.now();
+            const active = parsed.filter(
+                (p: PendingTransfer) =>
+                    typeof p.timestamp === "number" && now - p.timestamp < PENDING_TRANSFER_TIMEOUT_MS
+            );
+            return active;
+        }
+    } catch (error) {
+        console.warn("Failed to parse pending transfers", error);
+    }
+
+    return [];
+}
+
+function writePendingTransfers(playerName: string | undefined | null, pending: PendingTransfer[]): void {
+    const key = getPendingTransfersKey(playerName);
+    if (!key || !hasStorage()) {
+        return;
+    }
+
+    try {
+        window.localStorage.setItem(key, JSON.stringify(pending));
+    } catch (error) {
+        console.warn("Failed to persist pending transfers", error);
+    }
+}
+
+/**
+ * Mark notes as pending to prevent double-spend during transfer
+ */
+export function markNotesPending(playerName: string | undefined | null, noteHashes: string[]): void {
+    const pending = readPendingTransfers(playerName);
+    pending.push({
+        spentNoteHashes: noteHashes,
+        timestamp: Date.now(),
+    });
+    writePendingTransfers(playerName, pending);
+}
+
+/**
+ * Clear pending state for specific notes (after successful transfer)
+ */
+export function clearPendingNotes(playerName: string | undefined | null, noteHashes: string[]): void {
+    const hashSet = new Set(noteHashes);
+    const pending = readPendingTransfers(playerName);
+    const updated = pending.filter(
+        (p) => !p.spentNoteHashes.some((hash) => hashSet.has(hash))
+    );
+    writePendingTransfers(playerName, updated);
+}
+
+/**
+ * Get all pending note hashes (to exclude from spendable notes)
+ */
+export function getPendingNoteHashes(playerName: string | undefined | null): Set<string> {
+    const pending = readPendingTransfers(playerName);
+    const hashes = new Set<string>();
+    pending.forEach((p) => {
+        p.spentNoteHashes.forEach((hash) => hashes.add(hash));
+    });
+    return hashes;
+}
+
+/**
+ * Clean up expired pending transfers
+ */
+export function cleanupExpiredPending(playerName: string | undefined | null): void {
+    // This happens automatically in readPendingTransfers
+    const pending = readPendingTransfers(playerName);
+    writePendingTransfers(playerName, pending);
 }

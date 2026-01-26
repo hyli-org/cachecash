@@ -28,7 +28,7 @@ impl ContractDeployment {
             program_id: self.program_id.clone(),
             state_commitment: self.state_commitment.clone(),
             contract_name: self.contract_name.clone(),
-            timeout_window: self.timeout_window,
+            timeout_window: self.timeout_window.map(|t| (0, t)),
             constructor_metadata: None,
         }
     }
@@ -131,12 +131,6 @@ pub async fn wait_for_contract(
                 return Ok(());
             }
             Err(err) if attempts < 60 => {
-                tracing::debug!(
-                    contract = %contract_name.0,
-                    attempts,
-                    error = %err,
-                    "Waiting for contract to be discoverable"
-                );
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
             Err(err) => {

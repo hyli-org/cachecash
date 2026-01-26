@@ -6,7 +6,7 @@ use std::{
 
 use flate2::{Compression, read::GzEncoder};
 use tempfile::{NamedTempFile, TempDir};
-use tracing::{error, info};
+use tracing::error;
 
 use super::Backend;
 use crate::Result;
@@ -18,7 +18,7 @@ impl Backend for CliBackend {
     fn prove(
         program: &[u8],
         _bytecode: &[u8],
-        _key: &[u8],
+        key: &[u8],
         witness: &[u8],
         recursive: bool,
         oracle_hash_keccak: bool,
@@ -38,6 +38,12 @@ impl Backend for CliBackend {
 
         let output_dir = TempDir::new()?;
 
+        // Create a key file that needs to stay alive until after command execution
+        // The new barretenberg version requires the VK file even for non-recursive proofs
+        let mut key_file = NamedTempFile::new()?;
+        key_file.write_all(key)?;
+        key_file.flush()?;
+
         let mut cmd = Command::new(PathBuf::from("bb"));
         cmd.arg("prove")
             .arg("-v")
@@ -48,12 +54,14 @@ impl Backend for CliBackend {
             .arg("-w")
             .arg(witness_file.path())
             .arg("-o")
-            .arg(output_dir.path());
+            .arg(output_dir.path())
+            .arg("-k")
+            .arg(key_file.path());
 
         if recursive {
-            cmd.arg("--honk_recursion")
-                .arg("1")
-                .arg("--init_kzg_accumulator");
+            // Note: In newer barretenberg, --honk_recursion and --init_kzg_accumulator
+            // have been removed. Recursion support is now handled via --ipa_accumulation
+            cmd.arg("--ipa_accumulation");
         }
 
         if oracle_hash_keccak {
@@ -117,7 +125,6 @@ impl Backend for CliBackend {
         }
 
         let output = cmd.output()?;
-        info!("output {:?}", output);
 
         if !output.status.success() {
             // TODO: return false instead? maybe pass -v and parse out verified: {0/1}

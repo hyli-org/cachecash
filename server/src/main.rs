@@ -4,13 +4,14 @@ use anyhow::{anyhow, Context, Result};
 use axum::Router;
 use clap::Parser;
 use client_sdk::{
-    helpers::{sp1::SP1Prover, ClientSdkProver},
+    helpers::sp1::SP1Prover,
     rest_client::{NodeApiClient, NodeApiHttpClient},
 };
 use hyli_modules::{
     bus::{metrics::BusMetrics, SharedMessageBus},
     modules::{
-        da_listener::{DAListener, DAListenerConf},
+        block_processor::NodeStateBlockProcessor,
+        da_listener::{SignedDAListener, DAListenerConf},
         prover::{AutoProver, AutoProverCtx},
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
@@ -19,7 +20,7 @@ use hyli_modules::{
 use opentelemetry_prometheus::exporter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::Registry;
-use sdk::{api::NodeInfo, verifiers, Calldata, ContractName, Verifier};
+use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
     api::{ApiModule, ApiModuleCtx},
     app::{FaucetApp, FaucetAppContext},
@@ -28,6 +29,7 @@ use server::{
     init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
     metrics::FaucetMetrics,
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
+    note_store::NoteStore,
     utils::load_utxo_state_proving_key,
 };
 use tracing::info;
@@ -109,12 +111,10 @@ async fn main() -> Result<()> {
 
     let proving_key = load_utxo_state_proving_key(&data_directory)
         .context("loading hyli-utxo-state proving key")?;
-    let prover_impl = Arc::new(SP1Prover::new(proving_key).await);
-    let prover: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> =
-        prover_impl.clone() as Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync>;
+    let prover = Arc::new(SP1Prover::new(proving_key).await);
 
     let shared_bus = SharedMessageBus::new(BusMetrics::global(config.id.clone()));
-    let mut handler = ModulesHandler::new(&shared_bus).await;
+    let mut handler = ModulesHandler::new(&shared_bus, data_directory.clone()).await;
 
     handler
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
@@ -140,28 +140,44 @@ async fn main() -> Result<()> {
         openapi: Default::default(),
     });
 
+    let note_store = if config.persist_encrypted_notes {
+        let notes_path = data_directory.join("encrypted_notes.json");
+        Arc::new(
+            NoteStore::with_persistence(None, notes_path.to_string_lossy().to_string())
+                .context("initializing note store with persistence")?,
+        )
+    } else {
+        Arc::new(NoteStore::new(None))
+    };
+
     handler
         .build_module::<ApiModule>(Arc::new(ApiModuleCtx {
             api: api_builder_ctx.clone(),
             default_amount: config.default_faucet_amount,
             contract_name: ContractName(config.utxo_contract_name.clone()),
             metrics: faucet_metrics.clone(),
+            note_store,
+            max_note_payload_size: config.max_note_payload_size,
+            client: node_client.as_ref().clone(),
+            utxo_contract_name: config.utxo_contract_name.clone(),
+            utxo_state_contract_name: config.utxo_state_contract_name.clone(),
         }))
         .await
         .context("building API module")?;
 
     handler
-        .build_module::<DAListener>(DAListenerConf {
+        .build_module::<SignedDAListener<NodeStateBlockProcessor>>(DAListenerConf {
             start_block: None,
             data_directory: data_directory.clone(),
             da_read_from: config.da_read_from.clone(),
             timeout_client_secs: 10,
+            processor_config: (),
         })
         .await
         .context("building DA listener module")?;
 
     handler
-        .build_module::<AutoProver<HyliUtxoStateExecutor>>(Arc::new(AutoProverCtx {
+        .build_module::<AutoProver<HyliUtxoStateExecutor, SP1Prover>>(Arc::new(AutoProverCtx {
             data_directory: data_directory.clone(),
             prover: prover.clone(),
             contract_name: ContractName(config.utxo_state_contract_name.clone()),
