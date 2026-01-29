@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use hex;
 use sdk::{
     merkle_utils::BorshableMerkleProof, utils::parse_raw_calldata, Calldata, RunResult,
     StateCommitment,
@@ -79,14 +80,37 @@ impl HyliUtxoState {
         Ok(())
     }
 
+    /// The padding nullifier is poseidon2([0, 0], 2) - this is a well-known constant
+    /// that results from using a padding note (psi=0, secret_key=0).
+    /// We must skip this value to allow multiple transactions with padding notes.
+    const PADDING_NULLIFIER: [u8; 32] = [
+        0x0b, 0x63, 0xa5, 0x37, 0x87, 0x02, 0x1a, 0x4a,
+        0x96, 0x2a, 0x45, 0x2c, 0x29, 0x21, 0xb3, 0x66,
+        0x3a, 0xff, 0x1f, 0xfd, 0x8d, 0x55, 0x10, 0x54,
+        0x0f, 0x8e, 0x65, 0x9e, 0x78, 0x29, 0x56, 0xf1,
+    ];
+
     pub fn record_nullified(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
-        for commitment in commitments {
+        for (i, commitment) in commitments.iter().enumerate() {
             if commitment.0 == H256::zero() {
                 continue;
             }
 
+            // Skip the padding nullifier - it's poseidon2([0, 0], 2) and is used
+            // by all transactions that have only 1 real input note.
+            let commitment_bytes: [u8; 32] = commitment.0.into();
+            if commitment_bytes == Self::PADDING_NULLIFIER {
+                continue;
+            }
+
+            // Debug: print the nullifier being checked
+            let nullifier_hex = hex::encode(commitment.0.as_slice());
+
             if self.nullified_tree.contains(commitment) {
-                return Err("note has already been nullified".to_string());
+                return Err(format!(
+                    "note has already been nullified: nullifier[{}] = {}",
+                    i, nullifier_hex
+                ));
             }
 
             self.nullified_tree
@@ -162,6 +186,14 @@ impl HyliUtxoState {
 impl sdk::FullStateRevert for HyliUtxoZkVmState {}
 
 impl HyliUtxoZkVmState {
+    /// The padding nullifier constant - must match HyliUtxoState::PADDING_NULLIFIER
+    const PADDING_NULLIFIER: [u8; 32] = [
+        0x0b, 0x63, 0xa5, 0x37, 0x87, 0x02, 0x1a, 0x4a,
+        0x96, 0x2a, 0x45, 0x2c, 0x29, 0x21, 0xb3, 0x66,
+        0x3a, 0xff, 0x1f, 0xfd, 0x8d, 0x55, 0x10, 0x54,
+        0x0f, 0x8e, 0x65, 0x9e, 0x78, 0x29, 0x56, 0xf1,
+    ];
+
     fn apply_action(&mut self, action: &HyliUtxoStateAction) -> Result<(), String> {
         let created: Vec<_> = action
             .iter()
@@ -173,7 +205,10 @@ impl HyliUtxoZkVmState {
             .iter()
             .skip(2)
             .copied()
-            .filter(|c| c.0 != H256::zero())
+            .filter(|c| {
+                let bytes: [u8; 32] = c.0.into();
+                c.0 != H256::zero() && bytes != Self::PADDING_NULLIFIER
+            })
             .collect();
 
         if self.notes.values.len() != created.len() {

@@ -4,6 +4,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.93"
+base64 = "0.22"
 axum = { version = "0.8.3", features = ["macros"] }
 borsh = { workspace = true }
 client-sdk = { workspace = true, features = ["rest", "sp1"] }

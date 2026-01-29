@@ -43,6 +43,16 @@ impl HyliUtxoStateExecutor {
         nullified: &[BorshableH256],
         created: &[BorshableH256],
     ) -> Result<()> {
+        // Debug: log the nullifiers being recorded
+        for (i, n) in nullified.iter().enumerate() {
+            let hex = hex_encode(n.0.as_slice());
+            info!(index = i, nullifier = %hex, "recording nullifier");
+        }
+        for (i, c) in created.iter().enumerate() {
+            let hex = hex_encode(c.0.as_slice());
+            info!(index = i, commitment = %hex, "recording created commitment");
+        }
+
         if !nullified.is_empty() {
             self.state
                 .record_nullified(nullified)
@@ -77,6 +87,14 @@ impl HyliUtxoStateExecutor {
         Ok((created, nullified))
     }
 
+    /// The padding nullifier is poseidon2([0, 0], 2) - used by padding notes
+    const PADDING_NULLIFIER: [u8; 32] = [
+        0x0b, 0x63, 0xa5, 0x37, 0x87, 0x02, 0x1a, 0x4a,
+        0x96, 0x2a, 0x45, 0x2c, 0x29, 0x21, 0xb3, 0x66,
+        0x3a, 0xff, 0x1f, 0xfd, 0x8d, 0x55, 0x10, 0x54,
+        0x0f, 0x8e, 0x65, 0x9e, 0x78, 0x29, 0x56, 0xf1,
+    ];
+
     fn split_action(action: &HyliUtxoStateAction) -> (Vec<BorshableH256>, Vec<BorshableH256>) {
         let created = action
             .iter()
@@ -94,7 +112,8 @@ impl HyliUtxoStateExecutor {
             .copied()
             .filter(|commitment| {
                 let bytes: [u8; 32] = commitment.0.into();
-                bytes != [0u8; 32]
+                // Skip all-zeros AND the padding nullifier
+                bytes != [0u8; 32] && bytes != Self::PADDING_NULLIFIER
             })
             .collect();
 

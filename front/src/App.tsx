@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent, FormEvent } from "react";
 import "./App.css";
 import { nodeService } from "./services/NodeService";
-import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
+import { deriveKeyPairFromName, DerivedKeyPair, initBarretenberg, isBarretenbergInitialized } from "./services/KeyService";
 
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
@@ -182,12 +182,14 @@ function App() {
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
+  const [bbReady, setBbReady] = useState(isBarretenbergInitialized);
   const [playerKeys, setPlayerKeys] = useState<DerivedKeyPair | null>(() => {
     const storedPlayer = localStorage.getItem("playerName");
     if (!storedPlayer) {
       return null;
     }
 
+    // Try to load cached keys from localStorage first
     const storedPrivate = localStorage.getItem(`keys:${storedPlayer}:private`);
     const storedPublic = localStorage.getItem(`keys:${storedPlayer}:public`);
 
@@ -200,13 +202,23 @@ function App() {
       return { privateKey: storedPrivate, publicKey: storedPublic };
     }
 
-    try {
-      return deriveKeyPairFromName(storedPlayer);
-    } catch (error) {
-      console.warn("Failed to derive key pair from stored player name", error);
-      return null;
-    }
+    // Cannot derive keys yet - Barretenberg not initialized
+    // Keys will be derived in useEffect after initialization
+    return null;
   });
+
+  // Initialize Barretenberg WASM module
+  useEffect(() => {
+    let cancelled = false;
+    initBarretenberg().then(() => {
+      if (!cancelled) {
+        setBbReady(true);
+      }
+    }).catch((err) => {
+      console.error("Failed to initialize Barretenberg:", err);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Callbacks for encrypted notes hook (memoized to prevent infinite loops)
   const handleNotesReceived = useCallback((notes: any[]) => {
@@ -966,6 +978,11 @@ function App() {
       return;
     }
 
+    if (!bbReady) {
+      // Wait for Barretenberg to initialize
+      return;
+    }
+
     try {
       const derivedKeys = deriveKeyPairFromName(playerName);
       setPlayerKeys(derivedKeys);
@@ -973,7 +990,7 @@ function App() {
       console.error("Failed to derive key pair", error);
       setPlayerKeys(null);
     }
-  }, [playerName]);
+  }, [playerName, bbReady]);
 
   useEffect(() => {
     if (!playerName || !playerKeys) {

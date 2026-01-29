@@ -29,7 +29,7 @@ use server::{
     init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
     metrics::FaucetMetrics,
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
-    note_store::NoteStore,
+    note_store::{AddressRegistry, NoteStore},
     utils::load_utxo_state_proving_key,
 };
 use tracing::info;
@@ -150,6 +150,18 @@ async fn main() -> Result<()> {
         Arc::new(NoteStore::new(None))
     };
 
+    // Address registry for username -> UTXO address resolution
+    // Uses same persistence setting as encrypted notes
+    let address_registry = if config.persist_encrypted_notes {
+        let registry_path = data_directory.join("address_registry.json");
+        Arc::new(
+            AddressRegistry::with_persistence(registry_path.to_string_lossy().to_string())
+                .context("initializing address registry with persistence")?,
+        )
+    } else {
+        Arc::new(AddressRegistry::new())
+    };
+
     handler
         .build_module::<ApiModule>(Arc::new(ApiModuleCtx {
             api: api_builder_ctx.clone(),
@@ -157,6 +169,7 @@ async fn main() -> Result<()> {
             contract_name: ContractName(config.utxo_contract_name.clone()),
             metrics: faucet_metrics.clone(),
             note_store,
+            address_registry,
             max_note_payload_size: config.max_note_payload_size,
             client: node_client.as_ref().clone(),
             utxo_contract_name: config.utxo_contract_name.clone(),
