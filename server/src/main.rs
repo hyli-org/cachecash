@@ -11,7 +11,7 @@ use hyli_modules::{
     bus::{metrics::BusMetrics, SharedMessageBus},
     modules::{
         block_processor::NodeStateBlockProcessor,
-        da_listener::{SignedDAListener, DAListenerConf},
+        da_listener::{DAListenerConf, SignedDAListener},
         prover::{AutoProver, AutoProverCtx},
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,

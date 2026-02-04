@@ -507,7 +507,8 @@ mod tests {
         registry.register("matteo".to_string(), "aaaa".repeat(16), "1111".repeat(16));
 
         // Update should return previous registration
-        let previous = registry.register("matteo".to_string(), "bbbb".repeat(16), "2222".repeat(16));
+        let previous =
+            registry.register("matteo".to_string(), "bbbb".repeat(16), "2222".repeat(16));
         assert!(previous.is_some());
         assert_eq!(previous.unwrap().utxo_address, "aaaa".repeat(16));
 

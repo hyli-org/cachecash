@@ -8,7 +8,10 @@ use hyli_modules::{
     modules::Module,
 };
 use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
-use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData, ProofTransaction, TxHash, Verifier};
+use sdk::{
+    Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData,
+    ProofTransaction, TxHash, Verifier,
+};
 use tracing::{info, warn};
 use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
 
@@ -47,7 +50,6 @@ pub struct TransferWithProofCommand {
 }
 
 impl BusMessage for TransferWithProofCommand {}
-
 
 pub fn build_note(recipient_address: Element, amount: u64) -> Note {
     let minted_value = Element::new(amount);
@@ -236,7 +238,8 @@ impl FaucetApp {
     }
 
     async fn process_transfer_request(&mut self, cmd: TransferCommand) -> Result<()> {
-        let (blob_tx, utxo) = self.build_transfer_transaction(&cmd.input_notes, &cmd.output_notes)?;
+        let (blob_tx, utxo) =
+            self.build_transfer_transaction(&cmd.input_notes, &cmd.output_notes)?;
 
         let tx_hash = self
             .client
@@ -301,7 +304,10 @@ impl FaucetApp {
     }
 
     /// Build a blob transaction for a proved transfer (without computing nullifiers on server)
-    fn build_proved_transfer_blob(&self, cmd: &TransferWithProofCommand) -> Result<BlobTransaction> {
+    fn build_proved_transfer_blob(
+        &self,
+        cmd: &TransferWithProofCommand,
+    ) -> Result<BlobTransaction> {
         // Extract nullifiers from the blob (bytes 64-128 contain nullifier_0 and nullifier_1)
         let mut nullifier_0 = [0u8; 32];
         let mut nullifier_1 = [0u8; 32];

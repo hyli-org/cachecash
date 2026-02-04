@@ -1,19 +1,21 @@
 use std::sync::Arc;
 
 use crate::{
-    app::{build_note, FaucetMintCommand, TransferCommand, TransferWithProofCommand, FAUCET_MINT_AMOUNT},
+    app::{
+        build_note, FaucetMintCommand, TransferCommand, TransferWithProofCommand,
+        FAUCET_MINT_AMOUNT,
+    },
     init::HYLI_UTXO_NOIR_VK,
     metrics::FaucetMetrics,
     note_store::{AddressRegistry, NoteStore},
     types::{
         BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord, FaucetRequest,
         FaucetResponse, GetNotesQuery, GetNotesResponse, InputNoteData, ProvedTransferRequest,
-        RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse, SubmitProofRequest,
-        TransferRequest, TransferResponse, UploadNoteRequest, UploadNoteResponse,
+        RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse,
+        SubmitProofRequest, TransferRequest, TransferResponse, UploadNoteRequest,
+        UploadNoteResponse,
     },
 };
-use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
-use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData, ProofTransaction, Verifier};
 use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
@@ -22,16 +24,21 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
+use element::Element;
 use hyli_modules::{
     bus::{BusClientSender, SharedMessageBus},
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
-use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use element::Element;
+use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+use sdk::{
+    Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData,
+    ProofTransaction, Verifier,
+};
 use serde_json::json;
-use zk_primitives::InputNote;
 use tower_http::cors::{Any, CorsLayer};
+use zk_primitives::InputNote;
 
 pub struct ApiModule {
     bus: ApiModuleBusClient,
@@ -337,7 +344,8 @@ async fn create_blob(
     let identity = Identity(format!("transfer@{}", contract_name));
     let hyli_utxo_data = BlobData(request.blob_data.clone());
     let state_blob_data = BlobData(
-        borsh::to_vec(&state_action).map_err(|e| ApiError::internal(format!("serialization failed: {}", e)))?,
+        borsh::to_vec(&state_action)
+            .map_err(|e| ApiError::internal(format!("serialization failed: {}", e)))?,
     );
     let hyli_utxo_blob = Blob {
         contract_name: contract_name.clone().into(),
@@ -467,7 +475,10 @@ fn validate_tag(tag: &str, field_name: &str) -> Result<(), ApiError> {
     let normalized = tag.strip_prefix("0x").unwrap_or(tag);
 
     if normalized.is_empty() {
-        return Err(ApiError::bad_request(format!("{} must not be empty", field_name)));
+        return Err(ApiError::bad_request(format!(
+            "{} must not be empty",
+            field_name
+        )));
     }
 
     if normalized.len() != 64 {
@@ -538,9 +549,12 @@ async fn upload_note(
         .unwrap_or(&request.recipient_tag)
         .to_lowercase();
 
-    let sender_tag = request
-        .sender_tag
-        .map(|t| t.strip_prefix("0x").unwrap_or(&t).to_lowercase().to_string());
+    let sender_tag = request.sender_tag.map(|t| {
+        t.strip_prefix("0x")
+            .unwrap_or(&t)
+            .to_lowercase()
+            .to_string()
+    });
 
     let ephemeral_pubkey = request
         .ephemeral_pubkey
@@ -617,7 +631,9 @@ fn validate_username(username: &str) -> Result<(), ApiError> {
     }
 
     if username.len() > 64 {
-        return Err(ApiError::bad_request("username must be at most 64 characters"));
+        return Err(ApiError::bad_request(
+            "username must be at most 64 characters",
+        ));
     }
 
     // Allow alphanumeric, underscore, hyphen
@@ -697,9 +713,11 @@ async fn register_address(
         .unwrap_or(&request.encryption_pubkey)
         .to_lowercase();
 
-    let previous = state
-        .address_registry
-        .register(request.username.clone(), utxo_address.clone(), encryption_pubkey.clone());
+    let previous = state.address_registry.register(
+        request.username.clone(),
+        utxo_address.clone(),
+        encryption_pubkey.clone(),
+    );
 
     // Get the registration we just made
     let registration = state
