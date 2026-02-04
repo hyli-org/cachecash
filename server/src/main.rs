@@ -16,10 +16,8 @@ use hyli_modules::{
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
     },
+    telemetry::init_prometheus_registry_meter_provider,
 };
-use opentelemetry_prometheus::exporter;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
-use prometheus::Registry;
 use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
     api::{ApiModule, ApiModuleCtx},
@@ -72,17 +70,8 @@ async fn main() -> Result<()> {
     init_tracing(&config.log_format)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
-    let registry = Registry::new();
-    let meter_provider = SdkMeterProvider::builder()
-        .with_reader(
-            exporter()
-                .with_registry(registry.clone())
-                .build()
-                .context("starting prometheus exporter")?,
-        )
-        .build();
-
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
+    let registry =
+        init_prometheus_registry_meter_provider().context("starting prometheus exporter")?;
 
     let faucet_metrics = FaucetMetrics::global(config.id.clone());
 
@@ -113,7 +102,7 @@ async fn main() -> Result<()> {
         .context("loading hyli-utxo-state proving key")?;
     let prover = Arc::new(SP1Prover::new(proving_key).await);
 
-    let shared_bus = SharedMessageBus::new(BusMetrics::global(config.id.clone()));
+    let shared_bus = SharedMessageBus::new(BusMetrics::global());
     let mut handler = ModulesHandler::new(&shared_bus, data_directory.clone()).await;
 
     handler
@@ -184,6 +173,7 @@ async fn main() -> Result<()> {
             data_directory: data_directory.clone(),
             da_read_from: config.da_read_from.clone(),
             timeout_client_secs: 10,
+            da_fallback_addresses: vec![],
             processor_config: (),
         })
         .await
