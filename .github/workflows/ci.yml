@@ -12,7 +12,7 @@ on:
 env:
   IMAGE_NAME: "cachecash"
   AR_REPO_LOCATION: "europe-west1-docker.pkg.dev"
-  AR_URL: "hyli-shared-all/hyli"
+  AR_URL: "hyli-shared-all/apps"
   SERVICE_ACCOUNT: "github-actions-service-account@hyle-413414.iam.gserviceaccount.com"
   WORKLOAD_IDENTITY_PROVIDER: ""
 
@@ -37,7 +37,6 @@ jobs:
 
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
-
 
       - name: Run cargo test
         run: cargo test --workspace --all-targets
