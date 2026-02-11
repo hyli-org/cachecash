@@ -3,6 +3,49 @@ use sdk::{Blob, BlobData, BlobIndex, ContractAction, ContractName, StructuredBlo
 use serde::{Deserialize, Serialize};
 use zk_primitives::Note;
 
+// ---- Address Registry API Types ----
+
+/// Request to register a username -> UTXO address mapping.
+#[derive(Debug, Deserialize)]
+pub struct RegisterAddressRequest {
+    /// The username (e.g., "matteo" - without @wallet suffix)
+    pub username: String,
+    /// The UTXO address (64-char hex, derived from poseidon2([secret_key, 0]))
+    pub utxo_address: String,
+    /// The secp256k1 public key for ECDH encryption (64-char hex, x-coordinate)
+    pub encryption_pubkey: String,
+}
+
+/// Response after successfully registering an address.
+#[derive(Debug, Serialize)]
+pub struct RegisterAddressResponse {
+    /// The normalized username (lowercase)
+    pub username: String,
+    /// The registered UTXO address
+    pub utxo_address: String,
+    /// The secp256k1 public key for ECDH encryption
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub encryption_pubkey: String,
+    /// Unix timestamp when registered
+    pub registered_at: u64,
+    /// Whether this was an update to an existing registration
+    pub was_update: bool,
+}
+
+/// Response when resolving a username to an address.
+#[derive(Debug, Serialize)]
+pub struct ResolveAddressResponse {
+    /// The username
+    pub username: String,
+    /// The UTXO address
+    pub utxo_address: String,
+    /// The secp256k1 public key for ECDH encryption (may be empty for legacy registrations)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub encryption_pubkey: String,
+    /// Unix timestamp when registered
+    pub registered_at: u64,
+}
+
 // ---- Encrypted Notes API Types ----
 
 /// Request to upload an encrypted note.
@@ -66,6 +109,15 @@ pub struct GetNotesResponse {
 
 // ---- Transfer API Types ----
 
+/// Input note data for transfer requests (includes full note + secret key)
+#[derive(Debug, Clone, Deserialize)]
+pub struct InputNoteData {
+    /// The note being spent
+    pub note: Note,
+    /// Secret key for spending this note (64-char hex)
+    pub secret_key: String,
+}
+
 /// Request to transfer funds between users
 #[derive(Debug, Deserialize)]
 pub struct TransferRequest {
@@ -73,12 +125,10 @@ pub struct TransferRequest {
     pub recipient_pubkey: String,
     /// Amount being transferred
     pub amount: u64,
+    /// Full input notes with secret keys
+    pub input_notes: [InputNoteData; 2],
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
-    /// Input commitments (32 bytes each, hex-encoded)
-    pub input_commitments: [String; 2],
-    /// Nullifiers for the input notes (32 bytes each, hex-encoded)
-    pub nullifiers: [String; 2],
 }
 
 /// Response after successful transfer
@@ -88,6 +138,59 @@ pub struct TransferResponse {
     pub tx_hash: String,
     /// Change note if any
     pub change_note: Option<Note>,
+}
+
+/// Request to transfer with a pre-generated proof (client-side proving)
+#[derive(Debug, Deserialize)]
+pub struct ProvedTransferRequest {
+    /// Base64-encoded proof bytes (raw proof without public inputs)
+    pub proof: String,
+    /// Public inputs as hex strings (733 field elements)
+    pub public_inputs: Vec<String>,
+    /// 128-byte blob data
+    pub blob_data: Vec<u8>,
+    /// Output notes: [recipient_note, change_note]
+    pub output_notes: [Note; 2],
+}
+
+// ---- Two-Step Transfer API Types ----
+
+/// Request to create a blob transaction (step 1 of two-step transfer)
+#[derive(Debug, Deserialize)]
+pub struct CreateBlobRequest {
+    /// 128-byte blob data: [input_commit_0, input_commit_1, nullifier_0, nullifier_1]
+    pub blob_data: Vec<u8>,
+    /// Output notes: [recipient_note, change_note]
+    pub output_notes: [Note; 2],
+}
+
+/// Response after creating a blob transaction
+#[derive(Debug, Serialize)]
+pub struct CreateBlobResponse {
+    /// Transaction hash from the blockchain
+    pub tx_hash: String,
+    /// The blobs that were included in the transaction (for client to use in proof)
+    pub blobs: Vec<BlobInfo>,
+}
+
+/// Information about a blob in the transaction
+#[derive(Debug, Serialize, Clone)]
+pub struct BlobInfo {
+    /// Contract name this blob targets
+    pub contract_name: String,
+    /// Blob data as hex string
+    pub data: String,
+}
+
+/// Request to submit a proof for an existing blob transaction (step 2 of two-step transfer)
+#[derive(Debug, Deserialize)]
+pub struct SubmitProofRequest {
+    /// Transaction hash from CreateBlobResponse
+    pub tx_hash: String,
+    /// Base64-encoded proof bytes (raw proof without public inputs)
+    pub proof: String,
+    /// Public inputs as hex strings (733 field elements)
+    pub public_inputs: Vec<String>,
 }
 
 // ---- Existing Types ----

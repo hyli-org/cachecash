@@ -11,15 +11,13 @@ use hyli_modules::{
     bus::{metrics::BusMetrics, SharedMessageBus},
     modules::{
         block_processor::NodeStateBlockProcessor,
-        da_listener::{SignedDAListener, DAListenerConf},
+        da_listener::{DAListenerConf, SignedDAListener},
         prover::{AutoProver, AutoProverCtx},
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
     },
+    telemetry::init_prometheus_registry_meter_provider,
 };
-use opentelemetry_prometheus::exporter;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
-use prometheus::Registry;
 use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
     api::{ApiModule, ApiModuleCtx},
@@ -29,7 +27,7 @@ use server::{
     init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
     metrics::FaucetMetrics,
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
-    note_store::NoteStore,
+    note_store::{AddressRegistry, NoteStore},
     utils::load_utxo_state_proving_key,
 };
 use tracing::info;
@@ -72,17 +70,8 @@ async fn main() -> Result<()> {
     init_tracing(&config.log_format)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
-    let registry = Registry::new();
-    let meter_provider = SdkMeterProvider::builder()
-        .with_reader(
-            exporter()
-                .with_registry(registry.clone())
-                .build()
-                .context("starting prometheus exporter")?,
-        )
-        .build();
-
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
+    let registry =
+        init_prometheus_registry_meter_provider().context("starting prometheus exporter")?;
 
     let faucet_metrics = FaucetMetrics::global(config.id.clone());
 
@@ -113,7 +102,7 @@ async fn main() -> Result<()> {
         .context("loading hyli-utxo-state proving key")?;
     let prover = Arc::new(SP1Prover::new(proving_key).await);
 
-    let shared_bus = SharedMessageBus::new(BusMetrics::global(config.id.clone()));
+    let shared_bus = SharedMessageBus::new(BusMetrics::global());
     let mut handler = ModulesHandler::new(&shared_bus, data_directory.clone()).await;
 
     handler
@@ -150,6 +139,18 @@ async fn main() -> Result<()> {
         Arc::new(NoteStore::new(None))
     };
 
+    // Address registry for username -> UTXO address resolution
+    // Uses same persistence setting as encrypted notes
+    let address_registry = if config.persist_encrypted_notes {
+        let registry_path = data_directory.join("address_registry.json");
+        Arc::new(
+            AddressRegistry::with_persistence(registry_path.to_string_lossy().to_string())
+                .context("initializing address registry with persistence")?,
+        )
+    } else {
+        Arc::new(AddressRegistry::new())
+    };
+
     handler
         .build_module::<ApiModule>(Arc::new(ApiModuleCtx {
             api: api_builder_ctx.clone(),
@@ -157,6 +158,7 @@ async fn main() -> Result<()> {
             contract_name: ContractName(config.utxo_contract_name.clone()),
             metrics: faucet_metrics.clone(),
             note_store,
+            address_registry,
             max_note_payload_size: config.max_note_payload_size,
             client: node_client.as_ref().clone(),
             utxo_contract_name: config.utxo_contract_name.clone(),
@@ -171,6 +173,7 @@ async fn main() -> Result<()> {
             data_directory: data_directory.clone(),
             da_read_from: config.da_read_from.clone(),
             timeout_client_secs: 10,
+            da_fallback_addresses: vec![],
             processor_config: (),
         })
         .await

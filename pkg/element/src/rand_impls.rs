@@ -60,7 +60,9 @@ impl Element {
     pub fn random<R: Rng>(mut rng: R) -> Insecure<Self> {
         let mut bytes = [0; 32];
         rng.fill(&mut bytes);
-        let inner = Self::from_be_bytes(bytes);
+        let element = Self::from_be_bytes(bytes);
+        // Reduce to BN254 field to ensure value is valid for ZK circuits
+        let inner = Self::from_base(element.to_base());
         Insecure { inner }
     }
 
@@ -68,6 +70,9 @@ impl Element {
     ///
     /// This function requires that the RNG implements [`CryptoRng`]. If you must use a
     /// non-cryptographically-secure RNG, consider using [`Element::random`]
+    ///
+    /// The returned value is guaranteed to be less than the BN254 field modulus,
+    /// making it safe to use in ZK circuits.
     ///
     /// ```rust
     /// # use element::Element;
@@ -79,6 +84,8 @@ impl Element {
     pub fn secure_random<R: Rng + CryptoRng>(mut rng: R) -> Self {
         let mut bytes = [0; 32];
         rng.fill(&mut bytes);
-        Self::from_be_bytes(bytes)
+        let element = Self::from_be_bytes(bytes);
+        // Reduce to BN254 field to ensure value is valid for ZK circuits
+        Self::from_base(element.to_base())
     }
 }

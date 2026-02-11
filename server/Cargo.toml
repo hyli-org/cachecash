@@ -4,6 +4,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.93"
+base64 = "0.22"
 axum = { version = "0.8.3", features = ["macros"] }
 borsh = { workspace = true }
 client-sdk = { workspace = true, features = ["rest", "sp1"] }
@@ -29,7 +30,7 @@ opentelemetry = "0.28"
 opentelemetry-prometheus = "0.28"
 opentelemetry_sdk = { version = "0.28", features = ["metrics"] }
 prometheus = "0.13"
-contracts = { path = "../contracts" }
+contracts = { path = "../contracts", features = ["nobuild"] }
 hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 bincode = { workspace = true }
 sp1-sdk = { workspace = true }

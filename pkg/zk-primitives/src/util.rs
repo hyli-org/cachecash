@@ -91,20 +91,24 @@ pub fn bytes_to_elements(bytes: &[u8]) -> Vec<Element> {
 
 /// Hashes a private key using SHA3-256 and returns the resulting Element.
 ///
+/// The result is reduced to the BN254 field to ensure it's valid for ZK circuits.
+///
 /// # Arguments
 ///
 /// * `private_key` - The private key to be hashed.
 ///
 /// # Returns
 ///
-/// The hashed private key as an Element.
+/// The hashed private key as an Element, guaranteed to be less than the BN254 modulus.
 #[must_use]
 pub fn hash_private_key_for_psi(private_key: Element) -> Element {
     let mut hasher = Sha3_256::new();
     hasher.update(private_key.to_be_bytes());
     let result = hasher.finalize();
 
-    Element::from_be_bytes(result.into())
+    let element = Element::from_be_bytes(result.into());
+    // Reduce to BN254 field to ensure value is valid for ZK circuits
+    Element::from_base(element.to_base())
 }
 
 /// Generates a note kind element from address, chain ID, and note kind format.

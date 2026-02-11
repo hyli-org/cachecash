@@ -8,11 +8,14 @@ use hyli_modules::{
     modules::Module,
 };
 use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
-use sdk::{Blob, BlobData, BlobTransaction, ContractName, Identity, TxHash};
+use sdk::{
+    Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData,
+    ProofTransaction, TxHash, Verifier,
+};
 use tracing::{info, warn};
-use zk_primitives::{Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
+use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
 
-use crate::{noir_prover::HyliUtxoProofJob, tx::FAUCET_IDENTITY_PREFIX};
+use crate::{init::HYLI_UTXO_NOIR_VK, noir_prover::HyliUtxoProofJob, tx::FAUCET_IDENTITY_PREFIX};
 
 pub const FAUCET_MINT_AMOUNT: u64 = 10;
 
@@ -25,6 +28,29 @@ pub struct FaucetMintCommand {
 
 impl BusMessage for FaucetMintCommand {}
 
+#[derive(Clone, Debug)]
+pub struct TransferCommand {
+    pub input_notes: [InputNote; 2],
+    pub output_notes: [Note; 2],
+}
+
+impl BusMessage for TransferCommand {}
+
+/// Transfer command with pre-generated proof (client-side proving)
+#[derive(Clone, Debug)]
+pub struct TransferWithProofCommand {
+    /// Raw proof bytes (without public inputs)
+    pub proof: Vec<u8>,
+    /// Public inputs as hex strings (733 field elements)
+    pub public_inputs: Vec<String>,
+    /// 128-byte blob data
+    pub blob: [u8; 128],
+    /// Output notes [recipient_note, change_note]
+    pub output_notes: [Note; 2],
+}
+
+impl BusMessage for TransferWithProofCommand {}
+
 pub fn build_note(recipient_address: Element, amount: u64) -> Note {
     let minted_value = Element::new(amount);
     Note::new(recipient_address, minted_value)
@@ -34,6 +60,8 @@ module_bus_client! {
 pub struct FaucetBusClient {
     sender(HyliUtxoProofJob),
     receiver(FaucetMintCommand),
+    receiver(TransferCommand),
+    receiver(TransferWithProofCommand),
 }
 }
 
@@ -76,6 +104,12 @@ impl Module for FaucetApp {
             on_self self,
             listen<FaucetMintCommand> cmd => {
                 self.process_request(cmd).await?;
+            }
+            listen<TransferCommand> cmd => {
+                self.process_transfer_request(cmd).await?;
+            }
+            listen<TransferWithProofCommand> cmd => {
+                self.process_transfer_with_proof(cmd).await?;
             }
         };
 
@@ -201,6 +235,179 @@ impl FaucetApp {
             .context("broadcasting hyli_utxo proof job")?;
 
         Ok(())
+    }
+
+    async fn process_transfer_request(&mut self, cmd: TransferCommand) -> Result<()> {
+        let (blob_tx, utxo) =
+            self.build_transfer_transaction(&cmd.input_notes, &cmd.output_notes)?;
+
+        let tx_hash = self
+            .client
+            .send_tx_blob(blob_tx.clone())
+            .await
+            .context("dispatching transfer blob transaction")?;
+
+        info!(%tx_hash, "Submitted transfer transaction");
+
+        if let Err(err) = self.enqueue_proof_job(&blob_tx, &tx_hash, utxo) {
+            warn!(error = %err, "failed to enqueue transfer proof job");
+        }
+
+        Ok(())
+    }
+
+    /// Process a transfer with pre-generated proof (client-side proving)
+    async fn process_transfer_with_proof(&mut self, cmd: TransferWithProofCommand) -> Result<()> {
+        // Build blob transaction from provided blob data and output notes
+        let blob_tx = self.build_proved_transfer_blob(&cmd)?;
+
+        // Submit blob transaction
+        let tx_hash = self
+            .client
+            .send_tx_blob(blob_tx.clone())
+            .await
+            .context("dispatching proved transfer blob transaction")?;
+
+        info!(%tx_hash, "Submitted proved transfer blob transaction");
+
+        // Build and submit proof transaction
+        // Convert public inputs from hex strings to bytes
+        let public_inputs_bytes: Vec<u8> = cmd
+            .public_inputs
+            .iter()
+            .flat_map(|hex_str| {
+                let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+                hex::decode(normalized).unwrap_or_else(|_| vec![0u8; 32])
+            })
+            .collect();
+
+        // Combine public inputs and proof
+        let mut proof_with_inputs = public_inputs_bytes;
+        proof_with_inputs.extend_from_slice(&cmd.proof);
+
+        // Build and submit proof transaction to the node
+        let proof_tx = ProofTransaction {
+            contract_name: ContractName(self.utxo_contract_name.clone()),
+            program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
+            verifier: Verifier(sdk::verifiers::NOIR.to_string()),
+            proof: ProofData(proof_with_inputs),
+        };
+
+        self.client
+            .send_tx_proof(proof_tx)
+            .await
+            .context("submitting client-generated proof to node")?;
+
+        info!(%tx_hash, "Submitted client-generated proof transaction");
+
+        Ok(())
+    }
+
+    /// Build a blob transaction for a proved transfer (without computing nullifiers on server)
+    fn build_proved_transfer_blob(
+        &self,
+        cmd: &TransferWithProofCommand,
+    ) -> Result<BlobTransaction> {
+        // Extract nullifiers from the blob (bytes 64-128 contain nullifier_0 and nullifier_1)
+        let mut nullifier_0 = [0u8; 32];
+        let mut nullifier_1 = [0u8; 32];
+        nullifier_0.copy_from_slice(&cmd.blob[64..96]);
+        nullifier_1.copy_from_slice(&cmd.blob[96..128]);
+
+        // Build state action: [created_0, created_1, nullified_0, nullified_1]
+        let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
+
+        // Output commitments (created)
+        state_commitments[0] = BorshableH256::from(cmd.output_notes[0].commitment().to_be_bytes());
+        state_commitments[1] = BorshableH256::from(cmd.output_notes[1].commitment().to_be_bytes());
+
+        // Nullifiers from blob
+        state_commitments[2] = BorshableH256::from(nullifier_0);
+        state_commitments[3] = BorshableH256::from(nullifier_1);
+
+        let state_action: HyliUtxoStateAction = state_commitments;
+
+        let contract_name = self.utxo_contract_name.clone();
+        let identity = Identity(format!("transfer@{}", contract_name));
+        let hyli_utxo_data = BlobData(cmd.blob.to_vec());
+        let state_blob_data = BlobData(
+            borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
+        );
+        let hyli_utxo_blob = Blob {
+            contract_name: contract_name.clone().into(),
+            data: hyli_utxo_data,
+        };
+        let state_blob = Blob {
+            contract_name: ContractName(self.utxo_state_contract_name.clone()),
+            data: state_blob_data,
+        };
+        let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
+
+        Ok(blob_transaction)
+    }
+
+    fn build_transfer_transaction(
+        &mut self,
+        input_notes: &[InputNote; 2],
+        output_notes: &[Note; 2],
+    ) -> Result<(BlobTransaction, Utxo)> {
+        let utxo = Utxo::new_send(input_notes.clone(), output_notes.clone());
+
+        let leaf_elements = utxo.leaf_elements();
+
+        // Build 128-byte blob: [input_commit_0, input_commit_1, nullifier_0, nullifier_1]
+        let mut blob_bytes = vec![0u8; HYLI_BLOB_LENGTH_BYTES];
+        let mut offset = 0usize;
+
+        // Input commitments (first 64 bytes)
+        for commitment in &leaf_elements[0..2] {
+            blob_bytes[offset..offset + HYLI_BLOB_HASH_BYTE_LENGTH]
+                .copy_from_slice(&commitment.to_be_bytes());
+            offset += HYLI_BLOB_HASH_BYTE_LENGTH;
+        }
+
+        // Nullifiers (next 64 bytes)
+        for input in input_notes.iter() {
+            let nullifier = hash_merge([input.note.psi, input.secret_key]);
+            blob_bytes[offset..offset + HYLI_BLOB_HASH_BYTE_LENGTH]
+                .copy_from_slice(&nullifier.to_be_bytes());
+            offset += HYLI_BLOB_HASH_BYTE_LENGTH;
+        }
+
+        // Build state action: [created_0, created_1, nullified_0, nullified_1]
+        let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
+
+        // Output commitments (created)
+        state_commitments[0] = BorshableH256::from(output_notes[0].commitment().to_be_bytes());
+        state_commitments[1] = BorshableH256::from(output_notes[1].commitment().to_be_bytes());
+
+        // Nullifiers
+        for (i, input) in input_notes.iter().enumerate() {
+            if !input.note.is_padding_note() {
+                let nullifier = hash_merge([input.note.psi, input.secret_key]);
+                state_commitments[2 + i] = BorshableH256::from(nullifier.to_be_bytes());
+            }
+        }
+
+        let state_action: HyliUtxoStateAction = state_commitments;
+
+        let contract_name = self.utxo_contract_name.clone();
+        let identity = Identity(format!("transfer@{}", contract_name));
+        let hyli_utxo_data = BlobData(blob_bytes);
+        let state_blob_data = BlobData(
+            borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
+        );
+        let hyli_utxo_blob = Blob {
+            contract_name: contract_name.clone().into(),
+            data: hyli_utxo_data,
+        };
+        let state_blob = Blob {
+            contract_name: ContractName(self.utxo_state_contract_name.clone()),
+            data: state_blob_data,
+        };
+        let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
+
+        Ok((blob_transaction, utxo))
     }
 }
 

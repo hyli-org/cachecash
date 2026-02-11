@@ -6,7 +6,8 @@ use tracing::info;
 
 use contracts::HYLI_UTXO_STATE_VK;
 
-const HYLI_UTXO_NOIR_VK: &[u8] = include_bytes!(concat!(
+/// Noir verifying key for the hyli_utxo circuit.
+pub const HYLI_UTXO_NOIR_VK: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../fixtures/keys/hyli_utxo_key"
 ));

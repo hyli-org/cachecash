@@ -12,7 +12,7 @@ on:
 env:
   IMAGE_NAME: "cachecash"
   AR_REPO_LOCATION: "europe-west1-docker.pkg.dev"
-  AR_URL: "hyli-shared-all/hyli"
+  AR_URL: "hyli-shared-all/apps"
   SERVICE_ACCOUNT: "github-actions-service-account@hyle-413414.iam.gserviceaccount.com"
   WORKLOAD_IDENTITY_PROVIDER: ""
 
@@ -38,7 +38,6 @@ jobs:
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
 
-
       - name: Run cargo test
         run: cargo test --workspace --all-targets
 
@@ -53,7 +52,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         working-directory: front
@@ -85,7 +84,6 @@ jobs:
         with:
           images: |
             ${{ env.AR_REPO_LOCATION }}/${{ env.AR_URL }}/${{ env.IMAGE_NAME }}-${{ matrix.suffix }}
-            ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}-${{ matrix.suffix }}
           tags: |
             type=sha
             type=semver,pattern={{version}}
@@ -105,14 +103,6 @@ jobs:
         id: docker-auth
         run: |
           gcloud auth configure-docker ${{ env.AR_REPO_LOCATION }}
-
-      - name: Login to GitHub Container Registry
-        if: github.event_name == 'push'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.suffix }} image
         uses: docker/build-push-action@v6
