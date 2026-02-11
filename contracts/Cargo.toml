@@ -18,6 +18,5 @@ serde_json = { version = "1.0.142" }
 
 [features]
 default = ["nonreproducible"]
-build = []
 nonreproducible = []
 nobuild = []
