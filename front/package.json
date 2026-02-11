@@ -10,9 +10,6 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "@aztec/bb.js": "^2.1.11",
-        "@noir-lang/noir_js": "^1.0.0-beta.18",
-        "@noir-lang/types": "^1.0.0-beta.18",
         "@types/crypto-js": "^4.2.2",
         "@types/elliptic": "^6.4.18",
         "@types/react-router-dom": "^5.3.3",

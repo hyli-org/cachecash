@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { DerivedKeyPair, deriveKeyPairFromName, isBarretenbergInitialized } from "../services/KeyService";
-import { transferService, SpendableNote, TransferStage } from "../services/TransferService";
+import { DerivedKeyPair, deriveKeyPairFromName } from "../services/KeyService";
+import { transferService, SpendableNote } from "../services/TransferService";
 import { setStoredNotes, getStoredNotes } from "../services/noteStorage";
 import { StoredNote } from "../types/note";
 
@@ -12,20 +12,7 @@ interface TransferModalProps {
   onClose: () => void;
 }
 
-type TransferStatus = "input" | "submitting" | "proving" | "success" | "error";
-
-/**
- * Human-readable descriptions for transfer stages
- */
-const stageDescriptions: Record<TransferStage, string> = {
-  selecting_notes: "Selecting notes...",
-  building_transaction: "Building transaction...",
-  initializing_prover: "Loading prover (first time may take a moment)...",
-  generating_proof: "Generating zero-knowledge proof...",
-  submitting_transaction: "Submitting to network...",
-  notifying_recipient: "Notifying recipient...",
-  complete: "Transfer complete!",
-};
+type TransferStatus = "input" | "submitting" | "success" | "error";
 
 export function TransferModal({
   playerName,
@@ -38,7 +25,6 @@ export function TransferModal({
   const [status, setStatus] = useState<TransferStatus>("input");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
-  const [currentStage, setCurrentStage] = useState<TransferStage | null>(null);
 
   const totalBalance = useMemo(
     () => availableNotes.reduce((sum, n) => sum + n.value, 0),
@@ -59,10 +45,6 @@ export function TransferModal({
     }
 
     // Otherwise, treat as username and derive pubkey
-    if (!isBarretenbergInitialized()) {
-      return null; // Barretenberg not ready yet
-    }
-
     try {
       const derived = deriveKeyPairFromName(trimmed);
       return derived.publicKey;
@@ -105,27 +87,16 @@ export function TransferModal({
       }
 
       try {
-        setStatus("proving");
+        setStatus("submitting");
         setError(null);
-        setCurrentStage("selecting_notes");
 
-        // Progress callback to update UI
-        const onProgress = (stage: TransferStage) => {
-          setCurrentStage(stage);
-          // Switch to submitting status when we're done proving
-          if (stage === "submitting_transaction") {
-            setStatus("submitting");
-          }
-        };
-
-        // Execute the transfer with client-side proving
+        // Execute the transfer
         const result = await transferService.executeTransfer(
           resolvedPubkey,
           amountNum,
           availableNotes,
           keyPair,
-          playerName,
-          onProgress
+          playerName
         );
 
         // Update local storage: remove spent notes, add change note if any
@@ -173,7 +144,6 @@ export function TransferModal({
     setStatus("input");
     setError(null);
     setTxHash(null);
-    setCurrentStage(null);
     onClose();
   }, [onClose]);
 
@@ -181,7 +151,6 @@ export function TransferModal({
     setStatus("input");
     setError(null);
     setTxHash(null);
-    setCurrentStage(null);
   }, []);
 
   // Show derived pubkey hint when username is entered
@@ -307,39 +276,10 @@ export function TransferModal({
             </form>
           )}
 
-          {status === "proving" && (
-            <div style={{ textAlign: "center", padding: "2rem 0" }}>
-              <div className="manage-notes-modal__description">
-                {currentStage ? stageDescriptions[currentStage] : "Preparing..."}
-              </div>
-              <div style={{ marginTop: "1rem" }}>
-                <span className="loading-spinner">⏳</span>
-              </div>
-              {currentStage === "generating_proof" && (
-                <div style={{
-                  marginTop: "1rem",
-                  fontSize: "0.85rem",
-                  color: "#666",
-                }}>
-                  This may take 10-30 seconds. Your secret keys stay in your browser.
-                </div>
-              )}
-              {currentStage === "initializing_prover" && (
-                <div style={{
-                  marginTop: "1rem",
-                  fontSize: "0.85rem",
-                  color: "#666",
-                }}>
-                  Downloading circuit artifacts...
-                </div>
-              )}
-            </div>
-          )}
-
           {status === "submitting" && (
             <div style={{ textAlign: "center", padding: "2rem 0" }}>
               <div className="manage-notes-modal__description">
-                {currentStage ? stageDescriptions[currentStage] : "Submitting transaction..."}
+                Submitting transaction...
               </div>
               <div style={{ marginTop: "1rem" }}>
                 <span className="loading-spinner">⏳</span>

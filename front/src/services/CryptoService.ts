@@ -3,6 +3,7 @@ import SHA256 from "crypto-js/sha256";
 import Hex from "crypto-js/enc-hex";
 import AES from "crypto-js/aes";
 import Utf8 from "crypto-js/enc-utf8";
+import Base64 from "crypto-js/enc-base64";
 
 const curve = new EC("secp256k1");
 
@@ -126,7 +127,7 @@ export function decryptNote(
  * For secp256k1: y^2 = x^3 + 7 (mod p)
  * There are two possible y values - we try both to find a valid point.
  */
-function reconstructPublicKey(xHex: string) {
+function reconstructPublicKey(xHex: string): EC.KeyPair["pub"] {
   // Try reconstructing with even y first (compressed format prefix 02)
   try {
     const compressedEven = "02" + xHex;

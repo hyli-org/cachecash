@@ -1,8 +1,9 @@
+import SHA256 from "crypto-js/sha256";
+import { enc as Enc } from "crypto-js";
 import { StoredNote } from "../types/note";
 import { DerivedKeyPair } from "./KeyService";
 import { encryptedNoteService } from "./EncryptedNoteService";
 import { markNotesPending, clearPendingNotes, getPendingNoteHashes } from "./noteStorage";
-import { proverService, UtxoKind, ProverInput } from "./ProverService";
 
 /**
  * Note structure matching backend zk-primitives Note
@@ -35,21 +36,14 @@ export interface NoteSelection {
 }
 
 /**
- * Input note data for transfer (includes full note + secret key)
- */
-export interface InputNoteData {
-  note: Note;
-  secret_key: string;
-}
-
-/**
  * Transfer request payload
  */
 export interface TransferRequest {
   recipient_pubkey: string;
   amount: number;
-  input_notes: [InputNoteData, InputNoteData];
   output_notes: [Note, Note];
+  input_commitments: [string, string];
+  nullifiers: [string, string];
 }
 
 /**
@@ -61,45 +55,29 @@ export interface TransferResponse {
 }
 
 /**
- * Proved transfer request payload (client-side proof)
- */
-export interface ProvedTransferRequest {
-  /** Base64-encoded proof bytes */
-  proof: string;
-  /** Public inputs as hex strings (733 field elements) */
-  public_inputs: string[];
-  /** 128-byte blob data as array */
-  blob_data: number[];
-  /** Output notes [recipient_note, change_note] */
-  output_notes: [Note, Note];
-}
-
-/**
- * Transfer progress callback for UI updates
- */
-export type TransferProgressCallback = (stage: TransferStage) => void;
-
-/**
- * Stages of transfer process
- */
-export type TransferStage =
-  | "selecting_notes"
-  | "building_transaction"
-  | "initializing_prover"
-  | "generating_proof"
-  | "submitting_transaction"
-  | "notifying_recipient"
-  | "complete";
-
-/**
  * Convert a number to a 64-character hex string (32 bytes, big-endian)
  */
 function toHex64(value: number): string {
   return value.toString(16).padStart(64, "0");
 }
 
-// Note: hashMerge and computeNullifier are now handled by ProverService
-// using the same Poseidon2 hash function from @aztec/bb.js
+/**
+ * Hash merge function matching backend hash::hash_merge
+ */
+function hashMerge(elements: string[]): string {
+  // Concatenate all hex strings and hash
+  const concatenated = elements.join("");
+  const hash = SHA256(Enc.Hex.parse(concatenated));
+  return hash.toString(Enc.Hex);
+}
+
+/**
+ * Compute nullifier for an input note
+ * nullifier = hash_merge([note.psi, secret_key])
+ */
+function computeNullifier(notePsi: string, secretKey: string): string {
+  return hashMerge([notePsi, secretKey]);
+}
 
 /**
  * Create a padding note (all zeros)
@@ -138,7 +116,7 @@ function createOutputNote(recipientPubkey: string, amount: number, contract: str
     .join("");
 
   return {
-    kind: contract, // Circuit expects kind == contract (the token identifier)
+    kind: contract,
     contract,
     address: recipientPubkey,
     psi,
@@ -212,46 +190,52 @@ class TransferService {
         ? createOutputNote(senderPubkey, selection.changeAmount, contract)
         : createPaddingNote();
 
-    // Build input notes with secret keys (server needs full note data for proof)
-    const inputNotes: [InputNoteData, InputNoteData] = [
-      {
-        note: selection.selectedNotes[0].note,
-        secret_key: selection.selectedNotes[0].secretKey,
-      },
-      {
-        note: selection.selectedNotes[1].note,
-        secret_key: selection.selectedNotes[1].secretKey,
-      },
+    // Compute input commitments (these are the note commitments)
+    const inputCommitments: [string, string] = [
+      this.computeCommitment(selection.selectedNotes[0].note),
+      this.computeCommitment(selection.selectedNotes[1].note),
+    ];
+
+    // Compute nullifiers for the inputs
+    const nullifiers: [string, string] = [
+      computeNullifier(
+        selection.selectedNotes[0].note.psi,
+        selection.selectedNotes[0].secretKey
+      ),
+      computeNullifier(
+        selection.selectedNotes[1].note.psi,
+        selection.selectedNotes[1].secretKey
+      ),
     ];
 
     return {
       recipient_pubkey: recipientPubkey,
       amount,
-      input_notes: inputNotes,
       output_notes: [recipientNote, changeNote],
+      input_commitments: inputCommitments,
+      nullifiers,
     };
   }
 
   /**
-   * Execute complete transfer with client-side proof generation
-   * Secret keys never leave the browser
+   * Compute note commitment
+   * commitment = hash_merge([kind, contract, address, psi, value])
+   */
+  private computeCommitment(note: Note): string {
+    return hashMerge([note.kind, note.contract, note.address, note.psi, note.value]);
+  }
+
+  /**
+   * Execute complete transfer: select notes, build tx, submit, notify recipient
    */
   async executeTransfer(
     recipientPubkey: string,
     amount: number,
     availableNotes: SpendableNote[],
     senderKeypair: DerivedKeyPair,
-    playerName: string,
-    onProgress?: TransferProgressCallback
+    playerName: string
   ): Promise<TransferResponse> {
-    const reportProgress = (stage: TransferStage) => {
-      if (onProgress) {
-        onProgress(stage);
-      }
-    };
-
     // 1. Select notes
-    reportProgress("selecting_notes");
     const selection = this.selectNotesForTransfer(availableNotes, amount);
     if (!selection) {
       throw new Error(
@@ -269,8 +253,7 @@ class TransferService {
     markNotesPending(playerName, spentNoteHashes);
 
     try {
-      // 3. Build transaction data
-      reportProgress("building_transaction");
+      // 3. Build transaction
       const transferRequest = this.buildSendTransaction(
         selection,
         recipientPubkey,
@@ -278,53 +261,14 @@ class TransferService {
         senderKeypair.publicKey
       );
 
-      // 4. Initialize prover if needed
-      reportProgress("initializing_prover");
-      if (!proverService.isInitialized()) {
-        await proverService.initialize();
-      }
-
-      // 5. Build prover inputs
-      // Get contract name from note's contract field or use default
-      const contractName = "hyli_utxo"; // Standard contract name
-
-      // Build blob data
-      const blobData = proverService.buildBlobData(
-        transferRequest.input_notes,
-        transferRequest.output_notes,
-        contractName,
-        1, // blob_index (hyli_utxo blob is at index 1, state blob is at 0)
-        2  // blob_count (state_blob + hyli_utxo_blob)
-      );
-
-      const proverInput: ProverInput = {
-        inputNotes: transferRequest.input_notes,
-        outputNotes: transferRequest.output_notes,
-        blobData,
-        kind: UtxoKind.Send,
-      };
-
-      // 6. Generate proof (this is the slow part)
-      reportProgress("generating_proof");
-      const proofResult = await proverService.generateProof(proverInput);
-
-      // 7. Build proved transfer request
-      const provedRequest: ProvedTransferRequest = {
-        proof: proofResult.proof,
-        public_inputs: proofResult.publicInputs,
-        blob_data: Array.from(proofResult.blobData),
-        output_notes: transferRequest.output_notes,
-      };
-
-      // 8. Submit to backend
-      reportProgress("submitting_transaction");
+      // 4. Submit to backend
       const baseUrl = import.meta.env.VITE_SERVER_BASE_URL?.replace(/\/$/, "") ?? "";
-      const response = await fetch(`${baseUrl}/api/transfer/prove`, {
+      const response = await fetch(`${baseUrl}/api/transfer`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(provedRequest),
+        body: JSON.stringify(transferRequest),
       });
 
       if (!response.ok) {
@@ -336,8 +280,7 @@ class TransferService {
 
       const result: TransferResponse = await response.json();
 
-      // 9. Upload encrypted note for recipient
-      reportProgress("notifying_recipient");
+      // 5. Upload encrypted note for recipient
       try {
         await encryptedNoteService.uploadNote(
           recipientPubkey,
@@ -355,8 +298,7 @@ class TransferService {
         // Don't fail the transfer - the transaction already succeeded
       }
 
-      // 10. Clear pending state (transfer successful)
-      reportProgress("complete");
+      // 6. Clear pending state (transfer successful)
       clearPendingNotes(playerName, spentNoteHashes);
 
       return result;
