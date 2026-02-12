@@ -4,13 +4,10 @@ members = ["server", "contracts", "contracts/hyli-utxo-state"]
 
 [workspace.dependencies]
 # Local workspace packages
-server = { path = "server", default-features = false, package = "server" }
 barretenberg = { path = "./pkg/barretenberg" }
-constants = { path = "./pkg/constants" }
 element = { path = "./pkg/element" }
 hash = { path = "./pkg/hash" }
 primitives = { path = "./pkg/primitives" }
-zk-circuits = { path = "./pkg/zk-circuits" }
 zk-primitives = { path = "./pkg/zk-primitives" }
 
 # Dependencies used by pkg/* packages
@@ -20,13 +17,11 @@ thiserror = "1"
 hex = { version = "0.4", features = ["serde"] }
 base64 = "0.21.5"
 bs58 = "0.5.0"
-lazy_static = "1.4"
 once_cell = "1.19.0"
 
 # Serialization (pkg)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.108"
-serde_bytes = "0.11.14"
 bincode = "1.3.3"
 borsh = { version = "1", features = [
   "derive",
@@ -50,7 +45,6 @@ sha3 = "0.10.1"
 
 # Math and numeric types (pkg)
 ethnum = "1.5.0"
-ff = "0.12.1"
 uint = "0.9.1"
 bitvec = "1.0.1"
 
@@ -86,15 +80,12 @@ diesel = { version = "2.1.0", features = [
 ] }
 
 # Utilities (pkg)
-chrono = { version = "0.4", features = ["serde"] }
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 tracing = { version = "0.1.37", features = ["valuable"] }
 flate2 = "1.0.28"
 tempfile = "3.20.0"
 
 # Derive macros (pkg)
-strum = "0.26"
-strum_macros = "0.26"
 microtype = "0.7"
 
 # Testing (pkg)
@@ -105,10 +96,8 @@ test-strategy = "0.3.1"
 # Hyli dependencies
 sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "main" }
 client-sdk = { git = "https://github.com/hyli-org/hyli.git", default-features = false, package = "hyli-client-sdk", branch = "main" }
-hyli-smt-token = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-smt-token", branch = "main" }
 hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "main" }
 hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "main" }
-hyli-net = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-net", branch = "main" }
 hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
 
 # SP1 dependencies
@@ -116,142 +105,14 @@ sp1-sdk = { version = "5.0.3", default-features = false }
 sp1-build = { version = "5.0.3", default-features = false }
 sp1-zkvm = { version = "5.0.3", default-features = false }
 
-# Actix web framework (for server)
-actix-cors = "0.6.4"
-actix-server = "2.3.0"
-actix-web = "4.4.0"
-actix-multipart = "0.5.0"
-
-# Database (for server)
-tokio-postgres = "0.7.2"
-postgres-native-tls = "0.5.0"
-native-tls = "0.2.12"
-sqlx = { version = "0.8.6", default-features = false }
-
 # CLI and logging (for server)
 clap = { version = "4.5.28", features = ["derive", "env"] }
-# tracing-subscriber = { version = "0.3.18", features = [
-#   "env-filter",
-#   "fmt",
-#   "std",
-#   "registry",
-#   "ansi",
-#   "json",
-# ] }
-# tracing-stackdriver = { version = "0.7.2", features = ["valuable"] }
-# tracing-opentelemetry = "0.22.0"
-
-# Observability
-# opentelemetry = { version = "0.21.0", features = ["metrics", "trace"] }
-# opentelemetry_sdk = { version = "0.21.2", features = [
-#   "rt-tokio",
-#   "metrics",
-#   "trace",
-# ] }
-# opentelemetry-otlp = { version = "0.14.0", features = [
-#   "tokio",
-#   "tonic",
-#   "trace",
-#   "metrics",
-# ] }
-# sentry = "0.32.1"
-# sentry-tracing = "0.32.1"
-
-# Async runtime and utilities (for server)
-tokio-stream = { version = "0.1.12", features = ["sync"] }
-async-recursion = "1.1.1"
-async-stream = "0.3.6"
-futures-timer = "3.0.2"
-futures-util = "0.3.29"
-
-# Serialization (for server)
-serde_qs = "0.12.0"
-serde_yaml = "0.9.27"
-
-# Cryptography (for server)
-x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
-rsa = { version = "0.9", features = ["sha1"] }
-crypto_secretbox = "0.1.1"
-hmac = "0.12"
-sha1 = "0.10.1"
-blake2b_simd = "1.0"
-tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 
 # Networking
-libp2p = { version = "0.51", default-features = false, features = [
-  "ping",
-  "request-response",
-  "identify",
-  "gossipsub",
-  "macros",
-  "tokio",
-  "noise",
-  "dns",
-  "yamux",
-  "tcp",
-] }
-libp2p-core = { version = "0.38.0" }
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 
 # Error handling (for server)
-eyre = "0.6"
 color-eyre = "0.6"
-user-error = "1.2.8"
-
-# Utilities (for server)
-uuid = { version = "1.7.0", features = ["v4", "serde"] }
-bytes = "1.0"
-itertools = "0.11.0"
-indexmap = { version = "2.9.0", features = ["serde"] }
-regex = "1.11.1"
-scopeguard = "1.2.0"
-dotenvy = "0.15.7"
-figment = { version = "0.10", features = ["env", "toml"] }
-toml = "0.8"
-dirs = "5.0.1"
-notify = "6"
-file-lock = "2"
-colored = "2.0.4"
-spinoff = "0.8.0"
-tabular = "0.2.0"
-urlencoding = "2.1.3"
-
-# Math and numeric types (for server)
-num-bigint = "0.4.6"
-typenum = "1.16"
-
-# Derive macros and utilities (for server)
-derive_more = "0.99.17"
-derivative = "2"
-static_assertions = "1"
-either = "1.9.0"
-unarray = "0.1.4"
-
-# Testing (for server)
-quickcheck = "1.0.3"
-expect-test = "1.4.1"
-serial_test = "3.0.0"
-mockito = "0.25"
-benchy = "0.1.1"
-tempdir = "0.3"
-
-# Service integrations
-async-stripe = { version = "0.31", features = ["runtime-tokio-hyper"] }
-jsonwebtoken = "7"
-phonenumber = "0.3"
-expo_push_notification_client = { git = "https://github.com/polybase/expo-push-notification-client-rust.git", branch = "rustc-1_68_nightly" }
-
-# Storage and cloud (for server)
-object_store = { version = "0.10.0", features = ["gcp"] }
-lru = "0.14.0"
-
-# Misc
-rust-i18n = "3"
-semver = "1.0.15"
-rustc-hex = "2.1.0"
-pretty-hex = "0.3.0"
-num_cpus = "1.16.0"
-
 
 [workspace.package]
 version = "0.4.1"
