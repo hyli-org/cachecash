@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::Router;
 use clap::Parser;
 use client_sdk::{
@@ -8,7 +8,7 @@ use client_sdk::{
     rest_client::{NodeApiClient, NodeApiHttpClient},
 };
 use hyli_modules::{
-    bus::{metrics::BusMetrics, SharedMessageBus},
+    bus::SharedMessageBus,
     modules::{
         block_processor::NodeStateBlockProcessor,
         da_listener::{DAListenerConf, SignedDAListener},
@@ -16,6 +16,7 @@ use hyli_modules::{
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
     },
+    utils::logger::setup_otlp,
 };
 use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
@@ -30,17 +31,12 @@ use server::{
     utils::load_utxo_state_proving_key,
 };
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Run the zfruit faucet server", long_about = None)]
 struct Args {
     #[arg(long, default_value = "config.toml")]
     config_file: Vec<String>,
-
-    /// Override the server port defined in the configuration file.
-    #[arg(long)]
-    server_port: Option<u16>,
 
     /// Override the default faucet amount defined in the configuration file.
     #[arg(long)]
@@ -49,6 +45,19 @@ struct Args {
     /// Override the Noir contract name used to build transactions.
     #[arg(long)]
     contract_name: Option<String>,
+
+    #[arg(long, default_value = "false")]
+    pub tracing: bool,
+
+    /// Clean the data directory before starting the server
+    /// Argument used by hylix tests commands
+    #[arg(long, default_value = "false")]
+    pub clean_data_directory: bool,
+
+    /// Server port (overrides config)
+    /// Argument used by hylix tests commands
+    #[arg(long)]
+    pub server_port: Option<u16>,
 }
 
 #[tokio::main]
@@ -66,7 +75,7 @@ async fn main() -> Result<()> {
         config.utxo_contract_name = contract_name;
     }
 
-    init_tracing(&config.log_format)
+    setup_otlp(&config.log_format, "cachecache".to_string(), args.tracing)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
     let faucet_metrics = FaucetMetrics::global(config.id.clone());
@@ -234,30 +243,4 @@ async fn main() -> Result<()> {
         .context("waiting for module shutdown")?;
 
     Ok(())
-}
-
-fn init_tracing(log_format: &str) -> Result<()> {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_thread_names(false);
-
-    if log_format.eq_ignore_ascii_case("json") {
-        builder
-            .json()
-            .try_init()
-            .map_err(|err| anyhow!("failed to initialise tracing: {err}"))
-    } else if log_format.eq_ignore_ascii_case("compact") {
-        builder
-            .compact()
-            .try_init()
-            .map_err(|err| anyhow!("failed to initialise tracing: {err}"))
-    } else {
-        builder
-            .try_init()
-            .map_err(|err| anyhow!("failed to initialise tracing: {err}"))
-    }
 }

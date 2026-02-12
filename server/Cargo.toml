@@ -3,44 +3,42 @@ name = "server"
 edition = "2021"
 
 [dependencies]
+contracts = { path = "../contracts", features = ["nobuild"] }
+hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
+
+# Hyli
+hyli-modules = { workspace = true, features = ["rest"] }
+hyli-verifiers = { workspace = true }
+client-sdk = { workspace = true, features = ["rest", "sp1", "axum"] }
+sdk = { workspace = true, features = ["tracing", "full-model"] }
+hyli-turmoil-shims = { workspace = true }
+
+# pkg/
+barretenberg = { workspace = true }
+zk-primitives = { workspace = true }
+hash = { workspace = true }
+element = { workspace = true }
+
+# others
 anyhow = "1.0.93"
 base64 = "0.22"
 axum = { version = "0.8.3", features = ["macros"] }
 borsh = { workspace = true }
-client-sdk = { workspace = true, features = ["rest", "sp1"] }
 clap = { workspace = true }
 config = { version = "0.15.11", default-features = false, features = ["toml"] }
 hex = { workspace = true }
-hyli-verifiers = { workspace = true }
 k256 = "0.13.4"
-sdk = { workspace = true, features = ["tracing", "full-model"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha3 = { workspace = true }
 tokio = { workspace = true }
 tower-http = { version = "0.6.2", features = ["cors"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-element = { workspace = true }
-hash = { workspace = true }
-zk-primitives = { workspace = true }
-hyli-modules = { workspace = true }
-hyli-turmoil-shims = { workspace = true }
-opentelemetry = "0.28"
-opentelemetry-prometheus = "0.28"
-opentelemetry_sdk = { version = "0.28", features = ["metrics"] }
-prometheus = "0.13"
-contracts = { path = "../contracts", features = ["nobuild"] }
-hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
+# tracing-subscriber = { workspace = true }
 bincode = { workspace = true }
 sp1-sdk = { workspace = true }
 reqwest = { workspace = true }
-barretenberg = { path = "../pkg/barretenberg" }
-toml = "0.8"
-ethnum = "1.3"
-hex-literal = "0.4"
 tempfile = { workspace = true }
-futures-util = { workspace = true }
 
 [features]
 instrumentation = []

@@ -1,7 +1,5 @@
-use opentelemetry::{
-    metrics::{Counter, Gauge, Histogram},
-    KeyValue,
-};
+use hyli_modules::telemetry::{Counter, Gauge, Histogram, KeyValue};
+use hyli_turmoil_shims::global_meter_or_panic;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -19,7 +17,7 @@ pub struct FaucetMetrics {
 
 impl FaucetMetrics {
     pub fn global(node_id: String) -> Self {
-        let meter = opentelemetry::global::meter("cachecash_faucet");
+        let meter = global_meter_or_panic();
         let base_labels = vec![KeyValue::new("node_id", node_id)];
 
         Self {

@@ -713,7 +713,6 @@ dependencies = [
  "bb_rs",
  "bincode 1.3.3",
  "bn254_blackbox_solver",
- "borsh",
  "element",
  "flate2",
  "hash",
@@ -722,7 +721,6 @@ dependencies = [
  "noirc_abi",
  "noirc_artifacts",
  "noirc_driver",
- "serde",
  "serde_json",
  "tempfile",
  "tracing",
@@ -1460,10 +1458,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
-name = "constants"
-version = "0.1.0"
-
-[[package]]
 name = "contracts"
 version = "0.0.0"
 dependencies = [
@@ -2108,7 +2102,6 @@ dependencies = [
  "borsh",
  "diesel",
  "ethnum",
- "ff 0.12.1",
  "hex",
  "insta",
  "proptest",
@@ -2117,8 +2110,6 @@ dependencies = [
  "rand_xorshift 0.3.0",
  "serde",
  "serde_json",
- "strum 0.26.3",
- "strum_macros 0.26.4",
  "test-strategy",
  "ts-rs",
 ]
@@ -2687,12 +2678,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hex-literal"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
-
-[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2772,7 +2757,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 [[package]]
 name = "hyli-bus"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "anymap",
@@ -2793,7 +2778,7 @@ dependencies = [
 [[package]]
 name = "hyli-client-sdk"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -2807,16 +2792,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sp1-sdk",
- "tokio",
  "tracing",
- "utoipa",
- "utoipa-axum",
 ]
 
 [[package]]
 name = "hyli-contract-sdk"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "borsh",
  "hyli-model",
@@ -2830,7 +2812,7 @@ dependencies = [
 [[package]]
 name = "hyli-crypto"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "blst",
@@ -2843,7 +2825,7 @@ dependencies = [
 [[package]]
 name = "hyli-model"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2867,7 +2849,7 @@ dependencies = [
 [[package]]
 name = "hyli-modules"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "assertables",
@@ -2903,7 +2885,7 @@ dependencies = [
 [[package]]
 name = "hyli-net"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -2948,7 +2930,7 @@ dependencies = [
 [[package]]
 name = "hyli-turmoil-shims"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "borsh",
  "opentelemetry",
@@ -2970,7 +2952,7 @@ dependencies = [
 [[package]]
 name = "hyli-verifiers"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#e5a77daba8d8442e5cf1f359bd090c060c1dc2fd"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#ab86c5ceb169d4d263955f0845f3da6748c1d597"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4194,39 +4176,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry-prometheus"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "765a76ba13ec77043903322f85dc5434d7d01a37e75536d0f871ed7b9b5bbf0d"
-dependencies = [
- "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
- "prometheus",
- "protobuf",
- "tracing",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84dfad6042089c7fc1f6118b7040dc2eb4ab520abbf410b79dc481032af39570"
-dependencies = [
- "async-trait",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "opentelemetry",
- "percent-encoding",
- "rand 0.8.5",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4804,7 +4753,6 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "borsh",
- "chrono",
  "futures",
  "hex",
  "microtype",
@@ -4813,13 +4761,11 @@ dependencies = [
  "rand_derive2",
  "secp256k1 0.28.2",
  "serde",
- "serde_bytes",
  "serde_json",
  "sha2",
  "sha3",
  "thiserror 1.0.69",
  "tokio",
- "tracing",
  "ts-rs",
  "uint",
 ]
@@ -4882,21 +4828,6 @@ checksum = "79528bef70da112116feb5ecb6b64f1394e5360660d6474a760789ea07885501"
 dependencies = [
  "proc-macro2",
  "syn 2.0.114",
-]
-
-[[package]]
-name = "prometheus"
-version = "0.13.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d33c28a30771f7f96db69893f78b857f7450d7e0237e9c8fc6427a81bae7ed1"
-dependencies = [
- "cfg-if 1.0.4",
- "fnv",
- "lazy_static",
- "memchr",
- "parking_lot",
- "protobuf",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4969,12 +4900,6 @@ checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
  "prost",
 ]
-
-[[package]]
-name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "protoc-bin-vendored"
@@ -5905,16 +5830,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
-dependencies = [
- "serde",
- "serde_core",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6059,11 +5974,8 @@ dependencies = [
  "config",
  "contracts",
  "element",
- "ethnum",
- "futures-util",
  "hash",
  "hex",
- "hex-literal",
  "hyli-client-sdk",
  "hyli-contract-sdk",
  "hyli-modules",
@@ -6071,10 +5983,6 @@ dependencies = [
  "hyli-utxo-state",
  "hyli-verifiers",
  "k256",
- "opentelemetry",
- "opentelemetry-prometheus",
- "opentelemetry_sdk",
- "prometheus",
  "reqwest",
  "serde",
  "serde_json",
@@ -6082,10 +5990,8 @@ dependencies = [
  "sp1-sdk",
  "tempfile",
  "tokio",
- "toml 0.8.23",
  "tower-http",
  "tracing",
- "tracing-subscriber",
  "zk-primitives",
 ]
 
@@ -7928,16 +7834,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2eebbbfe4093922c2b6734d7c679ebfebd704a0d7e56dfcb0d05818ce28977d"
 
 [[package]]
-name = "utxo-mint-example"
-version = "0.1.0"
-dependencies = [
- "barretenberg",
- "color-eyre",
- "element",
- "zk-primitives",
-]
-
-[[package]]
 name = "uuid"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8651,23 +8547,17 @@ dependencies = [
 name = "zk-primitives"
 version = "1.3.0"
 dependencies = [
- "bitvec",
  "borsh",
  "bs58",
- "diesel",
  "element",
  "ethnum",
- "ff 0.12.1",
  "hash",
  "hex",
  "noirc_abi",
  "primitives",
- "proptest",
  "rand 0.8.5",
  "serde",
  "sha3",
- "strum 0.26.3",
- "strum_macros 0.26.4",
  "ts-rs",
 ]
 
