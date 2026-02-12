@@ -3,12 +3,101 @@ use std::{
     fs,
     io::{self, BufReader, BufWriter},
     path::Path,
-    sync::RwLock,
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{debug, info, warn};
+
+// ============================================================================
+// Shared Utilities
+// ============================================================================
+
+/// Returns the current Unix timestamp in seconds.
+fn current_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+// ============================================================================
+// PersistentStore - Generic in-memory store with optional JSON file persistence
+// ============================================================================
+
+/// Generic in-memory store backed by `RwLock<T>` with optional atomic JSON file persistence.
+struct PersistentStore<T> {
+    data: RwLock<T>,
+    persistence_path: Option<String>,
+}
+
+impl<T> PersistentStore<T> {
+    /// Creates a new in-memory store with no persistence.
+    fn new(data: T) -> Self {
+        Self {
+            data: RwLock::new(data),
+            persistence_path: None,
+        }
+    }
+
+    fn read(&self) -> RwLockReadGuard<'_, T> {
+        self.data.read().expect("store lock poisoned")
+    }
+
+    fn write(&self) -> RwLockWriteGuard<'_, T> {
+        self.data.write().expect("store lock poisoned")
+    }
+}
+
+impl<T: Serialize + DeserializeOwned + Default> PersistentStore<T> {
+    /// Creates a store with file persistence. Loads existing data from disk if the file exists.
+    fn with_persistence(path: String) -> io::Result<Self> {
+        let store = Self {
+            data: RwLock::new(T::default()),
+            persistence_path: Some(path.clone()),
+        };
+
+        if Path::new(&path).exists() {
+            store.load_from_file()?;
+        }
+
+        Ok(store)
+    }
+
+    /// Persists to disk if persistence is enabled (atomic write via temp file + rename).
+    fn maybe_persist(&self) -> io::Result<()> {
+        let Some(ref path) = self.persistence_path else {
+            return Ok(());
+        };
+        let data = self.data.read().expect("store lock poisoned");
+        let temp_path = format!("{}.tmp", path);
+        let file = fs::File::create(&temp_path)?;
+        let writer = BufWriter::new(file);
+        serde_json::to_writer(writer, &*data)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        fs::rename(&temp_path, path)?;
+        debug!(path = %path, "Persisted store to disk");
+        Ok(())
+    }
+
+    /// Loads state from the persistence file, replacing current in-memory data.
+    fn load_from_file(&self) -> io::Result<()> {
+        let Some(ref path) = self.persistence_path else {
+            return Ok(());
+        };
+
+        let file = fs::File::open(path)?;
+        let reader = BufReader::new(file);
+        let loaded: T = serde_json::from_reader(reader)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        let mut data = self.data.write().expect("store lock poisoned");
+        *data = loaded;
+
+        Ok(())
+    }
+}
 
 // ============================================================================
 // Address Registry - Maps usernames to UTXO addresses
@@ -30,47 +119,25 @@ pub struct AddressRegistration {
 
 /// In-memory registry for username -> UTXO address mappings.
 pub struct AddressRegistry {
-    /// Mappings indexed by username (lowercase)
-    registry: RwLock<HashMap<String, AddressRegistration>>,
-    /// Optional path for file persistence
-    persistence_path: Option<String>,
-}
-
-/// Serialization format for persistence.
-#[derive(Serialize, Deserialize)]
-struct PersistedAddressRegistry {
-    registrations: HashMap<String, AddressRegistration>,
+    store: PersistentStore<HashMap<String, AddressRegistration>>,
 }
 
 impl AddressRegistry {
     /// Creates a new in-memory address registry.
     pub fn new() -> Self {
         Self {
-            registry: RwLock::new(HashMap::new()),
-            persistence_path: None,
+            store: PersistentStore::new(HashMap::new()),
         }
     }
 
     /// Creates an address registry with file persistence enabled.
     pub fn with_persistence(persistence_path: String) -> io::Result<Self> {
-        let mut registry = Self {
-            registry: RwLock::new(HashMap::new()),
-            persistence_path: Some(persistence_path.clone()),
-        };
-
-        if Path::new(&persistence_path).exists() {
-            registry.load_from_file()?;
+        let store = PersistentStore::<HashMap<_, _>>::with_persistence(persistence_path)?;
+        let count = store.read().len();
+        if count > 0 {
+            info!(registrations = count, "Loaded address registry from disk");
         }
-
-        Ok(registry)
-    }
-
-    /// Returns the current Unix timestamp.
-    fn current_timestamp() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
+        Ok(Self { store })
     }
 
     /// Registers a username -> UTXO address mapping.
@@ -86,16 +153,15 @@ impl AddressRegistry {
             username: normalized_username.clone(),
             utxo_address,
             encryption_pubkey,
-            registered_at: Self::current_timestamp(),
+            registered_at: current_timestamp(),
         };
 
         let previous = {
-            let mut registry = self.registry.write().expect("registry lock poisoned");
+            let mut registry = self.store.write();
             registry.insert(normalized_username.clone(), registration)
         };
 
-        // Persist if enabled
-        if let Err(err) = self.maybe_persist() {
+        if let Err(err) = self.store.maybe_persist() {
             warn!(error = %err, "Failed to persist address registry");
         }
 
@@ -111,20 +177,16 @@ impl AddressRegistry {
     /// Resolves a username to its UTXO address.
     pub fn resolve(&self, username: &str) -> Option<AddressRegistration> {
         let normalized = username.to_lowercase();
-        let registry = self.registry.read().expect("registry lock poisoned");
-        registry.get(&normalized).cloned()
+        self.store.read().get(&normalized).cloned()
     }
 
     /// Removes a username registration.
     pub fn unregister(&self, username: &str) -> Option<AddressRegistration> {
         let normalized = username.to_lowercase();
-        let removed = {
-            let mut registry = self.registry.write().expect("registry lock poisoned");
-            registry.remove(&normalized)
-        };
+        let removed = self.store.write().remove(&normalized);
 
         if removed.is_some() {
-            if let Err(err) = self.maybe_persist() {
+            if let Err(err) = self.store.maybe_persist() {
                 warn!(error = %err, "Failed to persist address registry after removal");
             }
         }
@@ -134,63 +196,12 @@ impl AddressRegistry {
 
     /// Returns the total number of registered usernames.
     pub fn count(&self) -> usize {
-        let registry = self.registry.read().expect("registry lock poisoned");
-        registry.len()
+        self.store.read().len()
     }
 
     /// Lists all registrations (for admin/debug purposes).
     pub fn list_all(&self) -> Vec<AddressRegistration> {
-        let registry = self.registry.read().expect("registry lock poisoned");
-        registry.values().cloned().collect()
-    }
-
-    /// Persists the registry to disk if persistence is enabled.
-    fn maybe_persist(&self) -> io::Result<()> {
-        if let Some(ref path) = self.persistence_path {
-            self.save_to_file(path)?;
-        }
-        Ok(())
-    }
-
-    /// Saves the current state to a file.
-    fn save_to_file(&self, path: &str) -> io::Result<()> {
-        let registry = self.registry.read().expect("registry lock poisoned");
-        let persisted = PersistedAddressRegistry {
-            registrations: registry.clone(),
-        };
-
-        let temp_path = format!("{}.tmp", path);
-        let file = fs::File::create(&temp_path)?;
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &persisted)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        fs::rename(&temp_path, path)?;
-        debug!(path = %path, "Persisted address registry to disk");
-        Ok(())
-    }
-
-    /// Loads state from a file.
-    fn load_from_file(&mut self) -> io::Result<()> {
-        let Some(ref path) = self.persistence_path else {
-            return Ok(());
-        };
-
-        let file = fs::File::open(path)?;
-        let reader = BufReader::new(file);
-        let persisted: PersistedAddressRegistry = serde_json::from_reader(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        let mut registry = self.registry.write().expect("registry lock poisoned");
-        *registry = persisted.registrations;
-
-        info!(
-            path = %path,
-            registrations = registry.len(),
-            "Loaded address registry from disk"
-        );
-
-        Ok(())
+        self.store.read().values().cloned().collect()
     }
 }
 
@@ -199,6 +210,10 @@ impl Default for AddressRegistry {
         Self::new()
     }
 }
+
+// ============================================================================
+// NoteStore - Encrypted note storage with FIFO eviction
+// ============================================================================
 
 /// Maximum number of notes stored per recipient tag (FIFO eviction).
 const DEFAULT_MAX_NOTES_PER_RECIPIENT: usize = 1000;
@@ -220,28 +235,18 @@ pub struct StoredEncryptedNote {
 
 /// In-memory storage for encrypted notes with optional file persistence.
 pub struct NoteStore {
-    /// Notes indexed by recipient tag.
-    notes: RwLock<HashMap<String, VecDeque<StoredEncryptedNote>>>,
+    store: PersistentStore<HashMap<String, VecDeque<StoredEncryptedNote>>>,
     /// Maximum notes per recipient before FIFO eviction.
     max_notes_per_recipient: usize,
-    /// Optional path for file persistence.
-    persistence_path: Option<String>,
-}
-
-/// Serialization format for persistence.
-#[derive(Serialize, Deserialize)]
-struct PersistedNoteStore {
-    notes: HashMap<String, VecDeque<StoredEncryptedNote>>,
 }
 
 impl NoteStore {
     /// Creates a new in-memory note store.
     pub fn new(max_notes_per_recipient: Option<usize>) -> Self {
         Self {
-            notes: RwLock::new(HashMap::new()),
+            store: PersistentStore::new(HashMap::new()),
             max_notes_per_recipient: max_notes_per_recipient
                 .unwrap_or(DEFAULT_MAX_NOTES_PER_RECIPIENT),
-            persistence_path: None,
         }
     }
 
@@ -250,18 +255,23 @@ impl NoteStore {
         max_notes_per_recipient: Option<usize>,
         persistence_path: String,
     ) -> io::Result<Self> {
-        let mut store = Self {
-            notes: RwLock::new(HashMap::new()),
+        let store = PersistentStore::<HashMap<_, VecDeque<_>>>::with_persistence(persistence_path)?;
+        {
+            let notes = store.read();
+            let total: usize = notes.values().map(|q| q.len()).sum();
+            if total > 0 {
+                info!(
+                    recipients = notes.len(),
+                    total_notes = total,
+                    "Loaded note store from disk"
+                );
+            }
+        }
+        Ok(Self {
+            store,
             max_notes_per_recipient: max_notes_per_recipient
                 .unwrap_or(DEFAULT_MAX_NOTES_PER_RECIPIENT),
-            persistence_path: Some(persistence_path.clone()),
-        };
-
-        if Path::new(&persistence_path).exists() {
-            store.load_from_file()?;
-        }
-
-        Ok(store)
+        })
     }
 
     /// Generates a unique note ID.
@@ -278,14 +288,6 @@ impl NoteStore {
         format!("{:016x}{:08x}", timestamp, counter as u32)
     }
 
-    /// Returns the current Unix timestamp.
-    fn current_timestamp() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-    }
-
     /// Inserts a new encrypted note for a recipient.
     ///
     /// Returns the generated note ID and storage timestamp.
@@ -297,7 +299,7 @@ impl NoteStore {
         sender_tag: Option<String>,
     ) -> (String, u64) {
         let id = Self::generate_id();
-        let stored_at = Self::current_timestamp();
+        let stored_at = current_timestamp();
 
         let note = StoredEncryptedNote {
             id: id.clone(),
@@ -308,7 +310,7 @@ impl NoteStore {
         };
 
         {
-            let mut notes = self.notes.write().expect("notes lock poisoned");
+            let mut notes = self.store.write();
             let queue = notes.entry(recipient_tag.clone()).or_default();
 
             // FIFO eviction if at capacity
@@ -325,8 +327,7 @@ impl NoteStore {
             queue.push_back(note);
         }
 
-        // Persist if enabled
-        if let Err(err) = self.maybe_persist() {
+        if let Err(err) = self.store.maybe_persist() {
             warn!(error = %err, "Failed to persist note store");
         }
 
@@ -342,7 +343,7 @@ impl NoteStore {
         since: Option<u64>,
         limit: Option<usize>,
     ) -> (Vec<StoredEncryptedNote>, bool) {
-        let notes = self.notes.read().expect("notes lock poisoned");
+        let notes = self.store.read();
 
         let Some(queue) = notes.get(recipient_tag) else {
             return (Vec::new(), false);
@@ -372,7 +373,7 @@ impl NoteStore {
     /// Returns true if the note was found and deleted.
     pub fn delete_note(&self, recipient_tag: &str, note_id: &str) -> bool {
         let deleted = {
-            let mut notes = self.notes.write().expect("notes lock poisoned");
+            let mut notes = self.store.write();
 
             let Some(queue) = notes.get_mut(recipient_tag) else {
                 return false;
@@ -391,7 +392,7 @@ impl NoteStore {
         };
 
         if deleted {
-            if let Err(err) = self.maybe_persist() {
+            if let Err(err) = self.store.maybe_persist() {
                 warn!(error = %err, "Failed to persist note store after deletion");
             }
         }
@@ -401,65 +402,12 @@ impl NoteStore {
 
     /// Returns the total number of stored notes across all recipients.
     pub fn total_notes(&self) -> usize {
-        let notes = self.notes.read().expect("notes lock poisoned");
-        notes.values().map(|q| q.len()).sum()
+        self.store.read().values().map(|q| q.len()).sum()
     }
 
     /// Returns the number of unique recipient tags.
     pub fn recipient_count(&self) -> usize {
-        let notes = self.notes.read().expect("notes lock poisoned");
-        notes.len()
-    }
-
-    /// Persists the store to disk if persistence is enabled.
-    fn maybe_persist(&self) -> io::Result<()> {
-        if let Some(ref path) = self.persistence_path {
-            self.save_to_file(path)?;
-        }
-        Ok(())
-    }
-
-    /// Saves the current state to a file.
-    fn save_to_file(&self, path: &str) -> io::Result<()> {
-        let notes = self.notes.read().expect("notes lock poisoned");
-        let persisted = PersistedNoteStore {
-            notes: notes.clone(),
-        };
-
-        let temp_path = format!("{}.tmp", path);
-        let file = fs::File::create(&temp_path)?;
-        let writer = BufWriter::new(file);
-        serde_json::to_writer(writer, &persisted)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        fs::rename(&temp_path, path)?;
-        debug!(path = %path, "Persisted note store to disk");
-        Ok(())
-    }
-
-    /// Loads state from a file.
-    fn load_from_file(&mut self) -> io::Result<()> {
-        let Some(ref path) = self.persistence_path else {
-            return Ok(());
-        };
-
-        let file = fs::File::open(path)?;
-        let reader = BufReader::new(file);
-        let persisted: PersistedNoteStore = serde_json::from_reader(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
-        let mut notes = self.notes.write().expect("notes lock poisoned");
-        *notes = persisted.notes;
-
-        let total: usize = notes.values().map(|q| q.len()).sum();
-        info!(
-            path = %path,
-            recipients = notes.len(),
-            total_notes = total,
-            "Loaded note store from disk"
-        );
-
-        Ok(())
+        self.store.read().len()
     }
 }
 

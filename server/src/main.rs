@@ -16,7 +16,6 @@ use hyli_modules::{
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
     },
-    telemetry::init_prometheus_registry_meter_provider,
 };
 use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
@@ -70,9 +69,6 @@ async fn main() -> Result<()> {
     init_tracing(&config.log_format)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
-    let registry =
-        init_prometheus_registry_meter_provider().context("starting prometheus exporter")?;
-
     let faucet_metrics = FaucetMetrics::global(config.id.clone());
 
     let node_client = Arc::new(
@@ -102,8 +98,8 @@ async fn main() -> Result<()> {
         .context("loading hyli-utxo-state proving key")?;
     let prover = Arc::new(SP1Prover::new(proving_key).await);
 
-    let shared_bus = SharedMessageBus::new(BusMetrics::global());
-    let mut handler = ModulesHandler::new(&shared_bus, data_directory.clone()).await;
+    let shared_bus = SharedMessageBus::new();
+    let mut handler = ModulesHandler::new(&shared_bus, data_directory.clone())?;
 
     handler
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
@@ -217,8 +213,7 @@ async fn main() -> Result<()> {
         router,
         config.rest_server_max_body_size,
         openapi,
-    )
-    .with_registry(registry.clone());
+    );
 
     handler
         .build_module::<RestApi>(rest_context)

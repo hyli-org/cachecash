@@ -24,7 +24,7 @@ tracing-subscriber = { workspace = true }
 element = { workspace = true }
 hash = { workspace = true }
 zk-primitives = { workspace = true }
-hyli-modules = { workspace = true, features = ["test"] }
+hyli-modules = { workspace = true }
 hyli-turmoil-shims = { workspace = true }
 opentelemetry = "0.28"
 opentelemetry-prometheus = "0.28"

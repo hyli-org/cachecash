@@ -1,11 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-    "server",
-    "pkg/*",
-    "contracts",
-    "contracts/hyli-utxo-state",
-]
+members = ["server", "pkg/*", "contracts", "contracts/hyli-utxo-state"]
 
 [workspace.dependencies]
 sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "main" }
@@ -16,13 +11,24 @@ hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "
 hyli-net = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-net", branch = "main" }
 hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
 sp1-sdk = { version = "5.0.3", default-features = false }
-sp1-build = "5.0.3"
+sp1-build = { version = "5.0.3", default-features = false }
 sp1-zkvm = { version = "5.0.3", default-features = false }
 clap = { version = "4.5.28", features = ["derive", "env"] }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "std", "registry", "ansi", "json"] }
+tracing-subscriber = { version = "0.3.18", features = [
+  "env-filter",
+  "fmt",
+  "std",
+  "registry",
+  "ansi",
+  "json",
+] }
 
 server = { path = "server", default-features = false, package = "server" }
-ts-rs = { version = "^11.0.1", features = ["format", "chrono-impl", "uuid-impl"] }
+ts-rs = { version = "^11.0.1", features = [
+  "format",
+  "chrono-impl",
+  "uuid-impl",
+] }
 actix-cors = "0.6.4"
 actix-server = "2.3.0"
 actix-web = "4.4.0"
@@ -52,12 +58,12 @@ colored = "2.0.4"
 color-eyre = "0.6"
 crypto_secretbox = "0.1.1"
 diesel = { version = "2.1.0", features = [
-    "postgres",
-    "uuid",
-    "chrono",
-    "r2d2",
-    "serde_json",
-    "64-column-tables",
+  "postgres",
+  "uuid",
+  "chrono",
+  "r2d2",
+  "serde_json",
+  "64-column-tables",
 ] }
 tokio-postgres = "0.7.2"
 postgres-native-tls = "0.5.0"
@@ -82,16 +88,16 @@ itertools = "0.11.0"
 jsonwebtoken = "7"
 lazy_static = "1.4"
 libp2p = { version = "0.51", default-features = false, features = [
-    "ping",
-    "request-response",
-    "identify",
-    "gossipsub",
-    "macros",
-    "tokio",
-    "noise",
-    "dns",
-    "yamux",
-    "tcp",
+  "ping",
+  "request-response",
+  "identify",
+  "gossipsub",
+  "macros",
+  "tokio",
+  "noise",
+  "dns",
+  "yamux",
+  "tcp",
 ] }
 libp2p-core = { version = "0.38.0" }
 notify = "6"
@@ -105,7 +111,7 @@ quickcheck = "1.0.3"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_xorshift = "0.3"
-reqwest = { version = "0.11.22", features = ["json", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "multipart"] }
 rustc-hex = "2.1.0"
 rust-i18n = "3"
 rsa = { version = "0.9", features = ["sha1"] }
@@ -119,9 +125,9 @@ serde_bytes = "0.11.14"
 bincode = "1.3.3"
 scopeguard = "1.2.0"
 secp256k1 = { version = "0.28.0", features = [
-    "rand",
-    "global-context",
-    "recovery",
+  "rand",
+  "global-context",
+  "recovery",
 ] }
 semver = "1.0.15"
 sha1 = "0.10.1"
@@ -151,15 +157,15 @@ serial_test = "3.0.0"
 borsh = { version = "1", features = ["derive", "de_strict_order", "rc"] }
 opentelemetry = { version = "0.21.0", features = ["metrics", "trace"] }
 opentelemetry_sdk = { version = "0.21.2", features = [
-    "rt-tokio",
-    "metrics",
-    "trace",
+  "rt-tokio",
+  "metrics",
+  "trace",
 ] }
 opentelemetry-otlp = { version = "0.14.0", features = [
-    "tokio",
-    "tonic",
-    "trace",
-    "metrics",
+  "tokio",
+  "tonic",
+  "trace",
+  "metrics",
 ] }
 tracing-opentelemetry = "0.22.0"
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
