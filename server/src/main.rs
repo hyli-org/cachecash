@@ -114,7 +114,6 @@ async fn main() -> Result<()> {
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
             node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
             contract: hyli_utxo_contract.clone(),
-            verify_locally: true,
             metrics: faucet_metrics.clone(),
         }))
         .await

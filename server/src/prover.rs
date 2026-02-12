@@ -34,15 +34,13 @@ impl NoirProofArtifacts {
 #[derive(Clone)]
 pub struct NoirProver {
     verifier: Verifier,
-    verify_locally: bool,
 }
 
 impl NoirProver {
     /// Create a new prover instance.
-    pub fn new(verify_locally: bool) -> Self {
+    pub fn new() -> Self {
         Self {
             verifier: Verifier(sdk::verifiers::NOIR.to_string()),
-            verify_locally,
         }
     }
 

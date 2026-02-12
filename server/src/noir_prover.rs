@@ -43,7 +43,6 @@ module_bus_client! {
 pub struct HyliUtxoNoirProverCtx {
     pub node: Arc<dyn NodeApiClient + Send + Sync>,
     pub contract: ContractDeployment,
-    pub verify_locally: bool,
     pub metrics: FaucetMetrics,
 }
 
@@ -59,7 +58,7 @@ impl Module for HyliUtxoNoirProver {
 
     async fn build(bus: SharedMessageBus, ctx: Self::Context) -> Result<Self> {
         let bus = HyliUtxoNoirProverBusClient::new_from_bus(bus.new_handle()).await;
-        let prover = NoirProver::new(ctx.verify_locally);
+        let prover = NoirProver::new();
         let metrics = ctx.metrics.clone();
 
         Ok(Self {

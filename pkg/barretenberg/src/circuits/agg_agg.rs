@@ -22,6 +22,7 @@ use zk_primitives::{
 
 const PROGRAM: &str = include_str!("../../../../fixtures/programs/agg_agg.json");
 const KEY: &[u8] = include_bytes!("../../../../fixtures/keys/agg_agg_key");
+#[expect(dead_code)]
 const KEY_FIELDS: &[u8] = include_bytes!("../../../../fixtures/keys/agg_agg_key_fields.json");
 
 lazy_static! {

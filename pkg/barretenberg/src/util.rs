@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+#[expect(dead_code)]
 pub fn write_to_temp_file(data: &[u8], suffix: &str) -> PathBuf {
     let mut file = tempfile::NamedTempFile::with_suffix(suffix).unwrap();
     file.write_all(data).unwrap();
