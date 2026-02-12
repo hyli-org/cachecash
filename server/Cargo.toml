@@ -7,7 +7,7 @@ contracts = { path = "../contracts", features = ["nobuild"] }
 hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 
 # Hyli
-hyli-modules = { workspace = true, features = ["rest"] }
+hyli-modules = { workspace = true }
 hyli-verifiers = { workspace = true }
 client-sdk = { workspace = true, features = ["rest", "sp1", "axum"] }
 sdk = { workspace = true, features = ["tracing", "full-model"] }
