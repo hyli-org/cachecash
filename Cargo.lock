@@ -3030,6 +3030,7 @@ source = "git+https://github.com/hyli-org/hyli.git?branch=main#5e64fe1744441066e
 dependencies = [
  "borsh",
  "opentelemetry",
+ "opentelemetry_sdk",
  "rand 0.9.2",
  "tokio",
 ]

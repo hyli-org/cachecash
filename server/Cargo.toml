@@ -40,5 +40,8 @@ sp1-sdk = { workspace = true }
 reqwest = { workspace = true }
 tempfile = { workspace = true }
 
+[dev-dependencies]
+hyli-modules = { workspace = true, features = ["otlp"] }
+
 [features]
 instrumentation = ["hyli-modules/instrumentation"]

@@ -417,30 +417,36 @@ mod tests {
     use crate::{hyli_utxo_state_client::HyliUtxoStateExecutor, noir_prover::HyliUtxoNoirProver};
     use barretenberg::{Prove, Verify};
     use client_sdk::{
-        helpers::{test::MockProver, ClientSdkProver},
-        rest_client::test::NodeApiMockClient,
+        helpers::test::MockProver, rest_client::test::NodeApiMockClient,
         transaction_builder::TxExecutorHandler,
     };
     use element::Element;
     use hyli_modules::{
-        bus::{dont_use_this, metrics::BusMetrics, SharedMessageBus},
+        bus::SharedMessageBus,
+        module_bus_client,
         modules::prover::{AutoProver, AutoProverCtx},
     };
+    use hyli_turmoil_shims::{init_global_meter_provider, init_test_meter_provider};
     use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
     use sdk::hyli_model_utils::TimestampMs;
+
+    module_bus_client! {
+        struct TestBusClient {
+            sender(NodeStateEvent),
+        }
+    }
     use sdk::{
-        AggregateSignature, Blob, BlobIndex, BlobTransaction, Block, BlockHeight, BlockStakingData,
+        AggregateSignature, Blob, BlobIndex, BlobTransaction, BlockHeight, BlockStakingData,
         Calldata, ConsensusProposal, ConsensusProposalHash, Contract, ContractName,
         DataProposalHash, NodeStateBlock, NodeStateEvent, ProgramId, StatefulEvent, StatefulEvents,
-        TimeoutWindow, Transaction, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
+        TimeoutWindow, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
         HYLI_TESTNET_CHAIN_ID,
     };
     use sdk::{Hashed, LaneId, SignedBlock};
     use sha3::{Digest, Sha3_256};
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::sync::Arc;
     use tempfile::tempdir;
     use tokio::time::{sleep, timeout, Duration};
-    use zk_primitives::HyliUtxo;
 
     const TEST_UTXO_CONTRACT_NAME: &str = "hyli_utxo";
     const TEST_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
@@ -468,12 +474,12 @@ mod tests {
     ) -> NodeStateBlock {
         let tx_hash = blob_tx.hashed();
         let tx_id = TxId(
-            DataProposalHash(format!("dp-{block_height}")),
+            DataProposalHash(format!("dp-{block_height}").into_bytes()),
             tx_hash.clone(),
         );
         let tx_ctx = Arc::new(TxContext {
-            lane_id: LaneId(ValidatorPublicKey(vec![0u8; 32])),
-            block_hash: ConsensusProposalHash(format!("block-{block_height}")),
+            lane_id: LaneId::new(ValidatorPublicKey(vec![0u8; 32])),
+            block_hash: ConsensusProposalHash(format!("block-{block_height}").into_bytes()),
             block_height: BlockHeight(block_height),
             timestamp: TimestampMs::ZERO,
             chain_id: HYLI_TESTNET_CHAIN_ID,
@@ -498,7 +504,7 @@ mod tests {
             data_proposals: Vec::new(),
             consensus_proposal: ConsensusProposal {
                 slot: block_height,
-                parent_hash: ConsensusProposalHash("parent".into()),
+                parent_hash: ConsensusProposalHash(b"parent".to_vec()),
                 cut: Vec::new(),
                 staking_actions: Vec::new(),
                 timestamp: TimestampMs::ZERO,
@@ -506,33 +512,8 @@ mod tests {
             certificate: AggregateSignature::default(),
         };
 
-        let transaction: Transaction = blob_tx.into();
-
-        let block = Block {
-            parent_hash: ConsensusProposalHash("parent".into()),
-            hash: ConsensusProposalHash(format!("hash-{block_height}")),
-            block_height: BlockHeight(block_height),
-            block_timestamp: TimestampMs::ZERO,
-            txs: vec![(tx_id, transaction)],
-            dp_parent_hashes: BTreeMap::new(),
-            lane_ids: BTreeMap::new(),
-            successful_txs: Vec::new(),
-            failed_txs: Vec::new(),
-            timed_out_txs: Vec::new(),
-            dropped_duplicate_txs: Vec::new(),
-            blob_proof_outputs: Vec::new(),
-            verified_blobs: Vec::new(),
-            registered_contracts: BTreeMap::new(),
-            deleted_contracts: BTreeMap::new(),
-            updated_states: BTreeMap::new(),
-            updated_program_ids: BTreeMap::new(),
-            updated_timeout_windows: BTreeMap::new(),
-            transactions_events: BTreeMap::new(),
-        };
-
         NodeStateBlock {
             signed_block: Arc::new(signed_block),
-            parsed_block: Arc::new(block),
             staking_data: Arc::new(BlockStakingData::default()),
             stateful_events: Arc::new(stateful_events),
         }
@@ -540,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn hyli_utxo_blob_matches_expected_payload() {
-        let bus = SharedMessageBus::new(BusMetrics::global("test".to_string()));
+        let bus = SharedMessageBus::new();
         let context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
@@ -564,7 +545,7 @@ mod tests {
         blob_bytes.copy_from_slice(&payload[..HYLI_BLOB_LENGTH_BYTES]);
 
         let identity = blob_tx.identity.0.clone();
-        let tx_hash_placeholder = "0".repeat(64);
+        let tx_hash_placeholder = vec![0u8; 32];
 
         let job = HyliUtxoProofJob {
             tx_hash: TxHash(tx_hash_placeholder.clone()),
@@ -602,7 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn hyli_utxo_state_action_orders_commitments() {
-        let bus = SharedMessageBus::new(BusMetrics::global("test".to_string()));
+        let bus = SharedMessageBus::new();
         let context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
@@ -615,10 +596,11 @@ mod tests {
             .expect("building faucet app");
 
         let recipient_address = deterministic_address("state-order-test");
+        let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
 
-        let (blob_tx, recipient_note, utxo) = app
-            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
-            .expect("build transaction");
+        let (blob_tx, utxo) = app.build_transaction(&note).expect("build transaction");
+
+        let recipient_note = &utxo.output_notes[0];
 
         let (state_index, state_blob) = blob_tx
             .blobs
@@ -643,7 +625,7 @@ mod tests {
             .iter()
             .filter(|input| !input.note.is_padding_note())
             .map(|input| hash_merge([input.note.psi, input.secret_key]))
-            .map(|value| BorshableH256::from(value.to_be_bytes()))
+            .map(|value: Element| BorshableH256::from(value.to_be_bytes()))
             .collect();
 
         let actual_nullifiers: Vec<BorshableH256> = nullified
@@ -695,7 +677,7 @@ mod tests {
             return;
         }
 
-        let bus = SharedMessageBus::new(BusMetrics::global("test".to_string()));
+        let bus = SharedMessageBus::new();
         let context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
@@ -708,10 +690,9 @@ mod tests {
             .expect("building faucet app");
 
         let recipient_address = deterministic_address("noir-proof-test");
+        let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
 
-        let (blob_tx, _note, utxo) = app
-            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
-            .expect("build transaction");
+        let (blob_tx, utxo) = app.build_transaction(&note).expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);
 
@@ -719,7 +700,7 @@ mod tests {
         blob_bytes.copy_from_slice(&payload[..HYLI_BLOB_LENGTH_BYTES]);
 
         let job = HyliUtxoProofJob {
-            tx_hash: TxHash("0".repeat(64)),
+            tx_hash: TxHash(vec![0u8; 32]),
             identity: blob_tx.identity.clone(),
             utxo,
             blob: blob_bytes,
@@ -732,12 +713,14 @@ mod tests {
 
         let proof = hyli_utxo.prove().expect("generate hyli_utxo proof");
 
-        proof.verify().expect("verify hyli_utxo proof");
+        if let Err(e) = proof.verify() {
+            panic!("Proof verification failed: {e}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn auto_prover_emits_state_proof_after_mint() -> Result<()> {
-        let shared_bus = SharedMessageBus::new(BusMetrics::global("autoprover-test".to_string()));
+        let shared_bus = SharedMessageBus::new();
 
         let api_client = Arc::new(NodeApiMockClient::new());
         let mock_prover = Arc::new(MockProver {});
@@ -758,12 +741,11 @@ mod tests {
         api_client.add_contract(contract.clone());
 
         let data_dir = tempdir().expect("tempdir");
-        let prover_arc: Arc<dyn ClientSdkProver<Vec<Calldata>> + Send + Sync> = mock_prover.clone();
         let node_arc: Arc<dyn NodeApiClient + Send + Sync> = api_client.clone();
 
         let ctx = Arc::new(AutoProverCtx {
             data_directory: data_dir.path().to_path_buf(),
-            prover: prover_arc,
+            prover: mock_prover.clone(),
             contract_name: contract_name.clone(),
             node: node_arc,
             api: None,
@@ -773,9 +755,10 @@ mod tests {
             tx_working_window_size: 1,
         });
 
-        let auto_prover = AutoProver::<HyliUtxoStateExecutor>::build(shared_bus.new_handle(), ctx)
-            .await
-            .expect("build autoprover");
+        let auto_prover =
+            AutoProver::<HyliUtxoStateExecutor, MockProver>::build(shared_bus.new_handle(), ctx)
+                .await
+                .expect("build autoprover");
 
         let auto_prover_handle = tokio::spawn(async move {
             let mut prover = auto_prover;
@@ -784,7 +767,7 @@ mod tests {
 
         sleep(Duration::from_millis(50)).await;
 
-        let faucet_bus = SharedMessageBus::new(BusMetrics::global("faucet-autoprover".to_string()));
+        let faucet_bus = SharedMessageBus::new();
         let faucet_context = FaucetAppContext {
             client: NodeApiHttpClient::new("http://localhost:19999".to_string())
                 .expect("client init"),
@@ -795,9 +778,8 @@ mod tests {
             .await
             .expect("build faucet app");
         let recipient_address = deterministic_address("autoprover-test");
-        let (blob_tx, _, _) = faucet
-            .build_transaction(recipient_address, FAUCET_MINT_AMOUNT)
-            .expect("build transaction");
+        let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
+        let (blob_tx, _) = faucet.build_transaction(&note).expect("build transaction");
         api_client.set_block_height(BlockHeight(0));
         let block = build_node_state_block(blob_tx.clone(), contract.clone(), 0);
         let has_state_blob = block
@@ -812,8 +794,8 @@ mod tests {
                 _ => false,
             });
         assert!(has_state_blob, "block must contain hyli_utxo_state blob");
-        let sender = dont_use_this::get_sender::<NodeStateEvent>(&shared_bus).await;
-        sender
+        let mut test_bus = TestBusClient::new_from_bus(shared_bus.new_handle()).await;
+        test_bus
             .send(NodeStateEvent::NewBlock(block))
             .expect("send node state event");
         let proof = timeout(Duration::from_secs(5), async {
