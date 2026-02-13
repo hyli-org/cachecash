@@ -15,6 +15,34 @@ pub struct FaucetMetrics {
     current_noir_jobs: Arc<AtomicU64>,
 }
 
+#[cfg(not(feature = "instrumentation"))]
+impl FaucetMetrics {
+    pub fn global(_node_id: String) -> Self {
+        Self {
+            requests_total: global_meter_or_panic()
+                .u64_counter("faucet_requests_total")
+                .build(),
+            requests_failed: global_meter_or_panic()
+                .u64_counter("faucet_requests_failed_total")
+                .build(),
+            minted_amount: global_meter_or_panic()
+                .u64_histogram("faucet_minted_amount")
+                .build(),
+            noir_jobs_gauge: global_meter_or_panic()
+                .u64_gauge("faucet_noir_jobs_inflight")
+                .build(),
+            base_labels: vec![],
+            current_noir_jobs: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn record_success(&self, _amount: u64) {}
+    pub fn record_failure(&self, _reason: &'static str) {}
+    pub fn track_noir_job_started(&self) {}
+    pub fn track_noir_job_finished(&self) {}
+}
+
+#[cfg(feature = "instrumentation")]
 impl FaucetMetrics {
     pub fn global(node_id: String) -> Self {
         let meter = global_meter_or_panic();

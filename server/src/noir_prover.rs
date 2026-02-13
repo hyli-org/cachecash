@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{process::Command, sync::Arc, time::Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use barretenberg::Prove;
@@ -57,6 +57,8 @@ impl Module for HyliUtxoNoirProver {
     type Context = Arc<HyliUtxoNoirProverCtx>;
 
     async fn build(bus: SharedMessageBus, ctx: Self::Context) -> Result<Self> {
+        Self::check_bb_version()?;
+
         let bus = HyliUtxoNoirProverBusClient::new_from_bus(bus.new_handle()).await;
         let prover = NoirProver::new();
         let metrics = ctx.metrics.clone();
@@ -159,6 +161,36 @@ impl HyliUtxoNoirProver {
 
         info!(%tx_hash_str, "submitted hyli_utxo Noir proof");
 
+        Ok(())
+    }
+
+    fn check_bb_version() -> Result<()> {
+        let output = Command::new("bb")
+            .arg("--version")
+            .output()
+            .context("failed to execute 'bb --version'")?;
+
+        if !output.status.success() {
+            bail!(
+                "'bb --version' command failed with status: {}",
+                output.status
+            );
+        }
+
+        let version_output =
+            String::from_utf8(output.stdout).context("bb version output is not valid UTF-8")?;
+
+        let version_line = version_output
+            .lines()
+            .next()
+            .context("bb version output is empty")?
+            .trim();
+
+        if !version_line.starts_with("3.0.0") {
+            bail!("bb version must be 3.0.0-xxx, found: {}", version_line);
+        }
+
+        info!("bb version check passed: {}", version_line);
         Ok(())
     }
 

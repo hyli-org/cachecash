@@ -22,6 +22,7 @@ pub fn load_utxo_state_proving_key(data_directory: &Path) -> Result<SP1ProvingKe
     let client = ProverClient::builder().cpu().build();
     let (pk, _) = client.setup(HYLI_UTXO_STATE_ELF);
 
+    info!(path = %pk_path.display(), "persisting SP1 proving key to disk");
     if let Err(err) = fs::write(&pk_path, bincode::serialize(&pk)?) {
         error!(error = %err, "failed to persist proving key to disk");
     }

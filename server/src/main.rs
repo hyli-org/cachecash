@@ -30,7 +30,7 @@ use server::{
     note_store::{AddressRegistry, NoteStore},
     utils::load_utxo_state_proving_key,
 };
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Run the zfruit faucet server", long_about = None)]
@@ -78,6 +78,12 @@ async fn main() -> Result<()> {
     setup_otlp(&config.log_format, "cachecache".to_string(), args.tracing)
         .with_context(|| "initializing tracing subscriber".to_string())?;
 
+    if args.clean_data_directory && std::fs::exists(&config.data_directory).unwrap_or(false) {
+        info!("Cleaning data directory: {:?}", &config.data_directory);
+        std::fs::remove_dir_all(&config.data_directory).context("cleaning data directory")?;
+    }
+
+    #[cfg(feature = "instrumentation")]
     let faucet_metrics = FaucetMetrics::global(config.id.clone());
 
     let node_client = Arc::new(
@@ -101,14 +107,19 @@ async fn main() -> Result<()> {
         .context("initializing contracts on node")?;
 
     let data_directory = PathBuf::from(&config.data_directory);
-    std::fs::create_dir_all(&data_directory).context("creating data directory")?;
+
+    let shared_bus = SharedMessageBus::new();
+    let mut handler = match ModulesHandler::new(&shared_bus, data_directory.clone()) {
+        Ok(h) => h,
+        Err(e) => {
+            error!("error: {:?}", e);
+            anyhow::bail!("failed to initialize modules handler");
+        }
+    };
 
     let proving_key = load_utxo_state_proving_key(&data_directory)
         .context("loading hyli-utxo-state proving key")?;
     let prover = Arc::new(SP1Prover::new(proving_key).await);
-
-    let shared_bus = SharedMessageBus::new();
-    let mut handler = ModulesHandler::new(&shared_bus, data_directory.clone())?;
 
     handler
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {

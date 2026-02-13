@@ -41,4 +41,4 @@ reqwest = { workspace = true }
 tempfile = { workspace = true }
 
 [features]
-instrumentation = []
+instrumentation = ["hyli-modules/instrumentation"]
