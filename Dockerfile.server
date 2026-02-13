@@ -1,4 +1,4 @@
-ARG BB_VERSION=0.87.9
+ARG BB_VERSION=2.0.3
 
 FROM rust:bookworm AS builder
 
@@ -37,7 +37,7 @@ RUN apt-get update \
 
 RUN set -eux; \
     curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/refs/heads/next/barretenberg/bbup/install | bash; \
-    bash -lc "source ~/.bashrc && bbup -v ${BB_VERSION:-0.87.9}"; \
+    bash -lc "source ~/.bashrc && bbup -v ${BB_VERSION:-2.0.3}"; \
     chmod +x /root/.bb/bb; \
     install -d /app/bin; \
     install -m 0755 /root/.bb/bb /app/bin/bb; \
