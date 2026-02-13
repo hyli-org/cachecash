@@ -3,6 +3,13 @@ resolver = "2"
 members = ["server", "contracts", "contracts/hyli-utxo-state"]
 
 [workspace.dependencies]
+# Hyli dependencies
+sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "add_noop_meter_provider" }
+client-sdk = { git = "https://github.com/hyli-org/hyli.git", default-features = false, package = "hyli-client-sdk", branch = "add_noop_meter_provider" }
+hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "add_noop_meter_provider" }
+hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "add_noop_meter_provider" }
+hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "add_noop_meter_provider" }
+
 # Local workspace packages
 barretenberg = { path = "./pkg/barretenberg" }
 element = { path = "./pkg/element" }
@@ -93,12 +100,6 @@ proptest = "1.6.0"
 insta = { version = "1", features = ["json"] }
 test-strategy = "0.4.5"
 
-# Hyli dependencies
-sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "main" }
-client-sdk = { git = "https://github.com/hyli-org/hyli.git", default-features = false, package = "hyli-client-sdk", branch = "main" }
-hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "main" }
-hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "main" }
-hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
 
 # SP1 dependencies
 sp1-sdk = { version = "5.0.3", default-features = false }

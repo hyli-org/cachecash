@@ -83,7 +83,6 @@ async fn main() -> Result<()> {
         std::fs::remove_dir_all(&config.data_directory).context("cleaning data directory")?;
     }
 
-    #[cfg(feature = "instrumentation")]
     let faucet_metrics = FaucetMetrics::global(config.id.clone());
 
     let node_client = Arc::new(
