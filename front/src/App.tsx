@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent, FormEve
 import "./App.css";
 import { nodeService } from "./services/NodeService";
 import { deriveFullIdentity, FullIdentity } from "./services/KeyService";
+import { getNodeBaseUrl } from "./services/ConfigService";
 
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
@@ -23,104 +24,104 @@ declareCustomElement();
 
 // Mutex implementation
 class Mutex {
-  private locked: boolean = false;
-  private queue: Array<() => void> = [];
+    private locked: boolean = false;
+    private queue: Array<() => void> = [];
 
-  async acquire(): Promise<void> {
-    if (!this.locked) {
-      this.locked = true;
-      return Promise.resolve();
+    async acquire(): Promise<void> {
+        if (!this.locked) {
+            this.locked = true;
+            return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve) => {
+            this.queue.push(resolve);
+        });
     }
 
-    return new Promise<void>((resolve) => {
-      this.queue.push(resolve);
-    });
-  }
-
-  release(): void {
-    if (this.queue.length > 0) {
-      const next = this.queue.shift();
-      if (next) next();
-    } else {
-      this.locked = false;
+    release(): void {
+        if (this.queue.length > 0) {
+            const next = this.queue.shift();
+            if (next) next();
+        } else {
+            this.locked = false;
+        }
     }
-  }
 }
 
 // Add global mutexes
 declare global {
-  interface Window {
-    orangeMutex: Mutex;
-    bombMutex: Mutex;
-    slicedOranges: Set<number>;
-    slicedBombs: Set<number>;
-  }
+    interface Window {
+        orangeMutex: Mutex;
+        bombMutex: Mutex;
+        slicedOranges: Set<number>;
+        slicedBombs: Set<number>;
+    }
 }
 
 // Initialize global mutexes
 if (!window.orangeMutex) {
-  window.orangeMutex = new Mutex();
+    window.orangeMutex = new Mutex();
 }
 if (!window.bombMutex) {
-  window.bombMutex = new Mutex();
+    window.bombMutex = new Mutex();
 }
 if (!window.slicedOranges) {
-  window.slicedOranges = new Set();
+    window.slicedOranges = new Set();
 }
 if (!window.slicedBombs) {
-  window.slicedBombs = new Set();
+    window.slicedBombs = new Set();
 }
 
 interface Orange {
-  id: number;
-  x: number;
-  y: number;
-  rotation: number;
-  speed: number;
-  sliced: boolean;
+    id: number;
+    x: number;
+    y: number;
+    rotation: number;
+    speed: number;
+    sliced: boolean;
 }
 
 interface Bomb {
-  id: number;
-  x: number;
-  y: number;
-  rotation: number;
-  speed: number;
-  sliced: boolean;
+    id: number;
+    x: number;
+    y: number;
+    rotation: number;
+    speed: number;
+    sliced: boolean;
 }
 
 interface JuiceParticle {
-  id: number;
-  x: number;
-  y: number;
-  velocityX: number;
-  velocityY: number;
-  time: number;
+    id: number;
+    x: number;
+    y: number;
+    velocityX: number;
+    velocityY: number;
+    time: number;
 }
 
 interface ExplosionParticle {
-  id: number;
-  x: number;
-  y: number;
-  velocityX: number;
-  velocityY: number;
-  size: number;
-  color: string;
-  time: number;
+    id: number;
+    x: number;
+    y: number;
+    velocityX: number;
+    velocityY: number;
+    size: number;
+    color: string;
+    time: number;
 }
 
 interface ScorePopup {
-  id: number;
-  x: number;
-  y: number;
-  text: string;
-  variant: "positive" | "negative";
+    id: number;
+    x: number;
+    y: number;
+    text: string;
+    variant: "positive" | "negative";
 }
 
 interface TransactionEntry {
-  title: string;
-  hash?: string;
-  timestamp: number;
+    title: string;
+    hash?: string;
+    timestamp: number;
 }
 
 const SPAWN_INTERVAL = 500;
@@ -136,1322 +137,1346 @@ const MAX_SLICE_SPEED = 5; // Upper bound for gauge visualization
 const SECRET_VIDEO_POOL: string[] = ["/videos/clip1.mp4", "/videos/clip2.mp4", "/videos/clip3.mp4"];
 
 interface ViewportSpriteSizes {
-  orangeSize: number;
-  bombSize: number;
+    orangeSize: number;
+    bombSize: number;
 }
 
 const computeSpriteSizes = (width: number): ViewportSpriteSizes => {
-  if (width <= SMALL_MOBILE_BREAKPOINT) {
-    return { orangeSize: 140, bombSize: 160 };
-  }
+    if (width <= SMALL_MOBILE_BREAKPOINT) {
+        return { orangeSize: 140, bombSize: 160 };
+    }
 
-  if (width <= MOBILE_BREAKPOINT) {
-    return { orangeSize: 160, bombSize: 180 };
-  }
+    if (width <= MOBILE_BREAKPOINT) {
+        return { orangeSize: 160, bombSize: 180 };
+    }
 
-  return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
+    return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
 };
 
 const deriveNoteReference = (note: unknown): string | undefined => {
-  if (!note || typeof note !== "object") {
-    return undefined;
-  }
+    if (!note || typeof note !== "object") {
+        return undefined;
+    }
 
-  const candidates = [
-    (note as { psi?: string }).psi,
-    (note as { address?: string }).address,
-    (note as { contract?: string }).contract,
-    (note as { value?: string }).value,
-    (note as { kind?: string }).kind,
-  ];
+    const candidates = [
+        (note as { psi?: string }).psi,
+        (note as { address?: string }).address,
+        (note as { contract?: string }).contract,
+        (note as { value?: string }).value,
+        (note as { kind?: string }).kind,
+    ];
 
-  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+    return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
 };
 
 const generateOptimisticReference = (): string => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `optimistic-${crypto.randomUUID()}`;
-  }
-  return `optimistic-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return `optimistic-${crypto.randomUUID()}`;
+    }
+    return `optimistic-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 };
 
 function App() {
-  const debugMode = useDebugMode();
-  const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
-  const { notes: storedNotes, clearNotes } = useStoredNotes(playerName);
-  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
-  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
-  const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
+    const debugMode = useDebugMode();
+    const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
+    const { notes: storedNotes, clearNotes } = useStoredNotes(playerName);
+    const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
+    const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
 
-  // Callbacks for encrypted notes hook (memoized to prevent infinite loops)
-  const handleNotesReceived = useCallback((notes: any[]) => {
-    console.log(`Received ${notes.length} encrypted notes`);
-  }, []);
+    // Callbacks for encrypted notes hook (memoized to prevent infinite loops)
+    const handleNotesReceived = useCallback((notes: any[]) => {
+        console.log(`Received ${notes.length} encrypted notes`);
+    }, []);
 
-  const handleNotesError = useCallback((error: Error) => {
-    console.error("Encrypted notes polling error:", error);
-  }, []);
+    const handleNotesError = useCallback((error: Error) => {
+        console.error("Encrypted notes polling error:", error);
+    }, []);
 
-  // Poll for encrypted notes (received transfers)
-  useEncryptedNotes(playerKeys, playerName, {
-    enabled: !!playerKeys && !!playerName,
-    onNotesReceived: handleNotesReceived,
-    onError: handleNotesError,
-  });
+    // Poll for encrypted notes (received transfers)
+    useEncryptedNotes(playerKeys, playerName, {
+        enabled: !!playerKeys && !!playerName,
+        onNotesReceived: handleNotesReceived,
+        onError: handleNotesError,
+    });
 
-  // Compute available notes for transfers (memoized to prevent infinite loops)
-  const availableNotesForTransfer = useMemo(() => {
-    if (!playerKeys || !playerName) return [];
-    return transferService.getSpendableNotes(storedNotes, playerKeys.zkSecretKey, playerName);
-  }, [storedNotes, playerKeys, playerName]);
+    // Compute available notes for transfers (memoized to prevent infinite loops)
+    const availableNotesForTransfer = useMemo(() => {
+        if (!playerKeys || !playerName) return [];
+        return transferService.getSpendableNotes(storedNotes, playerKeys.zkSecretKey, playerName);
+    }, [storedNotes, playerKeys, playerName]);
 
-  const [oranges, setOranges] = useState<Orange[]>([]);
-  const [bombs, setBombs] = useState<Bomb[]>([]);
-  const [bombPenalty, setBombPenalty] = useState(() => {
-    if (!playerName) {
-      return 0;
-    }
-    const stored = localStorage.getItem(`bombPenalty:${playerName}`);
-    return stored ? Number(stored) || 0 : 0;
-  });
-  const [isScoreShaking, setIsScoreShaking] = useState(false);
-  const gameAreaRef = useRef<HTMLDivElement>(null);
-  const nextOrangeId = useRef(0);
-  const lastMousePosition = useRef({ x: 0, y: 0 });
-  const isMouseDown = useRef(false);
-  const slicePoints = useRef<{ x: number; y: number }[]>([]);
-  const sliceStartTime = useRef<number>(0);
-  const lastSpawnTimeRef = useRef(performance.now());
-  const [juiceParticles, setJuiceParticles] = useState<JuiceParticle[]>([]);
-  const nextJuiceId = useRef(0);
-  const [explosionParticles, setExplosionParticles] = useState<ExplosionParticle[]>([]);
-  const nextExplosionId = useRef(0);
-  const [scorePopups, setScorePopups] = useState<ScorePopup[]>([]);
-  const nextScorePopupId = useRef(0);
-  const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
-  const [spriteSizes, setSpriteSizes] = useState<ViewportSpriteSizes>(() => {
-    if (typeof window === "undefined") {
-      return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
-    }
-    return computeSpriteSizes(window.innerWidth);
-  });
-  const [isMobileLayout, setIsMobileLayout] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
-  );
-  const [isScoreboardCollapsed, setIsScoreboardCollapsed] = useState(false);
-  const previousScoreboardCollapsedRef = useRef(false);
-  const [isSecretVideoOpen, setIsSecretVideoOpen] = useState(false);
-  const [secretVideoSources, setSecretVideoSources] = useState<string[]>([]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setSpriteSizes((prev) => {
-        const next = computeSpriteSizes(window.innerWidth);
-        if (next.orangeSize === prev.orangeSize && next.bombSize === prev.bombSize) {
-          return prev;
+    const [oranges, setOranges] = useState<Orange[]>([]);
+    const [bombs, setBombs] = useState<Bomb[]>([]);
+    const [bombPenalty, setBombPenalty] = useState(() => {
+        if (!playerName) {
+            return 0;
         }
-        return next;
-      });
-      setIsMobileLayout(window.innerWidth <= SMALL_MOBILE_BREAKPOINT);
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  const selectSecretVideos = useCallback(() => {
-    if (SECRET_VIDEO_POOL.length === 0) {
-      setSecretVideoSources([]);
-      return;
-    }
-    const shuffled = [...SECRET_VIDEO_POOL].sort(() => Math.random() - 0.5);
-    setSecretVideoSources(shuffled.slice(0, 2));
-  }, []);
-
-  useEffect(() => {
-    selectSecretVideos();
-  }, [selectSecretVideos]);
-
-  useEffect(() => {
-    if (!isMobileLayout) {
-      setIsScoreboardCollapsed(false);
-    }
-  }, [isMobileLayout]);
-
-  const orangeSize = spriteSizes.orangeSize;
-  const bombSize = spriteSizes.bombSize;
-  const orangeSliceThreshold = orangeSize / 2;
-  const bombSliceThreshold = bombSize / 2;
-  const offscreenBuffer = Math.max(orangeSize, 200);
-  const noteBalance = storedNotes.length;
-  const sliceTimestampsRef = useRef<number[]>([]);
-  const [rawSliceSpeed, setRawSliceSpeed] = useState(0);
-  const [debouncedSliceSpeed] = useDebounce(rawSliceSpeed, 200);
-  const penaltyMeterPercent = Math.min(bombPenalty / MAX_PENALTY_DISPLAY, 1);
-  const penaltyDisplayText = bombPenalty > 0 ? `${bombPenalty} pumpkins` : "None";
-
-  useEffect(() => {
-    if (!playerName) {
-      setIsManageModalOpen(false);
-      sliceTimestampsRef.current = [];
-      setRawSliceSpeed(0);
-    }
-  }, [playerName]);
-
-  const updateSliceSpeed = useCallback(() => {
-    const now = Date.now();
-    const cutoff = now - SLICE_SPEED_WINDOW_MS;
-    const filtered = sliceTimestampsRef.current.filter((timestamp) => timestamp >= cutoff);
-    sliceTimestampsRef.current = filtered;
-    if (filtered.length === 0) {
-      setRawSliceSpeed(0);
-      return;
-    }
-
-    const earliest = filtered[0];
-    const elapsedMs = Math.max(now - earliest, 1);
-    const rate = filtered.length / (elapsedMs / 1000);
-    setRawSliceSpeed(rate);
-  }, []);
-
-  useEffect(() => {
-    if (!playerName) {
-      setRawSliceSpeed(0);
-      sliceTimestampsRef.current = [];
-      return;
-    }
-
-    updateSliceSpeed();
-    const interval = window.setInterval(updateSliceSpeed, 400);
-    return () => window.clearInterval(interval);
-  }, [playerName, updateSliceSpeed]);
-
-  const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    setNameInput(event.target.value);
-  }, []);
-
-  const handleNameSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const trimmed = nameInput.trim();
-      if (!trimmed) {
-        setPlayerName("");
-        return;
-      }
-      setPlayerName(trimmed);
-    },
-    [nameInput, setPlayerName],
-  );
-
-  const handleLogout = useCallback(() => {
-    setPlayerName("");
-  }, [setPlayerName]);
-
-  const handleOpenManageModal = useCallback(() => {
-    if (!playerName) {
-      return;
-    }
-    if (isMobileLayout) {
-      previousScoreboardCollapsedRef.current = isScoreboardCollapsed;
-      setIsScoreboardCollapsed(true);
-    }
-    setIsManageModalOpen(true);
-  }, [playerName, isMobileLayout, isScoreboardCollapsed]);
-
-  const handleCloseManageModal = useCallback(() => {
-    setIsManageModalOpen(false);
-    if (isMobileLayout) {
-      setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
-    }
-  }, [isMobileLayout]);
-
-  const handleOpenTransferModal = useCallback(() => {
-    if (!playerName) {
-      return;
-    }
-    if (isMobileLayout) {
-      previousScoreboardCollapsedRef.current = isScoreboardCollapsed;
-      setIsScoreboardCollapsed(true);
-    }
-    setIsTransferModalOpen(true);
-  }, [playerName, isMobileLayout, isScoreboardCollapsed]);
-
-  const handleCloseTransferModal = useCallback(() => {
-    setIsTransferModalOpen(false);
-    if (isMobileLayout) {
-      setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
-    }
-  }, [isMobileLayout]);
-
-  const handleToggleSecretVideo = useCallback(() => {
-    if (isMobileLayout || SECRET_VIDEO_POOL.length === 0) {
-      return;
-    }
-    if (!isSecretVideoOpen) {
-      selectSecretVideos();
-    }
-    setIsSecretVideoOpen((prev) => !prev);
-  }, [isMobileLayout, isSecretVideoOpen, selectSecretVideos]);
-
-
-  const createJuiceEffect = useCallback((x: number, y: number) => {
-    const particles: JuiceParticle[] = [];
-    const particleCount = 12; // Nombre de particules de jus
-    const initialSpeed = 3; // Vitesse initiale
-
-    for (let i = 0; i < particleCount; i++) {
-      const angle = (i * 360) / particleCount + Math.random() * 30 - 15; // Angle avec un peu de variation
-      const speed = initialSpeed + Math.random() * 5; // Plus de variation dans la vitesse
-      const radian = (angle * Math.PI) / 180;
-
-      // Calcul des composantes de la vitesse initiale
-      const velocityX = Math.cos(radian) * speed;
-      const velocityY = Math.sin(radian) * speed;
-
-      particles.push({
-        id: nextJuiceId.current++,
-        x,
-        y,
-        velocityX,
-        velocityY,
-        time: 0,
-      });
-    }
-
-    setJuiceParticles((prev) => [...prev, ...particles]);
-
-    // Nettoyer les particules après l'animation
-    setTimeout(() => {
-      setJuiceParticles((prev) => prev.filter((p) => !particles.some((newP) => newP.id === p.id)));
-    }, 1500);
-  }, []);
-
-  const createExplosionEffect = useCallback((x: number, y: number) => {
-    const particles: ExplosionParticle[] = [];
-    const particleCount = 20;
-    const colors = ["#ff4444", "#ff8800", "#ffcc00", "#ff0000"];
-
-    for (let i = 0; i < particleCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 2 + Math.random() * 4;
-      const size = 3 + Math.random() * 5;
-      const color = colors[Math.floor(Math.random() * colors.length)];
-
-      particles.push({
-        id: nextExplosionId.current++,
-        x,
-        y,
-        velocityX: Math.cos(angle) * speed,
-        velocityY: Math.sin(angle) * speed,
-        size,
-        color,
-        time: 0,
-      });
-    }
-
-    setExplosionParticles((prev) => [...prev, ...particles]);
-
-    setTimeout(() => {
-      setExplosionParticles((prev) => prev.filter((p) => !particles.some((newP) => newP.id === p.id)));
-    }, 1000);
-  }, []);
-
-  const addScorePopup = useCallback((x: number, y: number, text: string, variant: "positive" | "negative") => {
-    const id = nextScorePopupId.current++;
-    const popup: ScorePopup = {
-      id,
-      x,
-      y,
-      text,
-      variant,
-    };
-
-    setScorePopups((prev) => [...prev, popup]);
-
-    setTimeout(() => {
-      setScorePopups((prev) => prev.filter((existing) => existing.id !== id));
-    }, 800);
-  }, []);
-
-  const sliceBomb = async (bombId: number) => {
-    if (!playerName) return;
-    try {
-      await window.bombMutex.acquire();
-      const bomb = bombs.find((b) => b.id === bombId);
-      if (!bomb || bomb.sliced || window.slicedBombs.has(bombId)) return;
-
-      // Vibrate for 200ms when slicing a bomb (longer vibration for bombs)
-      if ("vibrate" in navigator) {
-        navigator.vibrate([1000]);
-      }
-
-      // Play bomb sound
-      const bombAudio = new Audio(bombSound);
-      bombAudio.volume = Math.max(0, Math.min(1, bombAudio.volume * 0.84));
-      bombAudio.play();
-
-      // Create explosion effect instead of juice effect
-      createExplosionEffect(bomb.x, bomb.y);
-
-      addScorePopup(bomb.x, bomb.y, "-10", "negative");
-
-      // Apply cumulative penalty
-      setBombPenalty((prev) => prev + 10);
-
-      // Trigger score shake animation
-      setIsScoreShaking(true);
-      setTimeout(() => setIsScoreShaking(false), 500);
-
-      setBombs((prev) => prev.map((b) => (b.id === bombId ? { ...b, sliced: true } : b)));
-
-      window.slicedBombs.add(bombId);
-    } finally {
-      window.bombMutex.release();
-    }
-  };
-
-  // Submit the slice server-side without blocking future slices
-  const submitPumpkinSlice = useCallback(
-    async (
-      utxoAddress: string,
-      playerLabel: string,
-      optimisticReference: string,
-      storedAt: number,
-      transactionTimestamp: number,
-    ) => {
-      try {
-        if (!utxoAddress) {
-          throw new Error("Missing player UTXO address");
+        const stored = localStorage.getItem(`bombPenalty:${playerName}`);
+        return stored ? Number(stored) || 0 : 0;
+    });
+    const [isScoreShaking, setIsScoreShaking] = useState(false);
+    const gameAreaRef = useRef<HTMLDivElement>(null);
+    const nextOrangeId = useRef(0);
+    const lastMousePosition = useRef({ x: 0, y: 0 });
+    const isMouseDown = useRef(false);
+    const slicePoints = useRef<{ x: number; y: number }[]>([]);
+    const sliceStartTime = useRef<number>(0);
+    const lastSpawnTimeRef = useRef(performance.now());
+    const [juiceParticles, setJuiceParticles] = useState<JuiceParticle[]>([]);
+    const nextJuiceId = useRef(0);
+    const [explosionParticles, setExplosionParticles] = useState<ExplosionParticle[]>([]);
+    const nextExplosionId = useRef(0);
+    const [scorePopups, setScorePopups] = useState<ScorePopup[]>([]);
+    const nextScorePopupId = useRef(0);
+    const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
+    const [spriteSizes, setSpriteSizes] = useState<ViewportSpriteSizes>(() => {
+        if (typeof window === "undefined") {
+            return { orangeSize: BASE_ORANGE_SIZE, bombSize: BASE_BOMB_SIZE };
         }
+        return computeSpriteSizes(window.innerWidth);
+    });
+    const [isMobileLayout, setIsMobileLayout] = useState(() =>
+        typeof window !== "undefined" ? window.innerWidth <= SMALL_MOBILE_BREAKPOINT : false,
+    );
+    const [isScoreboardCollapsed, setIsScoreboardCollapsed] = useState(false);
+    const previousScoreboardCollapsedRef = useRef(false);
+    const [isSecretVideoOpen, setIsSecretVideoOpen] = useState(false);
+    const [secretVideoSources, setSecretVideoSources] = useState<string[]>([]);
 
-        const trimmedPlayerName = playerLabel.trim();
-        if (!trimmedPlayerName) {
-          throw new Error("Player name must not be empty");
-        }
-
-        const response = await nodeService.requestFaucet(utxoAddress);
-        const { tx_hash: txHash, note } = response;
-        const reference = txHash ?? deriveNoteReference(note);
-        const resolvedReference = reference ?? optimisticReference;
-
-        const stored: StoredNote = {
-          txHash: resolvedReference,
-          note: (note ?? response) as unknown as import("./types/note").PrivateNote,
-          storedAt,
-          player: trimmedPlayerName,
-        };
-        replaceStoredNote(trimmedPlayerName, optimisticReference, stored);
-
-        const shortHash =
-          reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
-
-        setTransactions((prev) =>
-          prev.map((tx) =>
-            tx.timestamp === transactionTimestamp
-              ? {
-                  ...tx,
-                  hash: shortHash ?? undefined,
+    useEffect(() => {
+        const handleResize = () => {
+            setSpriteSizes((prev) => {
+                const next = computeSpriteSizes(window.innerWidth);
+                if (next.orangeSize === prev.orangeSize && next.bombSize === prev.bombSize) {
+                    return prev;
                 }
-              : tx,
-          ),
-        );
-      } catch (error) {
-        console.error("Failed to record slice", error);
-      }
-    },
-    [setTransactions],
-  );
+                return next;
+            });
+            setIsMobileLayout(window.innerWidth <= SMALL_MOBILE_BREAKPOINT);
+        };
 
-  const sliceOrange = async (orangeId: number) => {
-    const keysSnapshot = playerKeys;
-    const nameSnapshot = playerName;
-    if (!nameSnapshot || !keysSnapshot) return;
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
+    }, []);
 
-    const penaltySnapshot = bombPenalty;
-    let submissionPayload:
-      | {
-          utxoAddress: string;
-          playerLabel: string;
-          optimisticReference: string;
-          storedAt: number;
-          transactionTimestamp: number;
+    const selectSecretVideos = useCallback(() => {
+        if (SECRET_VIDEO_POOL.length === 0) {
+            setSecretVideoSources([]);
+            return;
         }
-      | null = null;
+        const shuffled = [...SECRET_VIDEO_POOL].sort(() => Math.random() - 0.5);
+        setSecretVideoSources(shuffled.slice(0, 2));
+    }, []);
 
-    await window.orangeMutex.acquire();
-    try {
-      const orange = oranges.find((o) => o.id === orangeId);
-      if (!orange || orange.sliced || window.slicedOranges.has(orangeId)) {
-        return;
-      }
+    useEffect(() => {
+        selectSecretVideos();
+    }, [selectSecretVideos]);
 
-      if ("vibrate" in navigator) {
-        navigator.vibrate(150);
-      }
+    useEffect(() => {
+        if (!isMobileLayout) {
+            setIsScoreboardCollapsed(false);
+        }
+    }, [isMobileLayout]);
 
-      const sliceSound = [slice1, slice2, slice3];
-      const audio = new Audio(sliceSound[Math.floor(Math.random() * sliceSound.length)]);
-      audio.volume = Math.max(0, Math.min(1, audio.volume * 0.84));
-      audio.currentTime = 0;
-      audio.play();
+    const orangeSize = spriteSizes.orangeSize;
+    const bombSize = spriteSizes.bombSize;
+    const orangeSliceThreshold = orangeSize / 2;
+    const bombSliceThreshold = bombSize / 2;
+    const offscreenBuffer = Math.max(orangeSize, 200);
+    const noteBalance = storedNotes.length;
+    const sliceTimestampsRef = useRef<number[]>([]);
+    const [rawSliceSpeed, setRawSliceSpeed] = useState(0);
+    const [debouncedSliceSpeed] = useDebounce(rawSliceSpeed, 200);
+    const penaltyMeterPercent = Math.min(bombPenalty / MAX_PENALTY_DISPLAY, 1);
+    const penaltyDisplayText = bombPenalty > 0 ? `${bombPenalty} pumpkins` : "None";
 
-      createJuiceEffect(orange.x, orange.y);
-      addScorePopup(orange.x, orange.y, "+1", "positive");
+    useEffect(() => {
+        if (!playerName) {
+            setIsManageModalOpen(false);
+            sliceTimestampsRef.current = [];
+            setRawSliceSpeed(0);
+        }
+    }, [playerName]);
 
-      setOranges((prev) => prev.map((o) => (o.id === orangeId ? { ...o, sliced: true } : o)));
-      window.slicedOranges.add(orangeId);
-
-      if (penaltySnapshot === 0) {
-        const trimmedPlayerName = nameSnapshot.trim();
+    const updateSliceSpeed = useCallback(() => {
         const now = Date.now();
-        const optimisticReference = generateOptimisticReference();
-
-        if (trimmedPlayerName) {
-          // Generate a random psi for the optimistic note.
-          // Must be a valid BN254 field element (< p = 0x30644e72…);
-          // zeroing the top 4 bits keeps the value below 2^252 < p.
-          const randomPsiBytes = new Uint8Array(32);
-          crypto.getRandomValues(randomPsiBytes);
-          randomPsiBytes[0] &= 0x0f;
-          const optimisticPsi = Array.from(randomPsiBytes)
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("");
-          const optimisticNote: StoredNote = {
-            txHash: optimisticReference,
-            note: {
-              kind:     "0".repeat(64),
-              contract: "0".repeat(64),
-              address:  keysSnapshot.utxoAddress,
-              psi:      optimisticPsi,
-              value:    "0".repeat(64),
-            },
-            storedAt: now,
-            player: trimmedPlayerName,
-          };
-          addStoredNote(trimmedPlayerName, optimisticNote);
+        const cutoff = now - SLICE_SPEED_WINDOW_MS;
+        const filtered = sliceTimestampsRef.current.filter((timestamp) => timestamp >= cutoff);
+        sliceTimestampsRef.current = filtered;
+        if (filtered.length === 0) {
+            setRawSliceSpeed(0);
+            return;
         }
 
-        sliceTimestampsRef.current = [...sliceTimestampsRef.current, now].filter(
-          (timestamp) => timestamp >= now - SLICE_SPEED_WINDOW_MS,
-        );
+        const earliest = filtered[0];
+        const elapsedMs = Math.max(now - earliest, 1);
+        const rate = filtered.length / (elapsedMs / 1000);
+        setRawSliceSpeed(rate);
+    }, []);
+
+    useEffect(() => {
+        if (!playerName) {
+            setRawSliceSpeed(0);
+            sliceTimestampsRef.current = [];
+            return;
+        }
+
         updateSliceSpeed();
-
-        const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
-        const transactionTimestamp = now;
-        setTransactions((prev) =>
-          [
-            {
-              title,
-              timestamp: transactionTimestamp,
-            },
-            ...prev,
-          ].slice(0, 10),
-        );
-
-        if (keysSnapshot.utxoAddress && trimmedPlayerName) {
-          submissionPayload = {
-            utxoAddress: keysSnapshot.utxoAddress,
-            playerLabel: trimmedPlayerName,
-            optimisticReference,
-            storedAt: now,
-            transactionTimestamp,
-          };
-        } else {
-          console.warn("Missing player data for faucet submission");
-        }
-      } else {
-        setBombPenalty((prev) => (prev > 0 ? prev - 1 : 0));
-      }
-    } finally {
-      window.orangeMutex.release();
-    }
-
-    if (submissionPayload) {
-      void submitPumpkinSlice(
-        submissionPayload.utxoAddress,
-        submissionPayload.playerLabel,
-        submissionPayload.optimisticReference,
-        submissionPayload.storedAt,
-        submissionPayload.transactionTimestamp,
-      );
-    }
-  };
-
-  const createSliceEffect = useCallback((points: { x: number; y: number }[]) => {
-    if (!gameAreaRef.current || points.length < 2) return;
-
-    const slice = document.createElement("div");
-    slice.className = "slice-effect";
-
-    // Créer un SVG pour la ligne
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.style.position = "absolute";
-    svg.style.top = "0";
-    svg.style.left = "0";
-
-    // Créer le chemin
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    const d = points.reduce((acc, point, i) => {
-      return acc + (i === 0 ? `M ${point.x} ${point.y}` : ` L ${point.x} ${point.y}`);
-    }, "");
-    path.setAttribute("d", d);
-    path.setAttribute("stroke", "white");
-    path.setAttribute("stroke-width", "2");
-    path.setAttribute("fill", "none");
-    path.style.filter = "drop-shadow(0 0 2px rgba(255,255,255,0.8))";
-
-    svg.appendChild(path);
-    slice.appendChild(svg);
-    gameAreaRef.current.appendChild(slice);
-
-    setTimeout(() => slice.remove(), 300);
-  }, []);
-
-  const checkSlice = useCallback(
-    (startX: number, startY: number, endX: number, endY: number) => {
-      const dx = endX - startX;
-      const dy = endY - startY;
-
-      // Create slice effect
-      createSliceEffect([
-        { x: startX, y: startY },
-        { x: endX, y: endY },
-      ]);
-
-      // Check for oranges and bombs in the slice path
-      setOranges((prev) =>
-        prev.map((orange) => {
-          if (orange.sliced) return orange;
-
-          // Calculate distance from orange to line segment
-          const lineLength = Math.sqrt(dx * dx + dy * dy);
-          if (lineLength === 0) return orange;
-
-          // Calculate projection of orange position onto the line
-          const t = Math.max(
-            0,
-            Math.min(1, ((orange.x - startX) * dx + (orange.y - startY) * dy) / (lineLength * lineLength)),
-          );
-
-          // Calculate closest point on the line segment
-          const closestX = startX + t * dx;
-          const closestY = startY + t * dy;
-
-          // Calculate actual distance from orange to closest point
-          const distance = Math.sqrt(Math.pow(orange.x - closestX, 2) + Math.pow(orange.y - closestY, 2));
-
-          // If orange is close enough to the slice line
-          if (distance < orangeSliceThreshold) {
-            sliceOrange(orange.id);
-            return orange;
-          }
-          return orange;
-        }),
-      );
-
-      // Check for bombs
-      setBombs((prev) =>
-        prev.map((bomb) => {
-          if (bomb.sliced) return bomb;
-
-          const lineLength = Math.sqrt(dx * dx + dy * dy);
-          if (lineLength === 0) return bomb;
-
-          const t = Math.max(
-            0,
-            Math.min(1, ((bomb.x - startX) * dx + (bomb.y - startY) * dy) / (lineLength * lineLength)),
-          );
-
-          const closestX = startX + t * dx;
-          const closestY = startY + t * dy;
-
-          const distance = Math.sqrt(Math.pow(bomb.x - closestX, 2) + Math.pow(bomb.y - closestY, 2));
-
-          if (distance < bombSliceThreshold) {
-            sliceBomb(bomb.id);
-            return bomb;
-          }
-          return bomb;
-        }),
-      );
-    },
-    [createSliceEffect, sliceOrange, sliceBomb, orangeSliceThreshold, bombSliceThreshold],
-  );
-
-  const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!gameAreaRef.current) return;
-    const rect = gameAreaRef.current.getBoundingClientRect();
-    isMouseDown.current = true;
-    sliceStartTime.current = Date.now();
-    const position = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-    lastMousePosition.current = position;
-    slicePoints.current = [position];
-  }, []);
-
-  const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    if (!gameAreaRef.current) return;
-    event.preventDefault(); // Prevent scrolling while slicing
-    const rect = gameAreaRef.current.getBoundingClientRect();
-    isMouseDown.current = true;
-    sliceStartTime.current = Date.now();
-    const touch = event.touches[0];
-    const position = {
-      x: touch.clientX - rect.left,
-      y: touch.clientY - rect.top,
-    };
-    lastMousePosition.current = position;
-    slicePoints.current = [position];
-  }, []);
-
-  const handleMouseMove = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!isMouseDown.current || !gameAreaRef.current) return;
-
-      // Check if slice duration exceeds 200ms
-      if (Date.now() - sliceStartTime.current > 200) {
-        isMouseDown.current = false;
-        createSliceEffect(slicePoints.current);
-        slicePoints.current = [];
-        return;
-      }
-
-      const rect = gameAreaRef.current.getBoundingClientRect();
-      const currentX = event.clientX - rect.left;
-      const currentY = event.clientY - rect.top;
-
-      // Ajouter le point au chemin
-      slicePoints.current.push({ x: currentX, y: currentY });
-
-      // Vérifier les oranges sur le chemin
-      const dx = currentX - lastMousePosition.current.x;
-      const dy = currentY - lastMousePosition.current.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance > 10) {
-        checkSlice(lastMousePosition.current.x, lastMousePosition.current.y, currentX, currentY);
-        lastMousePosition.current = { x: currentX, y: currentY };
-      }
-    },
-    [checkSlice, createSliceEffect],
-  );
-
-  const handleTouchMove = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      if (!isMouseDown.current || !gameAreaRef.current) return;
-      event.preventDefault(); // Prevent scrolling while slicing
-
-      // Check if slice duration exceeds 200ms
-      if (Date.now() - sliceStartTime.current > 200) {
-        isMouseDown.current = false;
-        createSliceEffect(slicePoints.current);
-        slicePoints.current = [];
-        return;
-      }
-
-      const rect = gameAreaRef.current.getBoundingClientRect();
-      const touch = event.touches[0];
-      const currentX = touch.clientX - rect.left;
-      const currentY = touch.clientY - rect.top;
-
-      // Ajouter le point au chemin
-      slicePoints.current.push({ x: currentX, y: currentY });
-
-      // Vérifier les oranges sur le chemin
-      const dx = currentX - lastMousePosition.current.x;
-      const dy = currentY - lastMousePosition.current.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance > 10) {
-        checkSlice(lastMousePosition.current.x, lastMousePosition.current.y, currentX, currentY);
-        lastMousePosition.current = { x: currentX, y: currentY };
-      }
-    },
-    [checkSlice, createSliceEffect],
-  );
-
-  const handleMouseUp = useCallback(() => {
-    if (isMouseDown.current) {
-      createSliceEffect(slicePoints.current);
-      slicePoints.current = [];
-    }
-    isMouseDown.current = false;
-  }, [createSliceEffect]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (isMouseDown.current) {
-      createSliceEffect(slicePoints.current);
-      slicePoints.current = [];
-    }
-    isMouseDown.current = false;
-  }, [createSliceEffect]);
-
-  const spawnOrange = useCallback(
-    (currentTime: number) => {
-      if (!gameAreaRef.current) return;
-
-      const gameArea = gameAreaRef.current;
-
-      const timeSinceLastSpawn = currentTime - lastSpawnTimeRef.current;
-      const clampedWidth = (Math.max(Math.min(gameArea.clientWidth, 1800), 400) - 400) / 1400;
-      const widthMult = 1.2 - 0.6 * clampedWidth;
-      if (timeSinceLastSpawn < SPAWN_INTERVAL * widthMult) {
-        return; // Skip spawning if not enough time has passed
-      }
-      lastSpawnTimeRef.current = currentTime + Math.random() * SPAWN_INTERVAL * 0.4 - SPAWN_INTERVAL * 0.2;
-
-      const gameWidth = gameArea.clientWidth;
-      const computeSpawnX = (size: number) => {
-        const radius = size / 2;
-        if (gameWidth <= size) {
-          return gameWidth / 2;
-        }
-        const min = radius;
-        const max = gameWidth - radius;
-        return min + Math.random() * (max - min);
-      };
-
-      // 20% chance to spawn a bomb instead of an orange
-      if (Math.random() < 0.2) {
-        const bomb: Bomb = {
-          id: nextOrangeId.current++,
-          x: computeSpawnX(bombSize),
-          y: -bombSize,
-          rotation: Math.random() * 360,
-          speed: INITIAL_SPEED,
-          sliced: false,
-        };
-        setBombs((prev) => [...prev, bomb]);
-      } else {
-        const orange: Orange = {
-          id: nextOrangeId.current++,
-          x: computeSpawnX(orangeSize),
-          y: -orangeSize,
-          rotation: Math.random() * 360,
-          speed: INITIAL_SPEED,
-          sliced: false,
-        };
-        setOranges((prev) => [...prev, orange]);
-      }
-    },
-    [bombSize, orangeSize],
-  );
-
-  useEffect(() => {
-    if (!playerName) {
-      localStorage.removeItem("playerName");
-      return;
-    }
-
-    localStorage.setItem("playerName", playerName);
-  }, [playerName]);
-
-  useEffect(() => {
-    if (!playerName) {
-      setPlayerKeys(null);
-      return;
-    }
-
-    let cancelled = false;
-    deriveFullIdentity(playerName)
-      .then((identity) => {
-        if (!cancelled) setPlayerKeys(identity);
-      })
-      .catch((error) => {
-        console.error("Failed to derive full identity", error);
-        if (!cancelled) setPlayerKeys(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [playerName]);
-
-  useEffect(() => {
-    if (!playerName) {
-      setBombPenalty(0);
-      setNameInput("");
-      return;
-    }
-
-    const storedPenalty = localStorage.getItem(`bombPenalty:${playerName}`);
-    setBombPenalty(storedPenalty ? Number(storedPenalty) || 0 : 0);
-
-    localStorage.removeItem(`count:${playerName}`);
-
-    setNameInput(playerName);
-  }, [playerName]);
-
-  // Save state to localStorage
-  useEffect(() => {
-    if (!playerName) {
-      return;
-    }
-
-    localStorage.setItem(`bombPenalty:${playerName}`, bombPenalty.toString());
-    localStorage.removeItem(`achievements:${playerName}`);
-  }, [playerName, bombPenalty]);
-
-  // Update orange and bomb positions
-  useEffect(() => {
-    let currentTime = performance.now();
-    let animationFrameId = requestAnimationFrame(function animate(time) {
-      const elapsed = time - currentTime;
-      currentTime = time;
-
-      if (!document.hidden) {
-        spawnOrange(time);
-      }
-
-      setOranges((prev) =>
-        prev
-          .map((orange) => ({
-            ...orange,
-            y: orange.y + orange.speed * (elapsed / 10),
-            speed: orange.speed + GRAVITY * (elapsed / 10),
-            rotation: orange.rotation + 2 * (elapsed / 10),
-          }))
-          .filter((orange) => orange.y < window.innerHeight + offscreenBuffer),
-      );
-
-      setBombs((prev) =>
-        prev
-          .map((bomb) => ({
-            ...bomb,
-            y: bomb.y + bomb.speed * (elapsed / 10),
-            speed: bomb.speed + GRAVITY * (elapsed / 10),
-            rotation: bomb.rotation + 2 * (elapsed / 10),
-          }))
-          .filter((bomb) => bomb.y < window.innerHeight + Math.max(bombSize * 2, 200)),
-      );
-
-      animationFrameId = requestAnimationFrame(animate);
-    });
-
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [spawnOrange, offscreenBuffer, bombSize]);
-
-  // Mettre à jour la position des particules avec la balistique
-  useEffect(() => {
-    const animationFrame = requestAnimationFrame(function animate() {
-      setJuiceParticles((prev) =>
-        prev.map((particle) => {
-          const time = particle.time + 0.016; // ~60fps
-          // Mise à jour de la vitesse verticale avec la gravité (augmentée)
-          const currentVelocityY = particle.velocityY + GRAVITY * 3;
-
-          // Mise à jour de la position
-          const newX = particle.x + particle.velocityX;
-          const newY = particle.y + currentVelocityY;
-
-          return {
-            ...particle,
-            x: newX,
-            y: newY,
-            velocityY: currentVelocityY,
-            time,
-          };
-        }),
-      );
-      requestAnimationFrame(animate);
-    });
-
-    return () => cancelAnimationFrame(animationFrame);
-  }, []);
-
-  // Update explosion particles
-  useEffect(() => {
-    const animationFrame = requestAnimationFrame(function animate() {
-      setExplosionParticles((prev) =>
-        prev.map((particle) => {
-          const time = particle.time + 0.016;
-          const currentVelocityY = particle.velocityY + GRAVITY * 2;
-
-          return {
-            ...particle,
-            x: particle.x + particle.velocityX,
-            y: particle.y + currentVelocityY,
-            velocityY: currentVelocityY,
-            time,
-          };
-        }),
-      );
-      requestAnimationFrame(animate);
-    });
-
-    return () => cancelAnimationFrame(animationFrame);
-  }, []);
-
-  const appClassName = `App${bombPenalty > 0 ? " App--penalty" : ""}${
-    isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""
-  }${isManageModalOpen || isTransferModalOpen ? " App--modal-open" : ""}`;
-  const titleBadgeClassName = `pumpkin-title__badge${bombPenalty > 0 ? " pumpkin-title__badge--warning" : ""}`;
-  const gameAreaClassName = "game-area";
-
-  return (
-    <div className={appClassName}>
-      <TransactionList
-        transactions={transactions}
-        setTransactions={setTransactions}
-        isMobile={isMobileLayout}
-        isSecretVideoOpen={isSecretVideoOpen}
-      />
-
-      <div className="pumpkin-title">
-        <button type="button" className="pumpkin-title__badge-button" onClick={handleToggleSecretVideo}>
-          <span className={titleBadgeClassName} aria-hidden="true">
-            Cache Cash
-          </span>
-        </button>
-      </div>
-      <div className="game-layout">
-        {!isMobileLayout && isSecretVideoOpen && secretVideoSources[0] && (
-          <aside className="secret-video-panel secret-video-panel--left" aria-label="Secret Video">
-            <video src={secretVideoSources[0]} playsInline autoPlay muted loop />
-          </aside>
-        )}
-
-        <div
-          ref={gameAreaRef}
-
-          className={gameAreaClassName}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          style={{ touchAction: "none" }} // Prevent default touch actions
-        >
-        <maintenance-widget />
-
-        {!playerName && (
-          <div className="ready-overlay">
-            <h2 className="ready-overlay__title">Welcome to CacheCash!</h2>
-            <div className="ready-overlay__content">
-              <section className="ready-overlay__section">
-                <h3>The game</h3>
-                <ol>
-                  <li>Slice pumpkins</li>
-                  <li>Avoid skulls</li>
-                </ol>
-              </section>
-              <section className="ready-overlay__section">
-                <h3>Why it matters</h3>
-                <p>
-                  CacheCash is a lightweight private faucet built on Hyli, proved by Noir and SP1 and inspired by
-                  Payy.
-                </p>
-                <p>
-                  Read more about CacheCash: <a href="https://blog.hyli.org" target="_blank" rel="noreferrer">blog post</a>
-                </p>
-                <p>
-                  See the source code: <a href="https://github.com/hyli-org/cachecash" target="_blank" rel="noreferrer">github</a>
-                </p>
-              </section>
-              <section className="ready-overlay__section">
-                <h3>Disclaimer</h3>
-                <p>This demo game is not incentivized. Pumpkins have no monetary value.</p>
-              </section>
-            </div>
-            <form className="ready-overlay__form" onSubmit={handleNameSubmit}>
-              <input
-                id="player-name"
-                className="player-name-input"
-                type="text"
-                value={nameInput}
-                onChange={handleNameChange}
-                placeholder="ENTER NAME"
-                maxLength={32}
-                required
-              />
-              <button type="submit" className="pixel-button">START</button>
-            </form>
-          </div>
-        )}
-        {oranges.map((orange) => (
-          <div key={orange.id}>
-            <div
-              className={`orange ${orange.sliced ? "sliced" : ""}`}
-              style={
-                {
-                  width: orangeSize,
-                  height: orangeSize,
-                  "--rotation": `${orange.rotation}deg`,
-                  transform: `translateX(${orange.x}px) translateY(${orange.y}px) translate(-50%, -50%) rotate(${orange.rotation}deg)`,
-                } as React.CSSProperties
-              }
-            />
-            {orange.sliced && (
-              <>
-                <div
-                  className={`orange half top`}
-                  style={
-                    {
-                      width: orangeSize,
-                      height: orangeSize,
-                      "--x-offset": `${orange.x}px`,
-                      "--y-offset": `${orange.y}px`,
-                      "--rotation": `${orange.rotation}deg`,
-                      "--fly-distance": "-100px",
-                      transform: `translate(-50%, -50%) rotate(${orange.rotation}deg)`,
-                    } as React.CSSProperties
-                  }
-                />
-                <div
-                  className={`orange half bottom`}
-                  style={
-                    {
-                      width: orangeSize,
-                      height: orangeSize,
-                      "--x-offset": `${orange.x}px`,
-                      "--y-offset": `${orange.y}px`,
-                      "--rotation": `${orange.rotation}deg`,
-                      "--fly-distance": "100px",
-                      transform: `translate(-50%, -50%) rotate(${orange.rotation}deg)`,
-                    } as React.CSSProperties
-                  }
-                />
-              </>
-            )}
-          </div>
-        ))}
-        {bombs.map((bomb) => (
-          <div key={bomb.id}>
-            <div
-              className={`bomb ${bomb.sliced ? "sliced" : ""}`}
-              style={
-                {
-                  width: bombSize,
-                  height: bombSize,
-                  "--rotation": `${bomb.rotation}deg`,
-                  transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
-                } as React.CSSProperties
-              }
-            />
-            {bomb.sliced && (
-              <>
-                <div
-                  className="bomb-half top"
-                  style={
-                    {
-                      width: bombSize,
-                      height: bombSize,
-                      "--x-offset": `${bomb.x}px`,
-                      "--y-offset": `${bomb.y}px`,
-                      "--rotation": `${bomb.rotation}deg`,
-                      "--fly-distance": "-50px",
-                      transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
-                    } as React.CSSProperties
-                  }
-                />
-                <div
-                  className="bomb-half bottom"
-                  style={
-                    {
-                      width: bombSize,
-                      height: bombSize,
-                      "--x-offset": `${bomb.x}px`,
-                      "--y-offset": `${bomb.y}px`,
-                      "--rotation": `${bomb.rotation}deg`,
-                      "--fly-distance": "50px",
-                      transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
-                    } as React.CSSProperties
-                  }
-                />
-              </>
-            )}
-          </div>
-        ))}
-        {scorePopups.map((popup) => (
-          <div
-            key={popup.id}
-            className={`score-popup score-popup--${popup.variant}`}
-            style={{ left: popup.x, top: popup.y }}
-          >
-            {popup.text}
-          </div>
-        ))}
-        {juiceParticles.map((particle) => (
-          <div
-            key={particle.id}
-            className="orange-juice"
-            style={
-              {
-                /*left: `${particle.x}px`,
-top: `${particle.y}px`,*/
-                transform: `translateX(${particle.x}px) translateY(${particle.y}px)`,
-                opacity: Math.max(0, 1 - particle.time / 1.5),
-              } as React.CSSProperties
+        const interval = window.setInterval(updateSliceSpeed, 400);
+        return () => window.clearInterval(interval);
+    }, [playerName, updateSliceSpeed]);
+
+    const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+        setNameInput(event.target.value);
+    }, []);
+
+    const handleNameSubmit = useCallback(
+        (event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            const trimmed = nameInput.trim();
+            if (!trimmed) {
+                setPlayerName("");
+                return;
             }
-          />
-        ))}
-        {explosionParticles.map((particle) => (
-          <div
-            key={particle.id}
-            style={{
-              position: "absolute",
-              left: `${particle.x}px`,
-              top: `${particle.y}px`,
-              width: `${particle.size}px`,
-              height: `${particle.size}px`,
-              backgroundColor: particle.color,
-              borderRadius: "50%",
-              transform: "translate(-50%, -50%)",
-              opacity: Math.max(0, 1 - particle.time / 1),
-              boxShadow: `0 0 ${particle.size * 2}px ${particle.color}`,
-              transition: "opacity 0.1s ease-out",
-            }}
-          />
-        ))}
+            setPlayerName(trimmed);
+        },
+        [nameInput, setPlayerName],
+    );
 
-        </div>
+    const handleLogout = useCallback(() => {
+        setPlayerName("");
+    }, [setPlayerName]);
 
-        {!isMobileLayout && isSecretVideoOpen && secretVideoSources[1] && (
-          <aside className="secret-video-panel secret-video-panel--right" aria-label="Secret Video">
-            <video src={secretVideoSources[1]} playsInline autoPlay muted loop />
-          </aside>
-        )}
-      </div>
-      {(!isMobileLayout || !isScoreboardCollapsed) && (
-        <footer className="nes-hud nes-hud--footer">
-          <div className="nes-hud__panel nes-hud__panel--pixel">
-            <div className="nes-hud__grid">
-              {!isMobileLayout && (
-                <>
-                  <div className="nes-hud__card nes-hud__card--player">
-                    <div className="nes-hud__title">PLAYER</div>
-                    <div className="nes-hud__score nes-hud__score--player">{playerName || "---"}</div>
-                    {playerName && (
-                      <button
-                        type="button"
-                        className="pixel-button pixel-button--ghost pixel-button--compact"
-                        onClick={handleLogout}
-                      >
-                        DISCONNECT
-                      </button>
-                    )}
-                    <div className="nes-hud__player-subtitle">
-                      <span>This is a purely experimental project, it's not connected to any airdrop or token rewards.</span>
-                    </div>
-                  </div>
-                  <div className="nes-hud__card nes-hud__card--score">
-                    <div className="nes-hud__title">SCORE</div>
-                    <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
-                    <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
-                      <button
-                        type="button"
-                        className="pixel-button pixel-button--ghost pixel-button--compact"
-                        onClick={handleOpenTransferModal}
-                        disabled={!playerName}
-                      >
-                        SEND
-                      </button>
-                      <button
-                        type="button"
-                        className="pixel-button pixel-button--ghost pixel-button--compact"
-                        onClick={handleOpenManageModal}
-                        disabled={!playerName}
-                      >
-                        SETTINGS
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
+    const handleOpenManageModal = useCallback(() => {
+        if (!playerName) {
+            return;
+        }
+        if (isMobileLayout) {
+            previousScoreboardCollapsedRef.current = isScoreboardCollapsed;
+            setIsScoreboardCollapsed(true);
+        }
+        setIsManageModalOpen(true);
+    }, [playerName, isMobileLayout, isScoreboardCollapsed]);
 
-              {isMobileLayout && (
-                <div className="nes-hud__card nes-hud__card--score">
-                  <div className="nes-hud__title">SCORE</div>
-                  <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>{noteBalance.toLocaleString()}</div>
-                  <div className="nes-hud__score-actions">
-                    {playerName && (
-                      <button
-                        type="button"
-                        className="pixel-button pixel-button--ghost pixel-button--compact"
-                        onClick={handleLogout}
-                      >
-                        DISCONNECT
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="pixel-button pixel-button--ghost pixel-button--compact"
-                      onClick={handleOpenTransferModal}
-                      disabled={!playerName}
-                    >
-                      SEND
-                    </button>
-                    <button
-                      type="button"
-                      className="pixel-button pixel-button--ghost pixel-button--compact"
-                      onClick={handleOpenManageModal}
-                      disabled={!playerName}
-                    >
-                      SETTINGS
-                    </button>
-                  </div>
-                </div>
-              )}
+    const handleCloseManageModal = useCallback(() => {
+        setIsManageModalOpen(false);
+        if (isMobileLayout) {
+            setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
+        }
+    }, [isMobileLayout]);
+
+    const handleOpenTransferModal = useCallback(() => {
+        if (!playerName) {
+            return;
+        }
+        if (isMobileLayout) {
+            previousScoreboardCollapsedRef.current = isScoreboardCollapsed;
+            setIsScoreboardCollapsed(true);
+        }
+        setIsTransferModalOpen(true);
+    }, [playerName, isMobileLayout, isScoreboardCollapsed]);
+
+    const handleCloseTransferModal = useCallback(() => {
+        setIsTransferModalOpen(false);
+        if (isMobileLayout) {
+            setIsScoreboardCollapsed(previousScoreboardCollapsedRef.current);
+        }
+    }, [isMobileLayout]);
+
+    const handleToggleSecretVideo = useCallback(() => {
+        if (isMobileLayout || SECRET_VIDEO_POOL.length === 0) {
+            return;
+        }
+        if (!isSecretVideoOpen) {
+            selectSecretVideos();
+        }
+        setIsSecretVideoOpen((prev) => !prev);
+    }, [isMobileLayout, isSecretVideoOpen, selectSecretVideos]);
+
+    const createJuiceEffect = useCallback((x: number, y: number) => {
+        const particles: JuiceParticle[] = [];
+        const particleCount = 12; // Nombre de particules de jus
+        const initialSpeed = 3; // Vitesse initiale
+
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (i * 360) / particleCount + Math.random() * 30 - 15; // Angle avec un peu de variation
+            const speed = initialSpeed + Math.random() * 5; // Plus de variation dans la vitesse
+            const radian = (angle * Math.PI) / 180;
+
+            // Calcul des composantes de la vitesse initiale
+            const velocityX = Math.cos(radian) * speed;
+            const velocityY = Math.sin(radian) * speed;
+
+            particles.push({
+                id: nextJuiceId.current++,
+                x,
+                y,
+                velocityX,
+                velocityY,
+                time: 0,
+            });
+        }
+
+        setJuiceParticles((prev) => [...prev, ...particles]);
+
+        // Nettoyer les particules après l'animation
+        setTimeout(() => {
+            setJuiceParticles((prev) => prev.filter((p) => !particles.some((newP) => newP.id === p.id)));
+        }, 1500);
+    }, []);
+
+    const createExplosionEffect = useCallback((x: number, y: number) => {
+        const particles: ExplosionParticle[] = [];
+        const particleCount = 20;
+        const colors = ["#ff4444", "#ff8800", "#ffcc00", "#ff0000"];
+
+        for (let i = 0; i < particleCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 2 + Math.random() * 4;
+            const size = 3 + Math.random() * 5;
+            const color = colors[Math.floor(Math.random() * colors.length)];
+
+            particles.push({
+                id: nextExplosionId.current++,
+                x,
+                y,
+                velocityX: Math.cos(angle) * speed,
+                velocityY: Math.sin(angle) * speed,
+                size,
+                color,
+                time: 0,
+            });
+        }
+
+        setExplosionParticles((prev) => [...prev, ...particles]);
+
+        setTimeout(() => {
+            setExplosionParticles((prev) => prev.filter((p) => !particles.some((newP) => newP.id === p.id)));
+        }, 1000);
+    }, []);
+
+    const addScorePopup = useCallback((x: number, y: number, text: string, variant: "positive" | "negative") => {
+        const id = nextScorePopupId.current++;
+        const popup: ScorePopup = {
+            id,
+            x,
+            y,
+            text,
+            variant,
+        };
+
+        setScorePopups((prev) => [...prev, popup]);
+
+        setTimeout(() => {
+            setScorePopups((prev) => prev.filter((existing) => existing.id !== id));
+        }, 800);
+    }, []);
+
+    const sliceBomb = async (bombId: number) => {
+        if (!playerName) return;
+        try {
+            await window.bombMutex.acquire();
+            const bomb = bombs.find((b) => b.id === bombId);
+            if (!bomb || bomb.sliced || window.slicedBombs.has(bombId)) return;
+
+            // Vibrate for 200ms when slicing a bomb (longer vibration for bombs)
+            if ("vibrate" in navigator) {
+                navigator.vibrate([1000]);
+            }
+
+            // Play bomb sound
+            const bombAudio = new Audio(bombSound);
+            bombAudio.volume = Math.max(0, Math.min(1, bombAudio.volume * 0.84));
+            bombAudio.play();
+
+            // Create explosion effect instead of juice effect
+            createExplosionEffect(bomb.x, bomb.y);
+
+            addScorePopup(bomb.x, bomb.y, "-10", "negative");
+
+            // Apply cumulative penalty
+            setBombPenalty((prev) => prev + 10);
+
+            // Trigger score shake animation
+            setIsScoreShaking(true);
+            setTimeout(() => setIsScoreShaking(false), 500);
+
+            setBombs((prev) => prev.map((b) => (b.id === bombId ? { ...b, sliced: true } : b)));
+
+            window.slicedBombs.add(bombId);
+        } finally {
+            window.bombMutex.release();
+        }
+    };
+
+    // Submit the slice server-side without blocking future slices
+    const submitPumpkinSlice = useCallback(
+        async (
+            utxoAddress: string,
+            playerLabel: string,
+            optimisticReference: string,
+            storedAt: number,
+            transactionTimestamp: number,
+        ) => {
+            try {
+                if (!utxoAddress) {
+                    throw new Error("Missing player UTXO address");
+                }
+
+                const trimmedPlayerName = playerLabel.trim();
+                if (!trimmedPlayerName) {
+                    throw new Error("Player name must not be empty");
+                }
+
+                const response = await nodeService.requestFaucet(utxoAddress);
+                const { tx_hash: txHash, note } = response;
+                const reference = txHash ?? deriveNoteReference(note);
+                const resolvedReference = reference ?? optimisticReference;
+
+                const stored: StoredNote = {
+                    txHash: resolvedReference,
+                    note: (note ?? response) as unknown as import("./types/note").PrivateNote,
+                    storedAt,
+                    player: trimmedPlayerName,
+                };
+                replaceStoredNote(trimmedPlayerName, optimisticReference, stored);
+
+                const shortHash =
+                    reference && reference.length > 12 ? `${reference.slice(0, 6)}…${reference.slice(-4)}` : reference;
+
+                setTransactions((prev) =>
+                    prev.map((tx) =>
+                        tx.timestamp === transactionTimestamp
+                            ? {
+                                  ...tx,
+                                  hash: shortHash ?? undefined,
+                              }
+                            : tx,
+                    ),
+                );
+            } catch (error) {
+                console.error("Failed to record slice", error);
+            }
+        },
+        [setTransactions],
+    );
+
+    const sliceOrange = async (orangeId: number) => {
+        const keysSnapshot = playerKeys;
+        const nameSnapshot = playerName;
+        if (!nameSnapshot || !keysSnapshot) return;
+
+        const penaltySnapshot = bombPenalty;
+        let submissionPayload: {
+            utxoAddress: string;
+            playerLabel: string;
+            optimisticReference: string;
+            storedAt: number;
+            transactionTimestamp: number;
+        } | null = null;
+
+        await window.orangeMutex.acquire();
+        try {
+            const orange = oranges.find((o) => o.id === orangeId);
+            if (!orange || orange.sliced || window.slicedOranges.has(orangeId)) {
+                return;
+            }
+
+            if ("vibrate" in navigator) {
+                navigator.vibrate(150);
+            }
+
+            const sliceSound = [slice1, slice2, slice3];
+            const audio = new Audio(sliceSound[Math.floor(Math.random() * sliceSound.length)]);
+            audio.volume = Math.max(0, Math.min(1, audio.volume * 0.84));
+            audio.currentTime = 0;
+            audio.play();
+
+            createJuiceEffect(orange.x, orange.y);
+            addScorePopup(orange.x, orange.y, "+1", "positive");
+
+            setOranges((prev) => prev.map((o) => (o.id === orangeId ? { ...o, sliced: true } : o)));
+            window.slicedOranges.add(orangeId);
+
+            if (penaltySnapshot === 0) {
+                const trimmedPlayerName = nameSnapshot.trim();
+                const now = Date.now();
+                const optimisticReference = generateOptimisticReference();
+
+                if (trimmedPlayerName) {
+                    // Generate a random psi for the optimistic note.
+                    // Must be a valid BN254 field element (< p = 0x30644e72…);
+                    // zeroing the top 4 bits keeps the value below 2^252 < p.
+                    const randomPsiBytes = new Uint8Array(32);
+                    crypto.getRandomValues(randomPsiBytes);
+                    randomPsiBytes[0] &= 0x0f;
+                    const optimisticPsi = Array.from(randomPsiBytes)
+                        .map((b) => b.toString(16).padStart(2, "0"))
+                        .join("");
+                    const optimisticNote: StoredNote = {
+                        txHash: optimisticReference,
+                        note: {
+                            kind: "0".repeat(64),
+                            contract: "0".repeat(64),
+                            address: keysSnapshot.utxoAddress,
+                            psi: optimisticPsi,
+                            value: "0".repeat(64),
+                        },
+                        storedAt: now,
+                        player: trimmedPlayerName,
+                    };
+                    addStoredNote(trimmedPlayerName, optimisticNote);
+                }
+
+                sliceTimestampsRef.current = [...sliceTimestampsRef.current, now].filter(
+                    (timestamp) => timestamp >= now - SLICE_SPEED_WINDOW_MS,
+                );
+                updateSliceSpeed();
+
+                const title = `+1 pumpkin${trimmedPlayerName ? ` for ${trimmedPlayerName}` : ""}`;
+                const transactionTimestamp = now;
+                setTransactions((prev) =>
+                    [
+                        {
+                            title,
+                            timestamp: transactionTimestamp,
+                        },
+                        ...prev,
+                    ].slice(0, 10),
+                );
+
+                if (keysSnapshot.utxoAddress && trimmedPlayerName) {
+                    submissionPayload = {
+                        utxoAddress: keysSnapshot.utxoAddress,
+                        playerLabel: trimmedPlayerName,
+                        optimisticReference,
+                        storedAt: now,
+                        transactionTimestamp,
+                    };
+                } else {
+                    console.warn("Missing player data for faucet submission");
+                }
+            } else {
+                setBombPenalty((prev) => (prev > 0 ? prev - 1 : 0));
+            }
+        } finally {
+            window.orangeMutex.release();
+        }
+
+        if (submissionPayload) {
+            void submitPumpkinSlice(
+                submissionPayload.utxoAddress,
+                submissionPayload.playerLabel,
+                submissionPayload.optimisticReference,
+                submissionPayload.storedAt,
+                submissionPayload.transactionTimestamp,
+            );
+        }
+    };
+
+    const createSliceEffect = useCallback((points: { x: number; y: number }[]) => {
+        if (!gameAreaRef.current || points.length < 2) return;
+
+        const slice = document.createElement("div");
+        slice.className = "slice-effect";
+
+        // Créer un SVG pour la ligne
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("width", "100%");
+        svg.setAttribute("height", "100%");
+        svg.style.position = "absolute";
+        svg.style.top = "0";
+        svg.style.left = "0";
+
+        // Créer le chemin
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const d = points.reduce((acc, point, i) => {
+            return acc + (i === 0 ? `M ${point.x} ${point.y}` : ` L ${point.x} ${point.y}`);
+        }, "");
+        path.setAttribute("d", d);
+        path.setAttribute("stroke", "white");
+        path.setAttribute("stroke-width", "2");
+        path.setAttribute("fill", "none");
+        path.style.filter = "drop-shadow(0 0 2px rgba(255,255,255,0.8))";
+
+        svg.appendChild(path);
+        slice.appendChild(svg);
+        gameAreaRef.current.appendChild(slice);
+
+        setTimeout(() => slice.remove(), 300);
+    }, []);
+
+    const checkSlice = useCallback(
+        (startX: number, startY: number, endX: number, endY: number) => {
+            const dx = endX - startX;
+            const dy = endY - startY;
+
+            // Create slice effect
+            createSliceEffect([
+                { x: startX, y: startY },
+                { x: endX, y: endY },
+            ]);
+
+            // Check for oranges and bombs in the slice path
+            setOranges((prev) =>
+                prev.map((orange) => {
+                    if (orange.sliced) return orange;
+
+                    // Calculate distance from orange to line segment
+                    const lineLength = Math.sqrt(dx * dx + dy * dy);
+                    if (lineLength === 0) return orange;
+
+                    // Calculate projection of orange position onto the line
+                    const t = Math.max(
+                        0,
+                        Math.min(1, ((orange.x - startX) * dx + (orange.y - startY) * dy) / (lineLength * lineLength)),
+                    );
+
+                    // Calculate closest point on the line segment
+                    const closestX = startX + t * dx;
+                    const closestY = startY + t * dy;
+
+                    // Calculate actual distance from orange to closest point
+                    const distance = Math.sqrt(Math.pow(orange.x - closestX, 2) + Math.pow(orange.y - closestY, 2));
+
+                    // If orange is close enough to the slice line
+                    if (distance < orangeSliceThreshold) {
+                        sliceOrange(orange.id);
+                        return orange;
+                    }
+                    return orange;
+                }),
+            );
+
+            // Check for bombs
+            setBombs((prev) =>
+                prev.map((bomb) => {
+                    if (bomb.sliced) return bomb;
+
+                    const lineLength = Math.sqrt(dx * dx + dy * dy);
+                    if (lineLength === 0) return bomb;
+
+                    const t = Math.max(
+                        0,
+                        Math.min(1, ((bomb.x - startX) * dx + (bomb.y - startY) * dy) / (lineLength * lineLength)),
+                    );
+
+                    const closestX = startX + t * dx;
+                    const closestY = startY + t * dy;
+
+                    const distance = Math.sqrt(Math.pow(bomb.x - closestX, 2) + Math.pow(bomb.y - closestY, 2));
+
+                    if (distance < bombSliceThreshold) {
+                        sliceBomb(bomb.id);
+                        return bomb;
+                    }
+                    return bomb;
+                }),
+            );
+        },
+        [createSliceEffect, sliceOrange, sliceBomb, orangeSliceThreshold, bombSliceThreshold],
+    );
+
+    const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (!gameAreaRef.current) return;
+        const rect = gameAreaRef.current.getBoundingClientRect();
+        isMouseDown.current = true;
+        sliceStartTime.current = Date.now();
+        const position = {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+        };
+        lastMousePosition.current = position;
+        slicePoints.current = [position];
+    }, []);
+
+    const handleTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+        if (!gameAreaRef.current) return;
+        event.preventDefault(); // Prevent scrolling while slicing
+        const rect = gameAreaRef.current.getBoundingClientRect();
+        isMouseDown.current = true;
+        sliceStartTime.current = Date.now();
+        const touch = event.touches[0];
+        const position = {
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top,
+        };
+        lastMousePosition.current = position;
+        slicePoints.current = [position];
+    }, []);
+
+    const handleMouseMove = useCallback(
+        (event: React.MouseEvent<HTMLDivElement>) => {
+            if (!isMouseDown.current || !gameAreaRef.current) return;
+
+            // Check if slice duration exceeds 200ms
+            if (Date.now() - sliceStartTime.current > 200) {
+                isMouseDown.current = false;
+                createSliceEffect(slicePoints.current);
+                slicePoints.current = [];
+                return;
+            }
+
+            const rect = gameAreaRef.current.getBoundingClientRect();
+            const currentX = event.clientX - rect.left;
+            const currentY = event.clientY - rect.top;
+
+            // Ajouter le point au chemin
+            slicePoints.current.push({ x: currentX, y: currentY });
+
+            // Vérifier les oranges sur le chemin
+            const dx = currentX - lastMousePosition.current.x;
+            const dy = currentY - lastMousePosition.current.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 10) {
+                checkSlice(lastMousePosition.current.x, lastMousePosition.current.y, currentX, currentY);
+                lastMousePosition.current = { x: currentX, y: currentY };
+            }
+        },
+        [checkSlice, createSliceEffect],
+    );
+
+    const handleTouchMove = useCallback(
+        (event: React.TouchEvent<HTMLDivElement>) => {
+            if (!isMouseDown.current || !gameAreaRef.current) return;
+            event.preventDefault(); // Prevent scrolling while slicing
+
+            // Check if slice duration exceeds 200ms
+            if (Date.now() - sliceStartTime.current > 200) {
+                isMouseDown.current = false;
+                createSliceEffect(slicePoints.current);
+                slicePoints.current = [];
+                return;
+            }
+
+            const rect = gameAreaRef.current.getBoundingClientRect();
+            const touch = event.touches[0];
+            const currentX = touch.clientX - rect.left;
+            const currentY = touch.clientY - rect.top;
+
+            // Ajouter le point au chemin
+            slicePoints.current.push({ x: currentX, y: currentY });
+
+            // Vérifier les oranges sur le chemin
+            const dx = currentX - lastMousePosition.current.x;
+            const dy = currentY - lastMousePosition.current.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 10) {
+                checkSlice(lastMousePosition.current.x, lastMousePosition.current.y, currentX, currentY);
+                lastMousePosition.current = { x: currentX, y: currentY };
+            }
+        },
+        [checkSlice, createSliceEffect],
+    );
+
+    const handleMouseUp = useCallback(() => {
+        if (isMouseDown.current) {
+            createSliceEffect(slicePoints.current);
+            slicePoints.current = [];
+        }
+        isMouseDown.current = false;
+    }, [createSliceEffect]);
+
+    const handleTouchEnd = useCallback(() => {
+        if (isMouseDown.current) {
+            createSliceEffect(slicePoints.current);
+            slicePoints.current = [];
+        }
+        isMouseDown.current = false;
+    }, [createSliceEffect]);
+
+    const spawnOrange = useCallback(
+        (currentTime: number) => {
+            if (!gameAreaRef.current) return;
+
+            const gameArea = gameAreaRef.current;
+
+            const timeSinceLastSpawn = currentTime - lastSpawnTimeRef.current;
+            const clampedWidth = (Math.max(Math.min(gameArea.clientWidth, 1800), 400) - 400) / 1400;
+            const widthMult = 1.2 - 0.6 * clampedWidth;
+            if (timeSinceLastSpawn < SPAWN_INTERVAL * widthMult) {
+                return; // Skip spawning if not enough time has passed
+            }
+            lastSpawnTimeRef.current = currentTime + Math.random() * SPAWN_INTERVAL * 0.4 - SPAWN_INTERVAL * 0.2;
+
+            const gameWidth = gameArea.clientWidth;
+            const computeSpawnX = (size: number) => {
+                const radius = size / 2;
+                if (gameWidth <= size) {
+                    return gameWidth / 2;
+                }
+                const min = radius;
+                const max = gameWidth - radius;
+                return min + Math.random() * (max - min);
+            };
+
+            // 20% chance to spawn a bomb instead of an orange
+            if (Math.random() < 0.2) {
+                const bomb: Bomb = {
+                    id: nextOrangeId.current++,
+                    x: computeSpawnX(bombSize),
+                    y: -bombSize,
+                    rotation: Math.random() * 360,
+                    speed: INITIAL_SPEED,
+                    sliced: false,
+                };
+                setBombs((prev) => [...prev, bomb]);
+            } else {
+                const orange: Orange = {
+                    id: nextOrangeId.current++,
+                    x: computeSpawnX(orangeSize),
+                    y: -orangeSize,
+                    rotation: Math.random() * 360,
+                    speed: INITIAL_SPEED,
+                    sliced: false,
+                };
+                setOranges((prev) => [...prev, orange]);
+            }
+        },
+        [bombSize, orangeSize],
+    );
+
+    useEffect(() => {
+        if (!playerName) {
+            localStorage.removeItem("playerName");
+            return;
+        }
+
+        localStorage.setItem("playerName", playerName);
+    }, [playerName]);
+
+    useEffect(() => {
+        if (!playerName) {
+            setPlayerKeys(null);
+            return;
+        }
+
+        let cancelled = false;
+        deriveFullIdentity(playerName)
+            .then((identity) => {
+                if (!cancelled) setPlayerKeys(identity);
+            })
+            .catch((error) => {
+                console.error("Failed to derive full identity", error);
+                if (!cancelled) setPlayerKeys(null);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [playerName]);
+
+    useEffect(() => {
+        if (!playerName) {
+            setBombPenalty(0);
+            setNameInput("");
+            return;
+        }
+
+        const storedPenalty = localStorage.getItem(`bombPenalty:${playerName}`);
+        setBombPenalty(storedPenalty ? Number(storedPenalty) || 0 : 0);
+
+        localStorage.removeItem(`count:${playerName}`);
+
+        setNameInput(playerName);
+    }, [playerName]);
+
+    // Save state to localStorage
+    useEffect(() => {
+        if (!playerName) {
+            return;
+        }
+
+        localStorage.setItem(`bombPenalty:${playerName}`, bombPenalty.toString());
+        localStorage.removeItem(`achievements:${playerName}`);
+    }, [playerName, bombPenalty]);
+
+    // Update orange and bomb positions
+    useEffect(() => {
+        let currentTime = performance.now();
+        let animationFrameId = requestAnimationFrame(function animate(time) {
+            const elapsed = time - currentTime;
+            currentTime = time;
+
+            if (!document.hidden) {
+                spawnOrange(time);
+            }
+
+            setOranges((prev) =>
+                prev
+                    .map((orange) => ({
+                        ...orange,
+                        y: orange.y + orange.speed * (elapsed / 10),
+                        speed: orange.speed + GRAVITY * (elapsed / 10),
+                        rotation: orange.rotation + 2 * (elapsed / 10),
+                    }))
+                    .filter((orange) => orange.y < window.innerHeight + offscreenBuffer),
+            );
+
+            setBombs((prev) =>
+                prev
+                    .map((bomb) => ({
+                        ...bomb,
+                        y: bomb.y + bomb.speed * (elapsed / 10),
+                        speed: bomb.speed + GRAVITY * (elapsed / 10),
+                        rotation: bomb.rotation + 2 * (elapsed / 10),
+                    }))
+                    .filter((bomb) => bomb.y < window.innerHeight + Math.max(bombSize * 2, 200)),
+            );
+
+            animationFrameId = requestAnimationFrame(animate);
+        });
+
+        return () => cancelAnimationFrame(animationFrameId);
+    }, [spawnOrange, offscreenBuffer, bombSize]);
+
+    // Mettre à jour la position des particules avec la balistique
+    useEffect(() => {
+        const animationFrame = requestAnimationFrame(function animate() {
+            setJuiceParticles((prev) =>
+                prev.map((particle) => {
+                    const time = particle.time + 0.016; // ~60fps
+                    // Mise à jour de la vitesse verticale avec la gravité (augmentée)
+                    const currentVelocityY = particle.velocityY + GRAVITY * 3;
+
+                    // Mise à jour de la position
+                    const newX = particle.x + particle.velocityX;
+                    const newY = particle.y + currentVelocityY;
+
+                    return {
+                        ...particle,
+                        x: newX,
+                        y: newY,
+                        velocityY: currentVelocityY,
+                        time,
+                    };
+                }),
+            );
+            requestAnimationFrame(animate);
+        });
+
+        return () => cancelAnimationFrame(animationFrame);
+    }, []);
+
+    // Update explosion particles
+    useEffect(() => {
+        const animationFrame = requestAnimationFrame(function animate() {
+            setExplosionParticles((prev) =>
+                prev.map((particle) => {
+                    const time = particle.time + 0.016;
+                    const currentVelocityY = particle.velocityY + GRAVITY * 2;
+
+                    return {
+                        ...particle,
+                        x: particle.x + particle.velocityX,
+                        y: particle.y + currentVelocityY,
+                        velocityY: currentVelocityY,
+                        time,
+                    };
+                }),
+            );
+            requestAnimationFrame(animate);
+        });
+
+        return () => cancelAnimationFrame(animationFrame);
+    }, []);
+
+    const appClassName = `App${bombPenalty > 0 ? " App--penalty" : ""}${
+        isMobileLayout && isScoreboardCollapsed ? " App--scoreboard-collapsed" : ""
+    }${isManageModalOpen || isTransferModalOpen ? " App--modal-open" : ""}`;
+    const titleBadgeClassName = `pumpkin-title__badge${bombPenalty > 0 ? " pumpkin-title__badge--warning" : ""}`;
+    const gameAreaClassName = "game-area";
+
+    return (
+        <div className={appClassName}>
+            <TransactionList
+                transactions={transactions}
+                setTransactions={setTransactions}
+                isMobile={isMobileLayout}
+                isSecretVideoOpen={isSecretVideoOpen}
+            />
+
+            <div className="pumpkin-title">
+                <button type="button" className="pumpkin-title__badge-button" onClick={handleToggleSecretVideo}>
+                    <span className={titleBadgeClassName} aria-hidden="true">
+                        Cache Cash
+                    </span>
+                </button>
             </div>
+            <div className="game-layout">
+                {!isMobileLayout && isSecretVideoOpen && secretVideoSources[0] && (
+                    <aside className="secret-video-panel secret-video-panel--left" aria-label="Secret Video">
+                        <video src={secretVideoSources[0]} playsInline autoPlay muted loop />
+                    </aside>
+                )}
 
-            {!isMobileLayout && (
-              <div className="nes-hud__status">
-                <div className={`nes-hud__status-item nes-hud__status-item--penalty ${bombPenalty > 0 ? "is-active" : ""}`}>
-                  <div className="status-box status-box--penalty">
-                    <div className="status-box__label">Penalty</div>
-                    <div className="status-box__row">
-                      <div className="status-box__value">{penaltyDisplayText}</div>
-                      <div className="status-box__meter">
+                <div
+                    ref={gameAreaRef}
+                    className={gameAreaClassName}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                    style={{ touchAction: "none" }} // Prevent default touch actions
+                >
+                    <maintenance-widget nodeUrl={getNodeBaseUrl()} />
+
+                    {!playerName && (
+                        <div className="ready-overlay">
+                            <h2 className="ready-overlay__title">Welcome to CacheCash!</h2>
+                            <div className="ready-overlay__content">
+                                <section className="ready-overlay__section">
+                                    <h3>The game</h3>
+                                    <ol>
+                                        <li>Slice pumpkins</li>
+                                        <li>Avoid skulls</li>
+                                    </ol>
+                                </section>
+                                <section className="ready-overlay__section">
+                                    <h3>Why it matters</h3>
+                                    <p>
+                                        CacheCash is a lightweight private faucet built on Hyli, proved by Noir and SP1
+                                        and inspired by Payy.
+                                    </p>
+                                    <p>
+                                        Read more about CacheCash:{" "}
+                                        <a href="https://blog.hyli.org" target="_blank" rel="noreferrer">
+                                            blog post
+                                        </a>
+                                    </p>
+                                    <p>
+                                        See the source code:{" "}
+                                        <a
+                                            href="https://github.com/hyli-org/cachecash"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                        >
+                                            github
+                                        </a>
+                                    </p>
+                                </section>
+                                <section className="ready-overlay__section">
+                                    <h3>Disclaimer</h3>
+                                    <p>This demo game is not incentivized. Pumpkins have no monetary value.</p>
+                                </section>
+                            </div>
+                            <form className="ready-overlay__form" onSubmit={handleNameSubmit}>
+                                <input
+                                    id="player-name"
+                                    className="player-name-input"
+                                    type="text"
+                                    value={nameInput}
+                                    onChange={handleNameChange}
+                                    placeholder="ENTER NAME"
+                                    maxLength={32}
+                                    required
+                                />
+                                <button type="submit" className="pixel-button">
+                                    START
+                                </button>
+                            </form>
+                        </div>
+                    )}
+                    {oranges.map((orange) => (
+                        <div key={orange.id}>
+                            <div
+                                className={`orange ${orange.sliced ? "sliced" : ""}`}
+                                style={
+                                    {
+                                        width: orangeSize,
+                                        height: orangeSize,
+                                        "--rotation": `${orange.rotation}deg`,
+                                        transform: `translateX(${orange.x}px) translateY(${orange.y}px) translate(-50%, -50%) rotate(${orange.rotation}deg)`,
+                                    } as React.CSSProperties
+                                }
+                            />
+                            {orange.sliced && (
+                                <>
+                                    <div
+                                        className={`orange half top`}
+                                        style={
+                                            {
+                                                width: orangeSize,
+                                                height: orangeSize,
+                                                "--x-offset": `${orange.x}px`,
+                                                "--y-offset": `${orange.y}px`,
+                                                "--rotation": `${orange.rotation}deg`,
+                                                "--fly-distance": "-100px",
+                                                transform: `translate(-50%, -50%) rotate(${orange.rotation}deg)`,
+                                            } as React.CSSProperties
+                                        }
+                                    />
+                                    <div
+                                        className={`orange half bottom`}
+                                        style={
+                                            {
+                                                width: orangeSize,
+                                                height: orangeSize,
+                                                "--x-offset": `${orange.x}px`,
+                                                "--y-offset": `${orange.y}px`,
+                                                "--rotation": `${orange.rotation}deg`,
+                                                "--fly-distance": "100px",
+                                                transform: `translate(-50%, -50%) rotate(${orange.rotation}deg)`,
+                                            } as React.CSSProperties
+                                        }
+                                    />
+                                </>
+                            )}
+                        </div>
+                    ))}
+                    {bombs.map((bomb) => (
+                        <div key={bomb.id}>
+                            <div
+                                className={`bomb ${bomb.sliced ? "sliced" : ""}`}
+                                style={
+                                    {
+                                        width: bombSize,
+                                        height: bombSize,
+                                        "--rotation": `${bomb.rotation}deg`,
+                                        transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
+                                    } as React.CSSProperties
+                                }
+                            />
+                            {bomb.sliced && (
+                                <>
+                                    <div
+                                        className="bomb-half top"
+                                        style={
+                                            {
+                                                width: bombSize,
+                                                height: bombSize,
+                                                "--x-offset": `${bomb.x}px`,
+                                                "--y-offset": `${bomb.y}px`,
+                                                "--rotation": `${bomb.rotation}deg`,
+                                                "--fly-distance": "-50px",
+                                                transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
+                                            } as React.CSSProperties
+                                        }
+                                    />
+                                    <div
+                                        className="bomb-half bottom"
+                                        style={
+                                            {
+                                                width: bombSize,
+                                                height: bombSize,
+                                                "--x-offset": `${bomb.x}px`,
+                                                "--y-offset": `${bomb.y}px`,
+                                                "--rotation": `${bomb.rotation}deg`,
+                                                "--fly-distance": "50px",
+                                                transform: `translateX(${bomb.x}px) translateY(${bomb.y}px) translate(-50%, -50%) rotate(${bomb.rotation}deg)`,
+                                            } as React.CSSProperties
+                                        }
+                                    />
+                                </>
+                            )}
+                        </div>
+                    ))}
+                    {scorePopups.map((popup) => (
                         <div
-                          className="status-box__meter-fill"
-                          style={{ width: `${penaltyMeterPercent * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="nes-hud__status-item nes-hud__status-item--rate is-active">
-                  <div className="status-box status-box--rate">
-                    <div className="status-box__label">Slice speed</div>
-                    <div className="status-box__row">
-                      <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
-                      <div className="status-box__meter">
+                            key={popup.id}
+                            className={`score-popup score-popup--${popup.variant}`}
+                            style={{ left: popup.x, top: popup.y }}
+                        >
+                            {popup.text}
+                        </div>
+                    ))}
+                    {juiceParticles.map((particle) => (
                         <div
-                          className="status-box__meter-fill"
-                          style={{ width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%` }}
+                            key={particle.id}
+                            className="orange-juice"
+                            style={
+                                {
+                                    /*left: `${particle.x}px`,
+top: `${particle.y}px`,*/
+                                    transform: `translateX(${particle.x}px) translateY(${particle.y}px)`,
+                                    opacity: Math.max(0, 1 - particle.time / 1.5),
+                                } as React.CSSProperties
+                            }
                         />
-                      </div>
-                    </div>
-                  </div>
+                    ))}
+                    {explosionParticles.map((particle) => (
+                        <div
+                            key={particle.id}
+                            style={{
+                                position: "absolute",
+                                left: `${particle.x}px`,
+                                top: `${particle.y}px`,
+                                width: `${particle.size}px`,
+                                height: `${particle.size}px`,
+                                backgroundColor: particle.color,
+                                borderRadius: "50%",
+                                transform: "translate(-50%, -50%)",
+                                opacity: Math.max(0, 1 - particle.time / 1),
+                                boxShadow: `0 0 ${particle.size * 2}px ${particle.color}`,
+                                transition: "opacity 0.1s ease-out",
+                            }}
+                        />
+                    ))}
                 </div>
-              </div>
+
+                {!isMobileLayout && isSecretVideoOpen && secretVideoSources[1] && (
+                    <aside className="secret-video-panel secret-video-panel--right" aria-label="Secret Video">
+                        <video src={secretVideoSources[1]} playsInline autoPlay muted loop />
+                    </aside>
+                )}
+            </div>
+            {(!isMobileLayout || !isScoreboardCollapsed) && (
+                <footer className="nes-hud nes-hud--footer">
+                    <div className="nes-hud__panel nes-hud__panel--pixel">
+                        <div className="nes-hud__grid">
+                            {!isMobileLayout && (
+                                <>
+                                    <div className="nes-hud__card nes-hud__card--player">
+                                        <div className="nes-hud__title">PLAYER</div>
+                                        <div className="nes-hud__score nes-hud__score--player">
+                                            {playerName || "---"}
+                                        </div>
+                                        {playerName && (
+                                            <button
+                                                type="button"
+                                                className="pixel-button pixel-button--ghost pixel-button--compact"
+                                                onClick={handleLogout}
+                                            >
+                                                DISCONNECT
+                                            </button>
+                                        )}
+                                        <div className="nes-hud__player-subtitle">
+                                            <span>
+                                                This is a purely experimental project, it's not connected to any airdrop
+                                                or token rewards.
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="nes-hud__card nes-hud__card--score">
+                                        <div className="nes-hud__title">SCORE</div>
+                                        <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>
+                                            {noteBalance.toLocaleString()}
+                                        </div>
+                                        <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+                                            <button
+                                                type="button"
+                                                className="pixel-button pixel-button--ghost pixel-button--compact"
+                                                onClick={handleOpenTransferModal}
+                                                disabled={!playerName}
+                                            >
+                                                SEND
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="pixel-button pixel-button--ghost pixel-button--compact"
+                                                onClick={handleOpenManageModal}
+                                                disabled={!playerName}
+                                            >
+                                                SETTINGS
+                                            </button>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {isMobileLayout && (
+                                <div className="nes-hud__card nes-hud__card--score">
+                                    <div className="nes-hud__title">SCORE</div>
+                                    <div className={`nes-hud__score ${isScoreShaking ? "is-shaking" : ""}`}>
+                                        {noteBalance.toLocaleString()}
+                                    </div>
+                                    <div className="nes-hud__score-actions">
+                                        {playerName && (
+                                            <button
+                                                type="button"
+                                                className="pixel-button pixel-button--ghost pixel-button--compact"
+                                                onClick={handleLogout}
+                                            >
+                                                DISCONNECT
+                                            </button>
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="pixel-button pixel-button--ghost pixel-button--compact"
+                                            onClick={handleOpenTransferModal}
+                                            disabled={!playerName}
+                                        >
+                                            SEND
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="pixel-button pixel-button--ghost pixel-button--compact"
+                                            onClick={handleOpenManageModal}
+                                            disabled={!playerName}
+                                        >
+                                            SETTINGS
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {!isMobileLayout && (
+                            <div className="nes-hud__status">
+                                <div
+                                    className={`nes-hud__status-item nes-hud__status-item--penalty ${bombPenalty > 0 ? "is-active" : ""}`}
+                                >
+                                    <div className="status-box status-box--penalty">
+                                        <div className="status-box__label">Penalty</div>
+                                        <div className="status-box__row">
+                                            <div className="status-box__value">{penaltyDisplayText}</div>
+                                            <div className="status-box__meter">
+                                                <div
+                                                    className="status-box__meter-fill"
+                                                    style={{ width: `${penaltyMeterPercent * 100}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="nes-hud__status-item nes-hud__status-item--rate is-active">
+                                    <div className="status-box status-box--rate">
+                                        <div className="status-box__label">Slice speed</div>
+                                        <div className="status-box__row">
+                                            <div className="status-box__value">{debouncedSliceSpeed.toFixed(2)} /s</div>
+                                            <div className="status-box__meter">
+                                                <div
+                                                    className="status-box__meter-fill"
+                                                    style={{
+                                                        width: `${Math.min((debouncedSliceSpeed / MAX_SLICE_SPEED) * 100, 100)}%`,
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </footer>
             )}
-          </div>
-        </footer>
-      )}
 
-      {isManageModalOpen && playerName && (
-        <ManageNotesModal playerName={playerName} notes={storedNotes} identity={playerKeys} onClose={handleCloseManageModal} />
-      )}
-      {isTransferModalOpen && playerName && playerKeys && (
-        <TransferModal
-          playerName={playerName}
-          identity={playerKeys}
-          availableNotes={availableNotesForTransfer}
-          onClose={handleCloseTransferModal}
-        />
-      )}
-      {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
-
-    </div>
-  );
+            {isManageModalOpen && playerName && (
+                <ManageNotesModal
+                    playerName={playerName}
+                    notes={storedNotes}
+                    identity={playerKeys}
+                    onClose={handleCloseManageModal}
+                />
+            )}
+            {isTransferModalOpen && playerName && playerKeys && (
+                <TransferModal
+                    playerName={playerName}
+                    identity={playerKeys}
+                    availableNotes={availableNotesForTransfer}
+                    onClose={handleCloseTransferModal}
+                />
+            )}
+            {debugMode && <DebugNotesPanel notes={storedNotes} onClear={clearNotes} />}
+        </div>
+    );
 }
 
 export default App;

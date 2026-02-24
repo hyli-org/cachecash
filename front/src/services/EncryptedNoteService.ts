@@ -1,4 +1,5 @@
 import { FullIdentity } from "./KeyService";
+import { getServerBaseUrl } from "./ConfigService";
 import { PrivateNote } from "../types/note";
 import { encryptNote, decryptNote, deriveRecipientTag, EncryptedNote } from "./CryptoService";
 
@@ -39,7 +40,7 @@ class EncryptedNoteService {
     private readonly baseUrl: string;
 
     constructor() {
-        this.baseUrl = import.meta.env.VITE_SERVER_BASE_URL;
+        this.baseUrl = getServerBaseUrl();
     }
 
     private buildUrl(path: string): string {

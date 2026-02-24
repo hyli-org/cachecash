@@ -1,16 +1,9 @@
 import { useMemo } from "react";
-
-const DEBUG_ENV_FLAG = String(import.meta.env.VITE_DEBUG_MODE || "").toLowerCase();
+import { getDebugMode } from "../services/ConfigService";
 
 function computeDebugFlag(): boolean {
-    if (typeof window === "undefined") {
-        return DEBUG_ENV_FLAG === "true" || DEBUG_ENV_FLAG === "1";
-    }
-
-    if (DEBUG_ENV_FLAG === "true" || DEBUG_ENV_FLAG === "1") {
-        return true;
-    }
-
+    if (getDebugMode()) return true;
+    if (typeof window === "undefined") return false;
     const params = new URLSearchParams(window.location.search);
     return params.has("debug");
 }

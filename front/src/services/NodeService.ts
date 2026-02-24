@@ -1,4 +1,5 @@
 import { PrivateNote } from "../types/note";
+import { getServerBaseUrl } from "./ConfigService";
 
 type MaybeFaucetNote = {
     kind?: string;
@@ -32,7 +33,7 @@ class NodeService {
     private readonly baseUrl: string;
 
     constructor() {
-        this.baseUrl = import.meta.env.VITE_SERVER_BASE_URL;
+        this.baseUrl = getServerBaseUrl();
     }
 
     private buildUrl(path: string): string {
