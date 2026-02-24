@@ -10,6 +10,8 @@ hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-m
 hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "main" }
 hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
 
+hyli-registry = "0.4.0"
+
 # Local workspace packages
 barretenberg = { path = "./pkg/barretenberg" }
 element = { path = "./pkg/element" }

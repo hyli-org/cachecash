@@ -120,6 +120,16 @@ async fn main() -> Result<()> {
         .context("loading hyli-utxo-state proving key")?;
     let prover = Arc::new(SP1Prover::new(proving_key).await);
 
+    hyli_registry::upload_elf(
+        contracts::HYLI_UTXO_STATE_ELF,
+        &hex::encode(contracts::HYLI_UTXO_STATE_VK),
+        &config.utxo_state_contract_name,
+        "sp1",
+        None,
+    )
+    .await
+    .context("Uploading orderbook ELF to registry")?;
+
     handler
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
             node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
