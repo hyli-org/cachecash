@@ -59,7 +59,7 @@ Prerequisites:
    ```
 
    The first boot generates and caches the SP1 proving key under `data/hyli_utxo_state_pk.bin`, so expect an extra minute the very first time.
-4. In a second terminal, install frontend dependencies (uses Bun to stay in sync with `bun.lockb`) and start the Vite dev server:
+4. In a second terminal, install frontend dependencies (uses Bun to stay in sync with `bun.lock`) and start the Vite dev server:
 
    ```bash
    cd front

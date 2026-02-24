@@ -4,7 +4,7 @@
 Source lives in `src/`; `src/main.tsx` boots Vite + React and defers routing to `App.tsx`. Group UI under `src/components`, shared hooks under `src/hooks`, and API/config clients under `src/services` (e.g., `NodeService.ts`). Persist domain models in `src/types`, audio in `src/audio`, and global styles in `src/App.css` with overrides in `src/index.css`. Public assets and HTML shells stay in `public/` and `index.html`. Keep runtime configuration in `src/services/config.ts` and consume via `import.meta.env`.
 
 ## Build, Test, and Development Commands
-Run `bun install` (or `npm install`) to sync dependencies and preserve `bun.lockb`. Use `bun run dev` for the hot-reload dev server at `http://localhost:5173`. `bun run build` executes `tsc -b` and emits production assets to `dist/`. `bun run lint` enforces ESLint + TypeScript rules; resolve warnings before review. Preview the bundled app with `bun run preview`.
+Run `bun install` (or `npm install`) to sync dependencies and preserve `bun.lock`. Use `bun run dev` for the hot-reload dev server at `http://localhost:5173`. `bun run build` executes `tsc -b` and emits production assets to `dist/`. `bun run lint` enforces ESLint + TypeScript rules; resolve warnings before review. Preview the bundled app with `bun run preview`.
 
 ## Coding Style & Naming Conventions
 Write TypeScript ES modules and functional React components. Follow the repository Prettier config: four-space indentation and a 120-character line limit (`bun x prettier --write .`). Use `PascalCase` for components, `useCamelCase` for hooks, and `camelCase.ts` for utilities. Environment variables must be camel-cased and prefixed with `VITE_` to surface in Vite builds.
