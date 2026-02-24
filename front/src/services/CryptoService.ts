@@ -13,16 +13,16 @@ export interface EncryptedNote {
 }
 
 /**
- * Derives a recipient tag from a public key.
+ * Derives a recipient tag from a UTXO address (poseidon2-derived).
  * This is a one-way, non-reversible identifier used to query for notes.
  *
- * @param publicKeyHex - The recipient's public key (x-coordinate, 64 hex chars)
+ * @param utxoAddress - The recipient's UTXO address (64 hex chars)
  * @returns A 64-character hex string representing the recipient tag
  */
-export function deriveRecipientTag(publicKeyHex: string): string {
-  const normalized = publicKeyHex.replace(/^0x/i, "").toLowerCase();
+export function deriveRecipientTag(utxoAddress: string): string {
+  const normalized = utxoAddress.replace(/^0x/i, "").toLowerCase();
   if (normalized.length !== 64) {
-    throw new Error("Public key must be a 64-character hex string (32 bytes)");
+    throw new Error("UTXO address must be a 64-character hex string (32 bytes)");
   }
 
   const tagInput = normalized + ":recipient_tag";

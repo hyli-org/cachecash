@@ -1,3 +1,5 @@
+import { PrivateNote } from "../types/note";
+
 type MaybeFaucetNote = {
     kind?: string;
     contract?: string;
@@ -19,6 +21,11 @@ interface FaucetResponse {
     transaction?: unknown;
     note?: MaybeFaucetNote | null;
     [key: string]: unknown;
+}
+
+export interface CreateBlobResponse {
+    tx_hash: string;
+    blobs: Array<{ contract_name: string; data: string }>;
 }
 
 class NodeService {
@@ -60,17 +67,17 @@ class NodeService {
         }
     }
 
-    async requestFaucet(publicKeyHex: string, amount?: number): Promise<FaucetResponse> {
-        const normalizedPublicKey = publicKeyHex.trim().replace(/^0x/i, "");
-        if (normalizedPublicKey.length === 0) {
-            throw new Error("Public key must not be empty");
+    async requestFaucet(utxoAddressHex: string, amount?: number): Promise<FaucetResponse> {
+        const normalized = utxoAddressHex.trim().replace(/^0x/i, "");
+        if (normalized.length === 0) {
+            throw new Error("UTXO address must not be empty");
         }
-        if (normalizedPublicKey.length !== 64) {
-            throw new Error("Public key must be a 32-byte hex string");
+        if (normalized.length !== 64) {
+            throw new Error("UTXO address must be a 32-byte hex string");
         }
 
         const payload: Record<string, unknown> = {
-            pubkey_hex: normalizedPublicKey,
+            pubkey_hex: normalized,
         };
         if (typeof amount === "number") {
             payload.amount = amount;
@@ -79,7 +86,7 @@ class NodeService {
         const data = await this.request<FaucetResponse>("/api/faucet", {
             method: "POST",
             headers: {
-                "X-Pubkey": normalizedPublicKey,
+                "X-Pubkey": normalized,
             },
             body: JSON.stringify(payload),
         });
@@ -96,6 +103,49 @@ class NodeService {
         }
 
         return data;
+    }
+
+    /**
+     * POST /api/blob/create
+     * Submits the raw blob (commitments + nullifiers) and output notes.
+     * Returns tx_hash and blob info.
+     */
+    async createBlob(
+        blobBytes: Uint8Array,
+        outputNotes: [PrivateNote, PrivateNote]
+    ): Promise<CreateBlobResponse> {
+        const data = await this.request<CreateBlobResponse>("/api/blob/create", {
+            method: "POST",
+            body: JSON.stringify({
+                blob_data:    Array.from(blobBytes),
+                output_notes: outputNotes,
+            }),
+        });
+
+        if (!data) {
+            throw new Error("Unexpected empty response from /api/blob/create");
+        }
+
+        return data;
+    }
+
+    /**
+     * POST /api/proof/submit
+     * Submits the generated proof for the transaction.
+     */
+    async submitProof(
+        txHash: string,
+        proof: string,
+        publicInputs: string[]
+    ): Promise<void> {
+        await this.request("/api/proof/submit", {
+            method: "POST",
+            body: JSON.stringify({
+                tx_hash:       txHash,
+                proof,
+                public_inputs: publicInputs,
+            }),
+        });
     }
 }
 

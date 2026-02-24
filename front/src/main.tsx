@@ -1,12 +1,10 @@
+// buffer-polyfill MUST be the very first import so that globalThis.Buffer is
+// available before @aztec/bb.js evaluates its static class initialisers.
+import "./buffer-polyfill";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Buffer } from "buffer/";
 import "./index.css";
 import App from "./App.tsx";
-
-if (typeof globalThis !== "undefined" && !(globalThis as unknown as { Buffer?: typeof Buffer }).Buffer) {
-    (globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
-}
 
 createRoot(document.getElementById("root")!).render(
     <StrictMode>

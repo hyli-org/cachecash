@@ -6,7 +6,7 @@ const PENDING_TRANSFERS_PREFIX = "pendingTransfers:" as const;
 const PENDING_TRANSFER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface PendingTransfer {
-  spentNoteHashes: string[];
+  spentNotePsis: string[];
   timestamp: number;
 }
 
@@ -284,12 +284,12 @@ function writePendingTransfers(playerName: string | undefined | null, pending: P
 }
 
 /**
- * Mark notes as pending to prevent double-spend during transfer
+ * Mark notes as pending to prevent double-spend during transfer (keyed by psi)
  */
-export function markNotesPending(playerName: string | undefined | null, noteHashes: string[]): void {
+export function markNotesPending(playerName: string | undefined | null, psiValues: string[]): void {
     const pending = readPendingTransfers(playerName);
     pending.push({
-        spentNoteHashes: noteHashes,
+        spentNotePsis: psiValues,
         timestamp: Date.now(),
     });
     writePendingTransfers(playerName, pending);
@@ -298,25 +298,25 @@ export function markNotesPending(playerName: string | undefined | null, noteHash
 /**
  * Clear pending state for specific notes (after successful transfer)
  */
-export function clearPendingNotes(playerName: string | undefined | null, noteHashes: string[]): void {
-    const hashSet = new Set(noteHashes);
+export function clearPendingNotes(playerName: string | undefined | null, psiValues: string[]): void {
+    const psiSet = new Set(psiValues);
     const pending = readPendingTransfers(playerName);
     const updated = pending.filter(
-        (p) => !p.spentNoteHashes.some((hash) => hashSet.has(hash))
+        (p) => !(p.spentNotePsis ?? []).some((psi) => psiSet.has(psi))
     );
     writePendingTransfers(playerName, updated);
 }
 
 /**
- * Get all pending note hashes (to exclude from spendable notes)
+ * Get all pending note psi values (to exclude from spendable notes)
  */
-export function getPendingNoteHashes(playerName: string | undefined | null): Set<string> {
+export function getPendingNotePsis(playerName: string | undefined | null): Set<string> {
     const pending = readPendingTransfers(playerName);
-    const hashes = new Set<string>();
+    const psis = new Set<string>();
     pending.forEach((p) => {
-        p.spentNoteHashes.forEach((hash) => hashes.add(hash));
+        (p.spentNotePsis ?? []).forEach((psi) => psis.add(psi));
     });
-    return hashes;
+    return psis;
 }
 
 /**

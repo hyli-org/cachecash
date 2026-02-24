@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent, FormEvent } from "react";
 import "./App.css";
 import { nodeService } from "./services/NodeService";
-import { deriveKeyPairFromName, DerivedKeyPair } from "./services/KeyService";
+import { deriveFullIdentity, FullIdentity } from "./services/KeyService";
 
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
@@ -182,31 +182,7 @@ function App() {
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
-  const [playerKeys, setPlayerKeys] = useState<DerivedKeyPair | null>(() => {
-    const storedPlayer = localStorage.getItem("playerName");
-    if (!storedPlayer) {
-      return null;
-    }
-
-    const storedPrivate = localStorage.getItem(`keys:${storedPlayer}:private`);
-    const storedPublic = localStorage.getItem(`keys:${storedPlayer}:public`);
-
-    if (
-      storedPrivate &&
-      storedPublic &&
-      storedPrivate.length === 64 &&
-      storedPublic.length === 64
-    ) {
-      return { privateKey: storedPrivate, publicKey: storedPublic };
-    }
-
-    try {
-      return deriveKeyPairFromName(storedPlayer);
-    } catch (error) {
-      console.warn("Failed to derive key pair from stored player name", error);
-      return null;
-    }
-  });
+  const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
 
   // Callbacks for encrypted notes hook (memoized to prevent infinite loops)
   const handleNotesReceived = useCallback((notes: any[]) => {
@@ -227,7 +203,7 @@ function App() {
   // Compute available notes for transfers (memoized to prevent infinite loops)
   const availableNotesForTransfer = useMemo(() => {
     if (!playerKeys || !playerName) return [];
-    return transferService.getSpendableNotes(storedNotes, playerKeys.privateKey, playerName);
+    return transferService.getSpendableNotes(storedNotes, playerKeys.zkSecretKey, playerName);
   }, [storedNotes, playerKeys, playerName]);
 
   const [oranges, setOranges] = useState<Orange[]>([]);
@@ -538,15 +514,15 @@ function App() {
   // Submit the slice server-side without blocking future slices
   const submitPumpkinSlice = useCallback(
     async (
-      publicKeyHex: string,
+      utxoAddress: string,
       playerLabel: string,
       optimisticReference: string,
       storedAt: number,
       transactionTimestamp: number,
     ) => {
       try {
-        if (!publicKeyHex) {
-          throw new Error("Missing player public key");
+        if (!utxoAddress) {
+          throw new Error("Missing player UTXO address");
         }
 
         const trimmedPlayerName = playerLabel.trim();
@@ -554,14 +530,14 @@ function App() {
           throw new Error("Player name must not be empty");
         }
 
-        const response = await nodeService.requestFaucet(publicKeyHex);
+        const response = await nodeService.requestFaucet(utxoAddress);
         const { tx_hash: txHash, note } = response;
         const reference = txHash ?? deriveNoteReference(note);
         const resolvedReference = reference ?? optimisticReference;
 
         const stored: StoredNote = {
           txHash: resolvedReference,
-          note: note ?? response,
+          note: (note ?? response) as unknown as import("./types/note").PrivateNote,
           storedAt,
           player: trimmedPlayerName,
         };
@@ -595,7 +571,7 @@ function App() {
     const penaltySnapshot = bombPenalty;
     let submissionPayload:
       | {
-          publicKey: string;
+          utxoAddress: string;
           playerLabel: string;
           optimisticReference: string;
           storedAt: number;
@@ -632,9 +608,24 @@ function App() {
         const optimisticReference = generateOptimisticReference();
 
         if (trimmedPlayerName) {
+          // Generate a random psi for the optimistic note.
+          // Must be a valid BN254 field element (< p = 0x30644e72…);
+          // zeroing the top 4 bits keeps the value below 2^252 < p.
+          const randomPsiBytes = new Uint8Array(32);
+          crypto.getRandomValues(randomPsiBytes);
+          randomPsiBytes[0] &= 0x0f;
+          const optimisticPsi = Array.from(randomPsiBytes)
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
           const optimisticNote: StoredNote = {
             txHash: optimisticReference,
-            note: { status: "optimistic" },
+            note: {
+              kind:     "0".repeat(64),
+              contract: "0".repeat(64),
+              address:  keysSnapshot.utxoAddress,
+              psi:      optimisticPsi,
+              value:    "0".repeat(64),
+            },
             storedAt: now,
             player: trimmedPlayerName,
           };
@@ -658,9 +649,9 @@ function App() {
           ].slice(0, 10),
         );
 
-        if (keysSnapshot.publicKey && trimmedPlayerName) {
+        if (keysSnapshot.utxoAddress && trimmedPlayerName) {
           submissionPayload = {
-            publicKey: keysSnapshot.publicKey,
+            utxoAddress: keysSnapshot.utxoAddress,
             playerLabel: trimmedPlayerName,
             optimisticReference,
             storedAt: now,
@@ -678,7 +669,7 @@ function App() {
 
     if (submissionPayload) {
       void submitPumpkinSlice(
-        submissionPayload.publicKey,
+        submissionPayload.utxoAddress,
         submissionPayload.playerLabel,
         submissionPayload.optimisticReference,
         submissionPayload.storedAt,
@@ -966,23 +957,20 @@ function App() {
       return;
     }
 
-    try {
-      const derivedKeys = deriveKeyPairFromName(playerName);
-      setPlayerKeys(derivedKeys);
-    } catch (error) {
-      console.error("Failed to derive key pair", error);
-      setPlayerKeys(null);
-    }
+    let cancelled = false;
+    deriveFullIdentity(playerName)
+      .then((identity) => {
+        if (!cancelled) setPlayerKeys(identity);
+      })
+      .catch((error) => {
+        console.error("Failed to derive full identity", error);
+        if (!cancelled) setPlayerKeys(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [playerName]);
-
-  useEffect(() => {
-    if (!playerName || !playerKeys) {
-      return;
-    }
-
-    localStorage.setItem(`keys:${playerName}:public`, playerKeys.publicKey);
-    localStorage.setItem(`keys:${playerName}:private`, playerKeys.privateKey);
-  }, [playerName, playerKeys]);
 
   useEffect(() => {
     if (!playerName) {
@@ -1450,12 +1438,12 @@ top: `${particle.y}px`,*/
       )}
 
       {isManageModalOpen && playerName && (
-        <ManageNotesModal playerName={playerName} notes={storedNotes} onClose={handleCloseManageModal} />
+        <ManageNotesModal playerName={playerName} notes={storedNotes} identity={playerKeys} onClose={handleCloseManageModal} />
       )}
       {isTransferModalOpen && playerName && playerKeys && (
         <TransferModal
           playerName={playerName}
-          keyPair={playerKeys}
+          identity={playerKeys}
           availableNotes={availableNotesForTransfer}
           onClose={handleCloseTransferModal}
         />
