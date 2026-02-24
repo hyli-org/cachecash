@@ -6303,6 +6303,7 @@ dependencies = [
  "hyli-client-sdk",
  "hyli-contract-sdk",
  "hyli-modules",
+ "hyli-registry",
  "hyli-turmoil-shims",
  "hyli-utxo-state",
  "hyli-verifiers",

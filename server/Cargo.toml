@@ -6,6 +6,8 @@ edition = "2021"
 contracts = { path = "../contracts", features = ["nobuild"] }
 hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 
+hyli-registry = { workspace = true }
+
 # Hyli
 hyli-modules = { workspace = true }
 hyli-verifiers = { workspace = true }
