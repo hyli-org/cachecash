@@ -23,6 +23,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
     const [noteCopied, setNoteCopied] = useState(false);
     // true when recipient was a direct address (no encryption possible)
     const [noteShareNeeded, setNoteShareNeeded] = useState(false);
+    const [consolidationStep, setConsolidationStep] = useState(0);
 
     const totalBalance = useMemo(
         () => availableNotes.reduce((sum, n) => sum + parseNoteValue(n.note), 0),
@@ -57,6 +58,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
 
             try {
                 setStatus("submitting");
+                setConsolidationStep(0);
                 setError(null);
 
                 // Resolve recipient: username → deriveFullIdentity, hex → treat as utxoAddress
@@ -82,13 +84,14 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     return;
                 }
 
-                const result = await transferService.executeTransfer(
+                const result = await transferService.executeTransferWithConsolidation(
                     recipientUtxoAddress,
                     amountNum,
                     availableNotes,
                     identity,
                     playerName,
                     recipientEncryptionPubkey,
+                    (step) => setConsolidationStep(step),
                 );
 
                 setStatus("success");
@@ -113,6 +116,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         setTransferNote(null);
         setNoteCopied(false);
         setNoteShareNeeded(false);
+        setConsolidationStep(0);
         onClose();
     }, [onClose]);
 
@@ -123,6 +127,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         setTransferNote(null);
         setNoteCopied(false);
         setNoteShareNeeded(false);
+        setConsolidationStep(0);
     }, []);
 
     const handleCopyNote = useCallback(() => {
@@ -217,10 +222,23 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
 
                     {status === "submitting" && (
                         <div style={{ textAlign: "center", padding: "2rem 0" }}>
-                            <div className="manage-notes-modal__description">Generating zero-knowledge proof…</div>
-                            <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
-                                This may take 10–30 seconds.
-                            </div>
+                            {consolidationStep > 0 ? (
+                                <>
+                                    <div className="manage-notes-modal__description">
+                                        Consolidating notes (step {consolidationStep})…
+                                    </div>
+                                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
+                                        Your balance is spread across too many notes. Merging them first.
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="manage-notes-modal__description">Generating zero-knowledge proof…</div>
+                                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
+                                        This may take 10–30 seconds.
+                                    </div>
+                                </>
+                            )}
                             <div style={{ marginTop: "1rem" }}>
                                 <span className="loading-spinner">⏳</span>
                             </div>

@@ -4,6 +4,7 @@ import { StoredNote, PrivateNote } from "../types/note";
 import { createNotesArchive, readNotesArchive } from "../services/noteArchive";
 import { setStoredNotes, addStoredNote } from "../services/noteStorage";
 import { FullIdentity } from "../services/KeyService";
+import { transferService } from "../services/TransferService";
 
 function createNoteKey(note: StoredNote): string {
     if (typeof note.txHash === "string" && note.txHash.length > 0) {
@@ -53,6 +54,11 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
     const [pasteJson, setPasteJson]         = useState("");
     const [pasteError, setPasteError]       = useState<string | null>(null);
     const [pasteStatus, setPasteStatus]     = useState<string | null>(null);
+    const [isConsolidating, setIsConsolidating]       = useState(false);
+    const [consolidateStep, setConsolidateStep]       = useState(0);
+    const [consolidateTotal, setConsolidateTotal]     = useState(0);
+    const [consolidateError, setConsolidateError]     = useState<string | null>(null);
+    const [consolidateStatus, setConsolidateStatus]   = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Parsed notes for display (exclude zero-value / optimistic)
@@ -123,6 +129,41 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
         setPasteJson("");
         setPasteStatus("Note imported successfully.");
     }, [pasteJson, playerName]);
+
+    const spendableCount = useMemo(() => {
+        if (!identity) return 0;
+        return transferService.getSpendableNotes(notes, identity.zkSecretKey, playerName).length;
+    }, [notes, identity, playerName]);
+
+    const handleConsolidate = useCallback(async () => {
+        if (!identity || isConsolidating) return;
+        const inputs = transferService.getSpendableNotes(notes, identity.zkSecretKey, playerName);
+        if (inputs.length < 2) return;
+
+        setConsolidateError(null);
+        setConsolidateStatus(null);
+        setConsolidateStep(0);
+        setConsolidateTotal(Math.max(0, inputs.length - 1));
+        setIsConsolidating(true);
+
+        try {
+            const rounds = await transferService.consolidateAll(
+                inputs,
+                identity,
+                playerName,
+                (step, total) => {
+                    setConsolidateStep(step);
+                    setConsolidateTotal(total);
+                },
+            );
+            setConsolidateStatus(rounds === 0 ? "Already consolidated." : `Done — ${rounds} proof${rounds > 1 ? "s" : ""} generated.`);
+        } catch (err) {
+            console.error("Consolidation failed:", err);
+            setConsolidateError(err instanceof Error ? err.message : "Consolidation failed.");
+        } finally {
+            setIsConsolidating(false);
+        }
+    }, [identity, isConsolidating, notes, playerName]);
 
     const handleDownload = useCallback(async () => {
         if (notes.length === 0 || isDownloading) return;
@@ -378,6 +419,30 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
                                     </li>
                                 ))}
                             </ul>
+                        )}
+                        {identity && spendableCount >= 2 && (
+                            <div style={{ marginTop: "0.75rem" }}>
+                                <button
+                                    type="button"
+                                    className="pixel-button pixel-button--ghost pixel-button--compact"
+                                    onClick={handleConsolidate}
+                                    disabled={isConsolidating}
+                                >
+                                    {isConsolidating
+                                        ? `Consolidating… (${consolidateStep}/${consolidateTotal})`
+                                        : `Consolidate (${spendableCount} → 1)`}
+                                </button>
+                                {consolidateError && (
+                                    <div className="manage-notes-modal__message manage-notes-modal__message--error" style={{ marginTop: "0.4rem" }}>
+                                        {consolidateError}
+                                    </div>
+                                )}
+                                {consolidateStatus && (
+                                    <div className="manage-notes-modal__message manage-notes-modal__message--status" style={{ marginTop: "0.4rem" }}>
+                                        {consolidateStatus}
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </section>
 

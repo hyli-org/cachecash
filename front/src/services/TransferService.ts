@@ -4,7 +4,7 @@ import { poseidon2Service } from "./Poseidon2Service";
 import { encryptedNoteService } from "./EncryptedNoteService";
 import { nodeService } from "./NodeService";
 import { proofService } from "./ProofService";
-import { markNotesPending, clearPendingNotes, getPendingNotePsis, setStoredNotes, getStoredNotes } from "./noteStorage";
+import { markNotesPending, clearPendingNotes, getPendingNotePsis, setStoredNotes, getStoredNotes, addStoredNote } from "./noteStorage";
 
 /** An input note ready for proving */
 export interface InputNoteData {
@@ -309,6 +309,133 @@ class TransferService {
             clearPendingNotes(playerName, spentPsis);
             throw error;
         }
+    }
+
+    /**
+     * Returns true when no 2-note combination covers `amount` but the total balance does.
+     * In that case, notes must be consolidated before the transfer can proceed.
+     */
+    needsConsolidation(availableInputs: InputNoteData[], amount: number): boolean {
+        const withValues = availableInputs
+            .map((input) => ({ input, value: parseNoteValue(input.note) }))
+            .filter((n) => n.value > 0);
+        const total = withValues.reduce((sum, n) => sum + n.value, 0);
+        if (total < amount) return false; // genuinely insufficient – not a consolidation problem
+        return this.selectNotesForTransfer(availableInputs, amount) === null;
+    }
+
+    /**
+     * Returns the two notes with the highest values (candidates for merging).
+     */
+    notesForConsolidation(availableInputs: InputNoteData[]): [InputNoteData, InputNoteData] | null {
+        const withValues = availableInputs
+            .map((input) => ({ input, value: parseNoteValue(input.note) }))
+            .filter((n) => n.value > 0)
+            .sort((a, b) => b.value - a.value); // descending
+        if (withValues.length < 2) return null;
+        return [withValues[0].input, withValues[1].input];
+    }
+
+    /**
+     * Merge two notes into one via a self-transfer, then persist the resulting note locally.
+     */
+    async executeConsolidation(
+        pair: [InputNoteData, InputNoteData],
+        senderIdentity: FullIdentity,
+        playerName: string,
+    ): Promise<void> {
+        const amount = parseNoteValue(pair[0].note) + parseNoteValue(pair[1].note);
+        const { txHash, transferNote } = await this.executeTransfer(
+            senderIdentity.utxoAddress,
+            amount,
+            pair,
+            senderIdentity,
+            playerName,
+            // no encryption pubkey – self-transfer, note goes straight to local storage
+        );
+        addStoredNote(playerName, {
+            txHash: `consolidation:${txHash}`,
+            note: transferNote,
+            storedAt: Date.now(),
+            player: playerName,
+        });
+    }
+
+    /**
+     * Execute a transfer, automatically consolidating fragmented notes beforehand if needed.
+     * `onConsolidating(step)` is called at the start of each consolidation round.
+     */
+    async executeTransferWithConsolidation(
+        recipientUtxoAddress: string,
+        amount: number,
+        availableInputs: InputNoteData[],
+        senderIdentity: FullIdentity,
+        playerName: string,
+        recipientEncryptionPubkey?: string,
+        onConsolidating?: (step: number) => void,
+    ): Promise<{ txHash: string; transferNote: PrivateNote }> {
+        let currentInputs = [...availableInputs];
+        let step = 0;
+
+        while (this.needsConsolidation(currentInputs, amount)) {
+            step++;
+            onConsolidating?.(step);
+
+            const pair = this.notesForConsolidation(currentInputs);
+            if (!pair) break; // shouldn't happen – needsConsolidation already verified 2+ notes
+
+            await this.executeConsolidation(pair, senderIdentity, playerName);
+
+            // Reload from storage so the freshly merged note is visible
+            currentInputs = this.getSpendableNotes(
+                getStoredNotes(playerName),
+                senderIdentity.zkSecretKey,
+                playerName,
+            );
+        }
+
+        return this.executeTransfer(
+            recipientUtxoAddress,
+            amount,
+            currentInputs,
+            senderIdentity,
+            playerName,
+            recipientEncryptionPubkey,
+        );
+    }
+
+    /**
+     * Merge all notes down to one by repeatedly consolidating the two largest.
+     * Returns the number of consolidation rounds performed.
+     * `onStep(step, total)` is called before each round.
+     */
+    async consolidateAll(
+        availableInputs: InputNoteData[],
+        senderIdentity: FullIdentity,
+        playerName: string,
+        onStep?: (step: number, total: number) => void,
+    ): Promise<number> {
+        let currentInputs = [...availableInputs];
+        const total = Math.max(0, currentInputs.length - 1); // rounds needed
+        let step = 0;
+
+        while (currentInputs.length >= 2) {
+            step++;
+            onStep?.(step, total);
+
+            const pair = this.notesForConsolidation(currentInputs);
+            if (!pair) break;
+
+            await this.executeConsolidation(pair, senderIdentity, playerName);
+
+            currentInputs = this.getSpendableNotes(
+                getStoredNotes(playerName),
+                senderIdentity.zkSecretKey,
+                playerName,
+            );
+        }
+
+        return step;
     }
 
     /**
