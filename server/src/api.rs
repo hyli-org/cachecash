@@ -12,8 +12,8 @@ use crate::{
         BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord, FaucetRequest,
         FaucetResponse, GetNotesQuery, GetNotesResponse, InputNoteData, ProvedTransferRequest,
         RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse,
-        SubmitProofRequest, TransferRequest, TransferResponse, UploadNoteRequest,
-        UploadNoteResponse,
+        ServerConfigResponse, SubmitProofRequest, TransferRequest, TransferResponse,
+        UploadNoteRequest, UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -104,6 +104,7 @@ impl Module for ApiModule {
 
         let router = Router::new()
             .route("/_health", get(health))
+            .route("/api/config", get(get_config))
             .route("/api/faucet", post(faucet))
             .route("/api/transfer", post(transfer))
             .route("/api/transfer/prove", post(transfer_with_proof))
@@ -138,6 +139,12 @@ impl Module for ApiModule {
 
 async fn health() -> &'static str {
     "OK"
+}
+
+async fn get_config(State(state): State<RouterCtx>) -> Json<ServerConfigResponse> {
+    Json(ServerConfigResponse {
+        contract_name: state.utxo_contract_name.clone(),
+    })
 }
 
 async fn faucet(

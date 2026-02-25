@@ -5,6 +5,7 @@ import { encryptedNoteService } from "./EncryptedNoteService";
 import { nodeService } from "./NodeService";
 import { proofService } from "./ProofService";
 import { markNotesPending, clearPendingNotes, getPendingNotePsis, setStoredNotes, getStoredNotes, addStoredNote } from "./noteStorage";
+import { fetchContractName } from "./ConfigService";
 
 /** An input note ready for proving */
 export interface InputNoteData {
@@ -228,6 +229,7 @@ class TransferService {
             const blobBytes = await this.buildRawBlobData(selection.selectedInputs);
 
             // 4. POST /api/blob/create
+            const contractName = await fetchContractName();
             const createResponse = await nodeService.createBlob(blobBytes, outputNotes);
             const txHash = createResponse.tx_hash;
 
@@ -242,8 +244,8 @@ class TransferService {
 
             const blobData: BlobData = {
                 blob: blobBytes,
-                contractName: "hyli_utxo",
-                identity: "transfer@hyli_utxo",
+                contractName,
+                identity: `transfer@${contractName}`,
                 txHash,
                 blobCount: 2,
                 blobIndex: 1,

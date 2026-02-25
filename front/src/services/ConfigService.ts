@@ -37,3 +37,15 @@ export function getNodeBaseUrl(): string {
         ? runtime.NODE_BASE_URL!
         : import.meta.env.VITE_NODE_BASE_URL || "http://localhost:4321";
 }
+
+let contractNameCache: Promise<string> | null = null;
+
+export function fetchContractName(): Promise<string> {
+    if (!contractNameCache) {
+        contractNameCache = fetch(`${getServerBaseUrl()}/api/config`)
+            .then((r) => r.json())
+            .then((data) => data.contract_name as string)
+            .catch(() => "hyli_utxo");
+    }
+    return contractNameCache;
+}

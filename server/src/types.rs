@@ -3,6 +3,15 @@ use sdk::{Blob, BlobData, BlobIndex, ContractAction, ContractName, StructuredBlo
 use serde::{Deserialize, Serialize};
 use zk_primitives::Note;
 
+// ---- Server Config API Types ----
+
+/// Response for the /api/config endpoint.
+#[derive(Debug, Serialize)]
+pub struct ServerConfigResponse {
+    /// The UTXO contract name (e.g. "hyli_utxo")
+    pub contract_name: String,
+}
+
 // ---- Address Registry API Types ----
 
 /// Request to register a username -> UTXO address mapping.
