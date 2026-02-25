@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { FullIdentity, deriveFullIdentity } from "../services/KeyService";
+import { FullIdentity } from "../services/KeyService";
+import { addressService } from "../services/AddressService";
 import { transferService, InputNoteData, parseNoteValue } from "../services/TransferService";
 import { PrivateNote } from "../types/note";
 
@@ -71,10 +72,10 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     recipientUtxoAddress = normalized;
                     recipientEncryptionPubkey = undefined;
                 } else {
-                    // Username: derive full identity deterministically
-                    const recipientIdentity = await deriveFullIdentity(trimmedRecipient);
-                    recipientUtxoAddress = recipientIdentity.utxoAddress;
-                    recipientEncryptionPubkey = recipientIdentity.publicKey;
+                    // Username: resolve via API registry
+                    const resolved = await addressService.resolve(trimmedRecipient);
+                    recipientUtxoAddress = resolved.utxoAddress;
+                    recipientEncryptionPubkey = resolved.encryptionPubkey;
                 }
 
                 // Check if sending to self

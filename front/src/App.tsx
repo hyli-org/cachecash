@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent, FormEve
 import "./App.css";
 import { nodeService } from "./services/NodeService";
 import { deriveFullIdentity, FullIdentity } from "./services/KeyService";
+import { addressService } from "./services/AddressService";
 import { getNodeBaseUrl } from "./services/ConfigService";
 
 import { TransactionList } from "./components/TransactionList";
@@ -959,6 +960,9 @@ function App() {
         deriveFullIdentity(playerName)
             .then((identity) => {
                 if (!cancelled) setPlayerKeys(identity);
+                addressService
+                    .register(playerName, identity.utxoAddress, identity.publicKey)
+                    .catch((error) => console.warn("Address registration failed:", error));
             })
             .catch((error) => {
                 console.error("Failed to derive full identity", error);
