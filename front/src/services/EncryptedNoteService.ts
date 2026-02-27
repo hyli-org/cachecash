@@ -99,7 +99,7 @@ class EncryptedNoteService {
         const recipientTag = deriveRecipientTag(normalizedRecipient);
 
         // ECDH encryption uses the secp256k1 pubkey
-        const encrypted: EncryptedNote = encryptNote(recipientEncryptionPubkey, noteData);
+        const encrypted: EncryptedNote = await encryptNote(recipientEncryptionPubkey, noteData);
 
         // Sender tag derived from sender's UTXO address
         const senderTag = deriveRecipientTag(senderKeyPair.utxoAddress);
@@ -186,7 +186,7 @@ class EncryptedNoteService {
 
         for (const note of encryptedNotes) {
             try {
-                const noteData = decryptNote(
+                const noteData = await decryptNote(
                     identity.privateKey,
                     note.encryptedPayload,
                     note.ephemeralPubkey
@@ -230,7 +230,7 @@ class EncryptedNoteService {
 
         for (const note of encryptedNotes) {
             try {
-                const noteData = decryptNote(
+                const noteData = await decryptNote(
                     identity.privateKey,
                     note.encryptedPayload,
                     note.ephemeralPubkey
