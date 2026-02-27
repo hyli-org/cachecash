@@ -93,9 +93,10 @@ export function useEncryptedNotes(
                     // Extract the PrivateNote from the decrypted payload
                     const payload = note.noteData as DecryptedNotePayload;
                     const privateNote: PrivateNote = payload?.note ?? (note.noteData as PrivateNote);
+                    const payloadTxHash = payload?.tx_hash;
 
                     const storedNote: StoredNote = {
-                        txHash:   payload?.txHash ?? `encrypted:${note.id}`,
+                        txHash:   payloadTxHash ?? `encrypted:${note.id}`,
                         note:     privateNote,
                         storedAt: note.storedAt * 1000,
                         player:   playerName,

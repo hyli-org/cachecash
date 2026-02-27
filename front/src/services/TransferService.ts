@@ -294,7 +294,7 @@ class TransferService {
                         recipientEncryptionPubkey,
                         {
                             note: transferNote,
-                            txHash,
+                            tx_hash: txHash,
                             amount,
                             from: senderIdentity.publicKey,
                             timestamp: Date.now(),

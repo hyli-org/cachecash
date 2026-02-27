@@ -30,7 +30,7 @@ export interface DecryptedNoteRecord {
 
 export interface DecryptedNotePayload {
     note:      PrivateNote;
-    txHash:    string;
+    tx_hash:   string;
     amount:    number;
     from:      string;   // sender's secp256k1 pubkey x-coord
     timestamp: number;   // ms since epoch
