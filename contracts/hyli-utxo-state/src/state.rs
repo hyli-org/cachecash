@@ -7,7 +7,7 @@ use sdk::{
 use sparse_merkle_tree::H256;
 
 use crate::zk::{
-    smt::{BorshableH256, WitnessLeaf, SMT},
+    smt::{self as smt, BorshableH256, WitnessLeaf, SMT},
     Proof, ZkVmWitnessVec,
 };
 
@@ -168,6 +168,21 @@ impl HyliUtxoState {
         }
 
         Ok(witness)
+    }
+
+    pub fn notes_root(&self) -> BorshableH256 {
+        self.notes_tree.root()
+    }
+
+    pub fn build_smt_witnesses(
+        &self,
+        commitment0: BorshableH256,
+        commitment1: BorshableH256,
+    ) -> ([[u8; 32]; 256], [[u8; 32]; 256]) {
+        (
+            smt::build_siblings(&self.notes_tree, commitment0),
+            smt::build_siblings(&self.notes_tree, commitment1),
+        )
     }
 
     pub fn commitment(&self) -> StateCommitment {

@@ -2,7 +2,7 @@ id = "zfruit"
 log_format = "full"
 
 rest_server_port = 9002
-rest_server_max_body_size = 10_485_760       # 10 MB
+rest_server_max_body_size = 10_485_760               # 10 MB
 default_faucet_amount = 10
 node_url = "http://127.0.0.1:4321"
 data_directory = "data"
@@ -12,4 +12,5 @@ max_txs_per_proof = 32
 tx_working_window_size = 128
 utxo_contract_name = "hyli_utxo"
 utxo_state_contract_name = "hyli-utxo-state"
+smt_incl_proof_contract_name = "hyli_smt_incl_proof"
 persist_encrypted_notes = true

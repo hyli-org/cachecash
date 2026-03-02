@@ -15,6 +15,7 @@ pub struct Conf {
     pub max_txs_per_proof: usize,
     pub tx_working_window_size: usize,
     pub utxo_contract_name: String,
+    pub smt_incl_proof_contract_name: String,
     pub utxo_state_contract_name: String,
     /// Maximum size in bytes for encrypted note payloads (default: 65536 = 64KB).
     #[serde(default = "default_max_note_payload_size")]

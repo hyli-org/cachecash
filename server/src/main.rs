@@ -7,6 +7,9 @@ use client_sdk::{
     helpers::sp1::SP1Prover,
     rest_client::{NodeApiClient, NodeApiHttpClient},
 };
+use hyli_modules::modules::contract_state_indexer::{
+    ContractStateIndexer, ContractStateIndexerCtx,
+};
 use hyli_modules::{
     bus::SharedMessageBus,
     modules::{
@@ -24,7 +27,10 @@ use server::{
     app::{FaucetApp, FaucetAppContext},
     conf::Conf,
     hyli_utxo_state_client::HyliUtxoStateExecutor,
-    init::{hyli_utxo_noir_deployment, hyli_utxo_state_deployment, init_node, ContractInit},
+    init::{
+        hyli_smt_incl_proof_noir_deployment, hyli_utxo_noir_deployment, hyli_utxo_state_deployment,
+        init_node, ContractInit,
+    },
     metrics::FaucetMetrics,
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
     note_store::{AddressRegistry, NoteStore},
@@ -90,10 +96,16 @@ async fn main() -> Result<()> {
     );
 
     let hyli_utxo_contract = hyli_utxo_noir_deployment(&config.utxo_contract_name);
+    let hyli_smt_incl_proof_contract =
+        hyli_smt_incl_proof_noir_deployment(&config.smt_incl_proof_contract_name);
     let hyli_utxo_state_contract = hyli_utxo_state_deployment(&config.utxo_state_contract_name);
     let contracts = vec![
         ContractInit {
             deployment: hyli_utxo_contract.clone(),
+            verifier: Verifier(verifiers::NOIR.to_string()),
+        },
+        ContractInit {
+            deployment: hyli_smt_incl_proof_contract.clone(),
             verifier: Verifier(verifiers::NOIR.to_string()),
         },
         ContractInit {
@@ -187,9 +199,19 @@ async fn main() -> Result<()> {
             client: node_client.as_ref().clone(),
             utxo_contract_name: config.utxo_contract_name.clone(),
             utxo_state_contract_name: config.utxo_state_contract_name.clone(),
+            smt_incl_proof_contract_name: config.smt_incl_proof_contract_name.clone(),
         }))
         .await
         .context("building API module")?;
+
+    handler
+        .build_module::<ContractStateIndexer<HyliUtxoStateExecutor>>(ContractStateIndexerCtx {
+            data_directory: data_directory.clone(),
+            contract_name: ContractName(config.utxo_state_contract_name.clone()),
+            api: api_builder_ctx.clone(),
+        })
+        .await
+        .context("building ContractStateIndexer for hyli-utxo-state")?;
 
     handler
         .build_module::<SignedDAListener<NodeStateBlockProcessor>>(DAListenerConf {

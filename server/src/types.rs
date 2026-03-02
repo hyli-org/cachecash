@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use sdk::{Blob, BlobData, BlobIndex, ContractAction, ContractName, StructuredBlobData};
+use sdk::{Blob, BlobData, BlobIndex, ContractAction, ContractName, StructuredBlobData, TxHash};
 use serde::{Deserialize, Serialize};
 use zk_primitives::Note;
 
@@ -10,6 +10,10 @@ use zk_primitives::Note;
 pub struct ServerConfigResponse {
     /// The UTXO contract name (e.g. "hyli_utxo")
     pub contract_name: String,
+    /// The UTXO state contract name (e.g. "hyli-utxo-state")
+    pub utxo_state_contract_name: String,
+    /// The SMT inclusion proof contract name (e.g. "hyli_smt_incl_proof")
+    pub smt_incl_proof_contract_name: String,
 }
 
 // ---- Address Registry API Types ----
@@ -127,24 +131,11 @@ pub struct InputNoteData {
     pub secret_key: String,
 }
 
-/// Request to transfer funds between users
-#[derive(Debug, Deserialize)]
-pub struct TransferRequest {
-    /// Recipient's public key (hex-encoded, 32 bytes)
-    pub recipient_pubkey: String,
-    /// Amount being transferred
-    pub amount: u64,
-    /// Full input notes with secret keys
-    pub input_notes: [InputNoteData; 2],
-    /// Output notes: [recipient_note, change_note]
-    pub output_notes: [Note; 2],
-}
-
 /// Response after successful transfer
 #[derive(Debug, Serialize)]
 pub struct TransferResponse {
     /// Transaction hash
-    pub tx_hash: String,
+    pub tx_hash: TxHash,
     /// Change note if any
     pub change_note: Option<Note>,
 }
@@ -169,6 +160,8 @@ pub struct ProvedTransferRequest {
 pub struct CreateBlobRequest {
     /// 128-byte blob data: [input_commit_0, input_commit_1, nullifier_0, nullifier_1]
     pub blob_data: Vec<u8>,
+    /// 96-byte SMT blob data: [commit0 (32B)][commit1 (32B)][notes_root (32B)]
+    pub smt_blob_data: Vec<u8>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
 }
@@ -191,15 +184,52 @@ pub struct BlobInfo {
     pub data: String,
 }
 
+/// Response for /api/blob/hash — returns the tx_hash without submitting to the chain.
+#[derive(Debug, Serialize)]
+pub struct BlobHashResponse {
+    /// Deterministic transaction hash (SHA3-256 of identity + blob hashes)
+    pub tx_hash: TxHash,
+}
+
+/// Request to finalize a transfer atomically: submit blob tx + both proofs in one call.
+#[derive(Debug, Deserialize)]
+pub struct FinalizeTransferRequest {
+    /// 128-byte blob data: [input_commit_0, input_commit_1, nullifier_0, nullifier_1]
+    pub blob_data: Vec<u8>,
+    /// 96-byte SMT blob data: [commit0 (32B)][commit1 (32B)][notes_root (32B)]
+    pub smt_blob_data: Vec<u8>,
+    /// Output notes: [recipient_note, change_note]
+    pub output_notes: [Note; 2],
+    /// Base64-encoded proof bytes for hyli_utxo
+    pub proof: String,
+    /// Public inputs as hex strings for hyli_utxo
+    pub public_inputs: Vec<String>,
+    /// Base64-encoded proof bytes for hyli_smt_incl_proof
+    pub smt_proof: String,
+    /// Public inputs as hex strings for hyli_smt_incl_proof
+    pub smt_public_inputs: Vec<String>,
+}
+
+/// Response after finalizing a transfer
+#[derive(Debug, Serialize)]
+pub struct FinalizeTransferResponse {
+    /// Transaction hash from the blockchain
+    pub tx_hash: TxHash,
+}
+
 /// Request to submit a proof for an existing blob transaction (step 2 of two-step transfer)
 #[derive(Debug, Deserialize)]
 pub struct SubmitProofRequest {
     /// Transaction hash from CreateBlobResponse
-    pub tx_hash: String,
-    /// Base64-encoded proof bytes (raw proof without public inputs)
+    pub tx_hash: TxHash,
+    /// Base64-encoded proof bytes for hyli_utxo
     pub proof: String,
-    /// Public inputs as hex strings (733 field elements)
+    /// Public inputs as hex strings for hyli_utxo
     pub public_inputs: Vec<String>,
+    /// Base64-encoded proof bytes for hyli_smt_incl_proof
+    pub smt_proof: String,
+    /// Public inputs as hex strings for hyli_smt_incl_proof
+    pub smt_public_inputs: Vec<String>,
 }
 
 // ---- Existing Types ----

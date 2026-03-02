@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { FullIdentity } from "../services/KeyService";
 import { addressService } from "../services/AddressService";
-import { transferService, InputNoteData, parseNoteValue } from "../services/TransferService";
+import { transferService, InputNoteData, parseNoteValue, TransferStep } from "../services/TransferService";
 import { PrivateNote } from "../types/note";
 
 interface TransferModalProps {
@@ -13,6 +13,28 @@ interface TransferModalProps {
 }
 
 type TransferStatus = "input" | "submitting" | "success" | "error";
+
+type ProgressStep = "resolving" | TransferStep;
+
+const PROGRESS_STEPS: { key: ProgressStep; label: string }[] = [
+    { key: "resolving",         label: "Resolving recipient" },
+    { key: "smt-witness",       label: "Fetching inclusion witnesses" },
+    { key: "creating-blob",     label: "Preparing transaction" },
+    { key: "proving-utxo",      label: "Generating UTXO proof" },
+    { key: "proving-smt",       label: "Generating SMT proof" },
+    { key: "submitting-proofs", label: "Submitting transaction & proofs" },
+];
+
+function stepStatus(
+    step: ProgressStep,
+    current: ProgressStep | null,
+): "done" | "active" | "pending" {
+    const idx = PROGRESS_STEPS.findIndex((s) => s.key === step);
+    const curIdx = current ? PROGRESS_STEPS.findIndex((s) => s.key === current) : -1;
+    if (idx < curIdx) return "done";
+    if (idx === curIdx) return "active";
+    return "pending";
+}
 
 export function TransferModal({ playerName, identity, availableNotes, onClose }: TransferModalProps) {
     const [recipientInput, setRecipientInput] = useState("");
@@ -25,6 +47,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
     // true when recipient was a direct address (no encryption possible)
     const [noteShareNeeded, setNoteShareNeeded] = useState(false);
     const [consolidationStep, setConsolidationStep] = useState(0);
+    const [progressStep, setProgressStep] = useState<ProgressStep | null>(null);
 
     const totalBalance = useMemo(
         () => availableNotes.reduce((sum, n) => sum + parseNoteValue(n.note), 0),
@@ -60,6 +83,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
             try {
                 setStatus("submitting");
                 setConsolidationStep(0);
+                setProgressStep("resolving");
                 setError(null);
 
                 // Resolve recipient: username → deriveFullIdentity, hex → treat as utxoAddress
@@ -92,7 +116,11 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     identity,
                     playerName,
                     recipientEncryptionPubkey,
-                    (step) => setConsolidationStep(step),
+                    (step) => {
+                        setConsolidationStep(step);
+                        setProgressStep(null);
+                    },
+                    (step) => setProgressStep(step),
                 );
 
                 setStatus("success");
@@ -118,6 +146,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         setNoteCopied(false);
         setNoteShareNeeded(false);
         setConsolidationStep(0);
+        setProgressStep(null);
         onClose();
     }, [onClose]);
 
@@ -129,6 +158,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         setNoteCopied(false);
         setNoteShareNeeded(false);
         setConsolidationStep(0);
+        setProgressStep(null);
     }, []);
 
     const handleCopyNote = useCallback(() => {
@@ -222,26 +252,61 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     )}
 
                     {status === "submitting" && (
-                        <div style={{ textAlign: "center", padding: "2rem 0" }}>
-                            {consolidationStep > 0 ? (
-                                <>
+                        <div style={{ padding: "1.5rem 0" }}>
+                            {consolidationStep > 0 && (
+                                <div style={{ marginBottom: "1rem", textAlign: "center" }}>
                                     <div className="manage-notes-modal__description">
-                                        Consolidating notes (step {consolidationStep})…
+                                        Consolidating notes (round {consolidationStep})…
                                     </div>
-                                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
+                                    <div style={{ marginTop: "0.25rem", fontSize: "0.8rem", color: "#666" }}>
                                         Your balance is spread across too many notes. Merging them first.
                                     </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="manage-notes-modal__description">Generating zero-knowledge proof…</div>
-                                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
-                                        This may take 10–30 seconds.
-                                    </div>
-                                </>
+                                </div>
                             )}
-                            <div style={{ marginTop: "1rem" }}>
-                                <span className="loading-spinner">⏳</span>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                                {PROGRESS_STEPS.map(({ key, label }) => {
+                                    const state = stepStatus(key, progressStep);
+                                    return (
+                                        <div
+                                            key={key}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "0.6rem",
+                                                opacity: state === "pending" ? 0.4 : 1,
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    width: "1.2rem",
+                                                    textAlign: "center",
+                                                    fontSize: "0.9rem",
+                                                    flexShrink: 0,
+                                                }}
+                                            >
+                                                {state === "done"
+                                                    ? "✓"
+                                                    : state === "active"
+                                                      ? "⏳"
+                                                      : "·"}
+                                            </span>
+                                            <span
+                                                style={{
+                                                    fontSize: "0.9rem",
+                                                    fontWeight: state === "active" ? "bold" : "normal",
+                                                    color: state === "done" ? "#2e7d32" : "inherit",
+                                                }}
+                                            >
+                                                {label}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div style={{ marginTop: "1.25rem", fontSize: "0.78rem", color: "#888", textAlign: "center" }}>
+                                Proof generation may take 10–60 seconds.
                             </div>
                         </div>
                     )}

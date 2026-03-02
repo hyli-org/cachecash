@@ -2886,7 +2886,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sp1-sdk",
+ "tokio",
  "tracing",
+ "utoipa",
+ "utoipa-axum",
 ]
 
 [[package]]
@@ -6317,6 +6320,8 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracing",
+ "utoipa",
+ "utoipa-axum",
  "zk-primitives",
 ]
 
@@ -8220,6 +8225,7 @@ checksum = "6d79d08d92ab8af4c5e8a6da20c47ae3f61a0f1dabc1997cdf2d082b757ca08b"
 dependencies = [
  "proc-macro2",
  "quote",
+ "regex",
  "syn 2.0.115",
 ]
 

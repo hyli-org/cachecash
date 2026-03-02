@@ -12,6 +12,11 @@ pub const HYLI_UTXO_NOIR_VK: &[u8] = include_bytes!(concat!(
     "/../fixtures/keys/hyli_utxo_key"
 ));
 
+pub const HYLI_SMT_INCL_PROOF_VK: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../fixtures/keys/hyli_smt_incl_proof_key"
+));
+
 /// Metadata required to deploy (or validate) a Noir UTXO contract.
 #[derive(Clone, Debug)]
 pub struct ContractDeployment {
@@ -39,6 +44,15 @@ pub fn hyli_utxo_noir_deployment(contract_name: &str) -> ContractDeployment {
     ContractDeployment {
         contract_name: ContractName(contract_name.to_string()),
         program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
+        state_commitment: StateCommitment(vec![0u8; 4]),
+        timeout_window: None,
+    }
+}
+
+pub fn hyli_smt_incl_proof_noir_deployment(contract_name: &str) -> ContractDeployment {
+    ContractDeployment {
+        contract_name: ContractName(contract_name.to_string()),
+        program_id: ProgramId(HYLI_SMT_INCL_PROOF_VK.to_vec()),
         state_commitment: StateCommitment(vec![0u8; 4]),
         timeout_window: None,
     }

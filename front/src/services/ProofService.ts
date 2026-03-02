@@ -13,14 +13,15 @@ function noteToCircuit(note: PrivateNote) {
 }
 
 class ProofService {
-    private backend: UltraHonkBackend | null = null;
-    private noir:    Noir | null = null;
+    // Cache only the circuit JSON; backend is created fresh for each proof
+    // to avoid bb.js WASM singleton state corruption between sequential proofs.
+    private circuit: object | null = null;
 
-    async initialize(): Promise<void> {
-        if (this.backend && this.noir) return;
-        const circuit = await fetch("/hyli_utxo.json").then((r) => r.json());
-        this.backend = new UltraHonkBackend(circuit.bytecode);
-        this.noir    = new Noir(circuit);
+    private async loadCircuit(): Promise<object> {
+        if (!this.circuit) {
+            this.circuit = await fetch("/hyli_utxo.json").then((r) => r.json());
+        }
+        return this.circuit;
     }
 
     async generateProof(
@@ -30,60 +31,65 @@ class ProofService {
         commitments: [string, string, string, string],
         kind:        1 | 2 | 3
     ): Promise<{ proof: string; publicInputs: string[] }> {
-        await this.initialize();
+        const circuit = await this.loadCircuit();
+        const backend = new UltraHonkBackend((circuit as any).bytecode);
+        const noir    = new Noir(circuit as any);
 
-        const identity = blobData.identity; // "transfer@hyli_utxo" (18 chars)
+        try {
+            const identity = blobData.identity; // "transfer@hyli_utxo" (18 chars)
 
-        const inputs = {
-            version:                1,
-            initial_state_len:      4,
-            initial_state:          [0, 0, 0, 0],
-            next_state_len:         4,
-            next_state:             [0, 0, 0, 0],
-            identity_len:           identity.length,
-            identity:               identity.padEnd(256, "\0"),
-            tx_hash:                blobData.txHash,
-            index:                  blobData.blobIndex,
-            blob_number:            1,
-            blob_index:             blobData.blobIndex,
-            blob_contract_name_len: blobData.contractName.length,
-            blob_contract_name:     blobData.contractName.padEnd(256, "\0"),
-            blob_capacity:          128,
-            blob_len:               128,
-            blob:                   Array.from(blobData.blob),
-            tx_blob_count:          blobData.blobCount,
-            success:                true,
-            input_notes: [
-                {
-                    note:       noteToCircuit(inputNotes[0].note),
-                    secret_key: "0x" + inputNotes[0].secretKey,
-                },
-                {
-                    note:       noteToCircuit(inputNotes[1].note),
-                    secret_key: "0x" + inputNotes[1].secretKey,
-                },
-            ],
-            output_notes: [
-                noteToCircuit(outputNotes[0]),
-                noteToCircuit(outputNotes[1]),
-            ],
-            pmessage4:   "0x" + "0".repeat(64),
-            commitments: commitments.map((h) => "0x" + h),
-            messages:    [
-                "0x" + kind.toString(16),
-                "0x0",
-                "0x0",
-                "0x0",
-                "0x0",
-            ],
-        };
+            const inputs = {
+                version:                1,
+                initial_state_len:      4,
+                initial_state:          [0, 0, 0, 0],
+                next_state_len:         4,
+                next_state:             [0, 0, 0, 0],
+                identity_len:           identity.length,
+                identity:               identity.padEnd(256, "\0"),
+                tx_hash:                blobData.txHash,
+                index:                  blobData.blobIndex,
+                blob_number:            1,
+                blob_index:             blobData.blobIndex,
+                blob_contract_name_len: blobData.contractName.length,
+                blob_contract_name:     blobData.contractName.padEnd(256, "\0"),
+                blob_capacity:          128,
+                blob_len:               128,
+                blob:                   Array.from(blobData.blob),
+                tx_blob_count:          blobData.blobCount,
+                success:                true,
+                input_notes: [
+                    {
+                        note:       noteToCircuit(inputNotes[0].note),
+                        secret_key: "0x" + inputNotes[0].secretKey,
+                    },
+                    {
+                        note:       noteToCircuit(inputNotes[1].note),
+                        secret_key: "0x" + inputNotes[1].secretKey,
+                    },
+                ],
+                output_notes: [
+                    noteToCircuit(outputNotes[0]),
+                    noteToCircuit(outputNotes[1]),
+                ],
+                pmessage4:   "0x" + "0".repeat(64),
+                commitments: commitments.map((h) => "0x" + h),
+                messages:    [
+                    "0x" + kind.toString(16),
+                    "0x0",
+                    "0x0",
+                    "0x0",
+                    "0x0",
+                ],
+            };
 
-        const { witness }           = await this.noir!.execute(inputs);
-        const { proof, publicInputs } = await this.backend!.generateProof(witness);
+            const { witness }             = await noir.execute(inputs);
+            const { proof, publicInputs } = await backend.generateProof(witness);
 
-        const proofBase64 = btoa(String.fromCharCode(...proof));
-
-        return { proof: proofBase64, publicInputs: publicInputs as string[] };
+            const proofBase64 = btoa(String.fromCharCode(...proof));
+            return { proof: proofBase64, publicInputs: publicInputs as string[] };
+        } finally {
+            await backend.destroy();
+        }
     }
 }
 

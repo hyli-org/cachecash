@@ -236,6 +236,114 @@ impl BorshSerialize for SMT<BorshableH256> {
     }
 }
 
+/// Build the flat 256-entry siblings array that the Noir circuit expects.
+/// Entry h is the hash of the sibling MergeValue at height h, or [0u8;32]
+/// if that level has no sibling (all-zero path).
+pub fn build_siblings(
+    tree: &SMT<BorshableH256>,
+    commitment: BorshableH256,
+) -> [[u8; 32]; 256] {
+    use sdk::merkle_utils::SHA256Hasher;
+    let proof = tree.merkle_proof(std::iter::once(&commitment)).unwrap();
+    let leaves_bitmap = proof.leaves_bitmap();
+    let merkle_path = proof.merkle_path();
+
+    let mut siblings = [[0u8; 32]; 256];
+    let mut path_idx = 0usize;
+    for h in 0u32..256 {
+        if leaves_bitmap[0].get_bit(h as u8) {
+            let hash: [u8; 32] = merkle_path[path_idx].hash::<SHA256Hasher>().into();
+            siblings[h as usize] = hash;
+            path_idx += 1;
+        }
+    }
+    siblings
+}
+
+#[cfg(test)]
+pub mod smt_fixture {
+    use super::*;
+
+    /// Re-export for tests.
+    pub use super::build_siblings;
+
+    /// Print a Prover.toml for hyli_smt_incl_proof to stdout.
+    /// commitment_0 is the real note; commitment_1 is the zero padding note.
+    pub fn print_prover_toml(commitment_bytes: [u8; 32]) {
+        let commitment = BorshableH256::from(commitment_bytes);
+
+        let mut tree = SMT::<BorshableH256>::zero();
+        tree.update_leaf(commitment, commitment).unwrap();
+        let root: [u8; 32] = tree.root().into();
+
+        let siblings_0 = build_siblings(&tree, commitment);
+        let siblings_1 = [[0u8; 32]; 256]; // padding note — all-zero siblings
+
+        // Build blob: [commitment_0 (32)] [commitment_1=0 (32)] [notes_root (32)]
+        let mut blob = [0u8; 96];
+        blob[..32].copy_from_slice(&commitment_bytes);
+        // blob[32..64] stays zero (padding commitment)
+        blob[64..].copy_from_slice(&root);
+
+        // --- helpers ---
+        fn fmt_bytes32(b: &[u8; 32]) -> String {
+            let s: Vec<String> = b.iter().map(|x| x.to_string()).collect();
+            format!("[{}]", s.join(", "))
+        }
+        fn fmt_siblings(s: &[[u8; 32]; 256]) -> String {
+            let rows: Vec<String> = s.iter().map(|r| fmt_bytes32(r)).collect();
+            format!("[{}]", rows.join(", "))
+        }
+        fn null_padded(s: &str, len: usize) -> String {
+            let nulls: String = std::iter::repeat('\0').take(len - s.len()).collect();
+            format!("{}{}", s, nulls)
+        }
+
+        let contract_name = "hyli_smt_incl_proof";
+        let identity = "test@hyli_smt";
+
+        println!("# Auto-generated Prover.toml for hyli_smt_incl_proof");
+        println!("# commitment_0 = {}", hex::encode(&commitment_bytes));
+        println!("# commitment_1 = 0000..00 (padding)");
+        println!("# notes_root   = {}", hex::encode(&root));
+        println!();
+        println!("version = 1");
+        println!("initial_state_len = 4");
+        println!("initial_state = [0, 0, 0, 0]");
+        println!("next_state_len = 4");
+        println!("next_state = [0, 0, 0, 0]");
+        println!();
+        println!("identity_len = {}", identity.len());
+        println!(r#"identity = "{}""#, null_padded(identity, 256));
+        println!();
+        println!(r#"tx_hash = "{}""#, "0".repeat(64));
+        println!();
+        println!("index = 0");
+        println!("blob_number = 1");
+        println!("blob_index = 0");
+        println!();
+        println!("blob_contract_name_len = {}", contract_name.len());
+        println!(r#"blob_contract_name = "{}""#, null_padded(contract_name, 256));
+        println!();
+        println!("blob_capacity = 96");
+        println!("blob_len = 96");
+        let blob_strs: Vec<String> = blob.iter().map(|x| x.to_string()).collect();
+        println!("blob = [{}]", blob_strs.join(", "));
+        println!();
+        println!("tx_blob_count = 1");
+        println!("success = true");
+        println!();
+        println!("siblings_0 = {}", fmt_siblings(&siblings_0));
+        println!("siblings_1 = {}", fmt_siblings(&siblings_1));
+    }
+
+    #[test]
+    fn generate_smt_prover_toml() {
+        // commitment = [1u8; 32] — a simple non-zero value
+        print_prover_toml([1u8; 32]);
+    }
+}
+
 impl BorshDeserialize for SMT<BorshableH256> {
     fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         let expected_root = BorshableH256::deserialize_reader(reader)?;
