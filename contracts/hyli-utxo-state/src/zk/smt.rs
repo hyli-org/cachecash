@@ -239,10 +239,7 @@ impl BorshSerialize for SMT<BorshableH256> {
 /// Build the flat 256-entry siblings array that the Noir circuit expects.
 /// Entry h is the hash of the sibling MergeValue at height h, or [0u8;32]
 /// if that level has no sibling (all-zero path).
-pub fn build_siblings(
-    tree: &SMT<BorshableH256>,
-    commitment: BorshableH256,
-) -> [[u8; 32]; 256] {
+pub fn build_siblings(tree: &SMT<BorshableH256>, commitment: BorshableH256) -> [[u8; 32]; 256] {
     use sdk::merkle_utils::SHA256Hasher;
     let proof = tree.merkle_proof(std::iter::once(&commitment)).unwrap();
     let leaves_bitmap = proof.leaves_bitmap();
@@ -323,7 +320,10 @@ pub mod smt_fixture {
         println!("blob_index = 0");
         println!();
         println!("blob_contract_name_len = {}", contract_name.len());
-        println!(r#"blob_contract_name = "{}""#, null_padded(contract_name, 256));
+        println!(
+            r#"blob_contract_name = "{}""#,
+            null_padded(contract_name, 256)
+        );
         println!();
         println!("blob_capacity = 96");
         println!("blob_len = 96");
