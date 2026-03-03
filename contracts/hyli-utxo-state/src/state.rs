@@ -1,8 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use hex;
 use sdk::{
-    merkle_utils::BorshableMerkleProof, utils::parse_raw_calldata, Calldata, RunResult,
-    StateCommitment,
+    merkle_utils::BorshableMerkleProof, utils::parse_raw_calldata, Calldata, ContractName,
+    RunResult, StateCommitment,
 };
 use sparse_merkle_tree::H256;
 
@@ -11,19 +11,26 @@ use crate::zk::{
     Proof, ZkVmWitnessVec,
 };
 
+#[derive(Debug, BorshSerialize, BorshDeserialize, Clone)]
+pub struct ContractConfig {
+    pub utxo_contract_name: ContractName,
+    pub smt_incl_proof_contract_name: ContractName,
+}
+
 #[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoState {
     notes_tree: SMT<BorshableH256>,
     nullified_tree: SMT<BorshableH256>,
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Default)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoZkVmState {
     pub notes: ZkVmWitnessVec<WitnessLeaf>,
     pub nullified_notes: ZkVmWitnessVec<WitnessLeaf>,
+    pub config: ContractConfig,
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, Default)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoZkVmBatch {
     pub current: HyliUtxoZkVmState,
     pub remaining: Vec<HyliUtxoZkVmState>,
@@ -49,7 +56,7 @@ impl HyliUtxoZkVmBatch {
         if let Some(next) = self.remaining.pop() {
             self.current = next;
         } else {
-            self.current = HyliUtxoZkVmState::default();
+            self.current = HyliUtxoZkVmState::new(self.current.config.clone());
         }
     }
 }
@@ -121,6 +128,7 @@ impl HyliUtxoState {
 
     pub fn to_zkvm_state(
         &self,
+        config: ContractConfig,
         note_keys: &[BorshableH256],
         nullified_keys: &[BorshableH256],
     ) -> Result<HyliUtxoZkVmState, String> {
@@ -130,6 +138,7 @@ impl HyliUtxoState {
         Ok(HyliUtxoZkVmState {
             notes,
             nullified_notes: nullified,
+            config,
         })
     }
 
@@ -207,6 +216,61 @@ impl HyliUtxoZkVmState {
         0x56, 0xf1,
     ];
 
+    pub fn new(config: ContractConfig) -> Self {
+        Self {
+            config,
+            notes: Default::default(),
+            nullified_notes: Default::default(),
+        }
+    }
+
+    fn check_noir_blobs(&self, calldata: &Calldata) -> Result<(), String> {
+        let Some((_, hyli_utxo_blob)) = calldata
+            .blobs
+            .iter()
+            .find(|(_, blob)| blob.contract_name.0 == "hyli_utxo")
+        else {
+            return Err("hyli_utxo_noir blob not provided in calldata".to_string());
+        };
+
+        let Some((_, smt_blob)) = calldata
+            .blobs
+            .iter()
+            .find(|(_, blob)| blob.contract_name.0 == "hyli_smt_incl")
+        else {
+            return Err("hyli_smt_incl_proof_noir blob not provided in calldata".to_string());
+        };
+
+        // Step 1: Check that the smt_blob's notes root matches the computed notes root from the witness.
+        let (smt_incl_input0, smt_incl_input1, smt_blob_notes_root) =
+            parse_hyli_smt_incl_blob(&smt_blob.data.0)?;
+
+        let self_notes_root = self.notes.compute_root()?;
+
+        // TODO: check against last 1000 roots
+        if smt_blob_notes_root != self_notes_root {
+            return Err("smt inclusion proof blob does not match notes root".to_string());
+        }
+
+        // Step2: check that hyli_utxo_blob and smt_blob contain the same commitments in the expected positions.
+        let (input_notes, _nullified) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)?;
+
+        if input_notes[0] != smt_incl_input0 {
+            return Err(
+                "hyli_utxo_blob input note 0 does not match smt inclusion proof input 0"
+                    .to_string(),
+            );
+        }
+        if input_notes[1] != smt_incl_input1 {
+            return Err(
+                "hyli_utxo_blob input note 1 does not match smt inclusion proof input 1"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
     fn apply_action(&mut self, action: &HyliUtxoStateAction) -> Result<(), String> {
         let created: Vec<_> = action
             .iter()
@@ -249,6 +313,8 @@ impl sdk::ZkContract for HyliUtxoZkVmState {
 
         self.notes.ensure_all_zero()?;
         self.nullified_notes.ensure_all_zero()?;
+
+        self.check_noir_blobs(calldata)?;
 
         self.apply_action(&action)?;
 
@@ -315,7 +381,7 @@ pub fn hyli_utxo_blob<'a>(calldata: &'a Calldata) -> Result<&'a [u8], String> {
 
 pub fn parse_hyli_utxo_blob(
     bytes: &[u8],
-) -> Result<(Vec<BorshableH256>, Vec<BorshableH256>), String> {
+) -> Result<([BorshableH256; 2], [BorshableH256; 2]), String> {
     const EXPECTED_SIZE: usize = 128;
     if bytes.len() != EXPECTED_SIZE {
         return Err(format!(
@@ -333,21 +399,37 @@ pub fn parse_hyli_utxo_blob(
         })
         .collect::<Result<_, _>>()?;
 
-    let nullified = commitments
-        .iter()
-        .take(2)
-        .filter(|commitment| commitment.0 != H256::zero())
-        .copied()
-        .collect();
+    let input_notes = [commitments[0], commitments[1]];
+    let nullified = [commitments[2], commitments[3]];
 
-    let created = commitments
-        .iter()
-        .skip(2)
-        .filter(|commitment| commitment.0 != H256::zero())
-        .copied()
-        .collect();
+    Ok((input_notes, nullified))
+}
 
-    Ok((nullified, created))
+pub fn parse_hyli_smt_incl_blob(
+    bytes: &[u8],
+) -> Result<(BorshableH256, BorshableH256, BorshableH256), String> {
+    const EXPECTED_SIZE: usize = 96;
+    if bytes.len() != EXPECTED_SIZE {
+        return Err(format!(
+            "hyli_smt_incl blob must be {EXPECTED_SIZE} bytes, found {}",
+            bytes.len()
+        ));
+    }
+
+    let commitment0 = BorshableH256::from(
+        <[u8; 32]>::try_from(&bytes[0..32])
+            .map_err(|_| "Failed to read commitment0 from smt blob".to_string())?,
+    );
+    let commitment1 = BorshableH256::from(
+        <[u8; 32]>::try_from(&bytes[32..64])
+            .map_err(|_| "Failed to read commitment1 from smt blob".to_string())?,
+    );
+    let notes_root = BorshableH256::from(
+        <[u8; 32]>::try_from(&bytes[64..96])
+            .map_err(|_| "Failed to read notes_root from smt blob".to_string())?,
+    );
+
+    Ok((commitment0, commitment1, notes_root))
 }
 
 #[cfg(test)]
@@ -355,7 +437,10 @@ mod tests {
     use super::*;
 
     fn state_with_root(byte: u8) -> HyliUtxoZkVmState {
-        let mut state = HyliUtxoZkVmState::default();
+        let mut state = HyliUtxoZkVmState::new(ContractConfig {
+            utxo_contract_name: "dummy_utxo".into(),
+            smt_incl_proof_contract_name: "dummy_smt_incl".into(),
+        });
         let root = BorshableH256::from([byte; 32]);
         state.notes.proof = Proof::CurrentRootHash(root);
         state.nullified_notes.proof = Proof::CurrentRootHash(BorshableH256::from([byte; 32]));

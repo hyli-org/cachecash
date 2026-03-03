@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use config::{Config, Environment, File};
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +11,7 @@ pub struct Conf {
     pub rest_server_max_body_size: usize,
     pub default_faucet_amount: u64,
     pub node_url: String,
-    pub data_directory: String,
+    pub data_directory: PathBuf,
     pub da_read_from: String,
     pub buffer_blocks: u32,
     pub max_txs_per_proof: usize,
@@ -17,6 +19,13 @@ pub struct Conf {
     pub utxo_contract_name: String,
     pub smt_incl_proof_contract_name: String,
     pub utxo_state_contract_name: String,
+
+    pub indexer_database_url: String,
+    pub listener_poll_interval_secs: u64,
+
+    pub auto_prover_idle_flush_interval_secs: u64,
+    pub auto_prover_tx_buffer_size: usize,
+
     /// Maximum size in bytes for encrypted note payloads (default: 65536 = 64KB).
     #[serde(default = "default_max_note_payload_size")]
     pub max_note_payload_size: usize,
