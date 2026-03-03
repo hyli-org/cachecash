@@ -85,6 +85,7 @@ impl HyliUtxoStateExecutor {
         if !created.is_empty() {
             self.state.record_created(created).map_err(|e| anyhow!(e))?;
         }
+        self.state.update_roots();
         Ok(())
     }
 

@@ -1,3 +1,5 @@
+use std::{collections::VecDeque, i8::MAX};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use hex;
 use sdk::{
@@ -11,6 +13,8 @@ use crate::zk::{
     Proof, ZkVmWitnessVec,
 };
 
+const MAX_ROOTS: usize = 1000;
+
 #[derive(Debug, BorshSerialize, BorshDeserialize, Clone)]
 pub struct ContractConfig {
     pub utxo_contract_name: ContractName,
@@ -21,6 +25,7 @@ pub struct ContractConfig {
 pub struct HyliUtxoState {
     notes_tree: SMT<BorshableH256>,
     nullified_tree: SMT<BorshableH256>,
+    roots: VecDeque<[u8; 8]>,
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
@@ -28,6 +33,7 @@ pub struct HyliUtxoZkVmState {
     pub notes: ZkVmWitnessVec<WitnessLeaf>,
     pub nullified_notes: ZkVmWitnessVec<WitnessLeaf>,
     pub config: ContractConfig,
+    pub roots: [[u8; 8]; MAX_ROOTS],
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
@@ -70,6 +76,18 @@ struct CommitmentSnapshot {
 pub type HyliUtxoStateAction = [BorshableH256; 4];
 
 impl HyliUtxoState {
+    pub fn update_roots(&mut self) {
+        let new_root = self.notes_tree.root();
+        let new_root: [u8; 8] = new_root.as_slice()[..8]
+            .try_into()
+            .expect("slice with incorrect length");
+        self.roots.push_front(new_root);
+
+        if self.roots.len() > MAX_ROOTS {
+            self.roots.pop_back();
+        }
+    }
+
     pub fn record_created(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
         for commitment in commitments {
             if commitment.0 == H256::zero() {
@@ -134,11 +152,25 @@ impl HyliUtxoState {
     ) -> Result<HyliUtxoZkVmState, String> {
         let notes = Self::build_witness(&self.notes_tree, note_keys)?;
         let nullified = Self::build_witness(&self.nullified_tree, nullified_keys)?;
+        let roots: [[u8; 8]; MAX_ROOTS] = self
+            .roots
+            .clone()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| {
+                format!(
+                    "failed to convert roots to array: expected length {}, found {}",
+                    MAX_ROOTS,
+                    self.roots.len()
+                )
+            })?;
 
         Ok(HyliUtxoZkVmState {
             notes,
             nullified_notes: nullified,
             config,
+            roots,
         })
     }
 
@@ -221,6 +253,7 @@ impl HyliUtxoZkVmState {
             config,
             notes: Default::default(),
             nullified_notes: Default::default(),
+            roots: [[0u8; 8]; MAX_ROOTS],
         }
     }
 
@@ -245,10 +278,7 @@ impl HyliUtxoZkVmState {
         let (smt_incl_input0, smt_incl_input1, smt_blob_notes_root) =
             parse_hyli_smt_incl_blob(&smt_blob.data.0)?;
 
-        let self_notes_root = self.notes.compute_root()?;
-
-        // TODO: check against last 1000 roots
-        if smt_blob_notes_root != self_notes_root {
+        if self.roots.contains(smt_blob_notes_root) {
             return Err("smt inclusion proof blob does not match notes root".to_string());
         }
 
@@ -407,7 +437,7 @@ pub fn parse_hyli_utxo_blob(
 
 pub fn parse_hyli_smt_incl_blob(
     bytes: &[u8],
-) -> Result<(BorshableH256, BorshableH256, BorshableH256), String> {
+) -> Result<(BorshableH256, BorshableH256, &[u8; 8]), String> {
     const EXPECTED_SIZE: usize = 96;
     if bytes.len() != EXPECTED_SIZE {
         return Err(format!(
@@ -424,12 +454,13 @@ pub fn parse_hyli_smt_incl_blob(
         <[u8; 32]>::try_from(&bytes[32..64])
             .map_err(|_| "Failed to read commitment1 from smt blob".to_string())?,
     );
-    let notes_root = BorshableH256::from(
-        <[u8; 32]>::try_from(&bytes[64..96])
-            .map_err(|_| "Failed to read notes_root from smt blob".to_string())?,
-    );
 
-    Ok((commitment0, commitment1, notes_root))
+    // Only extract fingerprint for notes root (first 8 bytes) since that's the only one we need to verify in the zk contract.
+    let notes_root_fingerprint = bytes[64..(64 + 8)]
+        .try_into()
+        .map_err(|_| "Failed to read notes root fingerprint from smt blob".to_string())?;
+
+    Ok((commitment0, commitment1, notes_root_fingerprint))
 }
 
 #[cfg(test)]
