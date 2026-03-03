@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, i8::MAX};
+use std::collections::VecDeque;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use hex;
@@ -257,7 +257,11 @@ impl HyliUtxoZkVmState {
         }
     }
 
-    fn check_noir_blobs(&self, calldata: &Calldata) -> Result<(), String> {
+    fn check_noir_blobs(
+        &self,
+        action: &HyliUtxoStateAction,
+        calldata: &Calldata,
+    ) -> Result<(), String> {
         let Some((_, hyli_utxo_blob)) = calldata
             .blobs
             .iter()
@@ -298,25 +302,34 @@ impl HyliUtxoZkVmState {
             );
         }
 
+        // Step3: Check that the noir input commitments match the action commitments.
+        let (created, _nullified) = Self::split_action(action);
+        let expected_input0 = created
+            .first()
+            .copied()
+            .ok_or_else(|| "action must have at least 1 created note".to_string())?;
+
+        if input_notes[0] != expected_input0 {
+            return Err(
+                "hyli_utxo_blob input note 0 does not match action created note 0".to_string(),
+            );
+        }
+
+        let expected_input1 = created
+            .get(1)
+            .copied()
+            .unwrap_or_else(|| BorshableH256::from(H256::zero()));
+        if input_notes[1] != expected_input1 {
+            return Err(
+                "hyli_utxo_blob input note 1 does not match action created note 1".to_string(),
+            );
+        }
+
         Ok(())
     }
 
     fn apply_action(&mut self, action: &HyliUtxoStateAction) -> Result<(), String> {
-        let created: Vec<_> = action
-            .iter()
-            .take(2)
-            .copied()
-            .filter(|c| c.0 != H256::zero())
-            .collect();
-        let nullified: Vec<_> = action
-            .iter()
-            .skip(2)
-            .copied()
-            .filter(|c| {
-                let bytes: [u8; 32] = c.0.into();
-                c.0 != H256::zero() && bytes != Self::PADDING_NULLIFIER
-            })
-            .collect();
+        let (created, nullified) = Self::split_action(action);
 
         if self.notes.values.len() != created.len() {
             return Err("notes witness entries do not match action size".to_string());
@@ -335,6 +348,26 @@ impl HyliUtxoZkVmState {
 
         Ok(())
     }
+
+    fn split_action(action: &HyliUtxoStateAction) -> (Vec<BorshableH256>, Vec<BorshableH256>) {
+        let created: Vec<_> = action
+            .iter()
+            .take(2)
+            .copied()
+            .filter(|c| c.0 != H256::zero())
+            .collect();
+        let nullified: Vec<_> = action
+            .iter()
+            .skip(2)
+            .copied()
+            .filter(|c| {
+                let bytes: [u8; 32] = c.0.into();
+                c.0 != H256::zero() && bytes != Self::PADDING_NULLIFIER
+            })
+            .collect();
+
+        (created, nullified)
+    }
 }
 
 impl sdk::ZkContract for HyliUtxoZkVmState {
@@ -344,7 +377,7 @@ impl sdk::ZkContract for HyliUtxoZkVmState {
         self.notes.ensure_all_zero()?;
         self.nullified_notes.ensure_all_zero()?;
 
-        self.check_noir_blobs(calldata)?;
+        self.check_noir_blobs(&action, calldata)?;
 
         self.apply_action(&action)?;
 
