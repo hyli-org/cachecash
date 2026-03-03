@@ -265,7 +265,7 @@ impl HyliUtxoZkVmState {
         let Some((_, hyli_utxo_blob)) = calldata
             .blobs
             .iter()
-            .find(|(_, blob)| blob.contract_name.0 == "hyli_utxo")
+            .find(|(_, blob)| blob.contract_name == self.config.utxo_contract_name)
         else {
             return Err("hyli_utxo_noir blob not provided in calldata".to_string());
         };
@@ -273,7 +273,7 @@ impl HyliUtxoZkVmState {
         let Some((_, smt_blob)) = calldata
             .blobs
             .iter()
-            .find(|(_, blob)| blob.contract_name.0 == "hyli_smt_incl")
+            .find(|(_, blob)| blob.contract_name == self.config.smt_incl_proof_contract_name)
         else {
             return Err("hyli_smt_incl_proof_noir blob not provided in calldata".to_string());
         };
@@ -431,15 +431,6 @@ impl sdk::TransactionalZkContract for HyliUtxoZkVmBatch {
         self.advance_step();
         commitment
     }
-}
-
-pub fn hyli_utxo_blob<'a>(calldata: &'a Calldata) -> Result<&'a [u8], String> {
-    calldata
-        .blobs
-        .iter()
-        .find(|(_, blob)| blob.contract_name.0 == "hyli_utxo")
-        .map(|(_, blob)| blob.data.0.as_slice())
-        .ok_or_else(|| "hyli_utxo blob not provided in calldata".to_string())
 }
 
 pub fn parse_hyli_utxo_blob(
