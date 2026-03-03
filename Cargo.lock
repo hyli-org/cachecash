@@ -3042,6 +3042,8 @@ dependencies = [
 name = "hyli-utxo-state"
 version = "0.0.0"
 dependencies = [
+ "acvm",
+ "bn254_blackbox_solver",
  "borsh",
  "hex",
  "hyli-contract-sdk",
