@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use hyli_utxo_state::HyliUtxoState;
+use hyli_utxo_state::{state::ContractConfig, HyliUtxoState};
 use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
 use tracing::info;
 
@@ -24,6 +24,7 @@ pub struct ContractDeployment {
     pub program_id: ProgramId,
     pub state_commitment: StateCommitment,
     pub timeout_window: Option<u64>,
+    pub registration_metadata: Option<Vec<u8>>,
 }
 
 impl ContractDeployment {
@@ -35,7 +36,7 @@ impl ContractDeployment {
             state_commitment: self.state_commitment.clone(),
             contract_name: self.contract_name.clone(),
             timeout_window: self.timeout_window.map(|t| (0, t)),
-            constructor_metadata: None,
+            constructor_metadata: self.registration_metadata.clone(),
         }
     }
 }
@@ -46,6 +47,7 @@ pub fn hyli_utxo_noir_deployment(contract_name: &str) -> ContractDeployment {
         program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
         state_commitment: StateCommitment(vec![0u8; 4]),
         timeout_window: None,
+        registration_metadata: None,
     }
 }
 
@@ -55,16 +57,23 @@ pub fn hyli_smt_incl_proof_noir_deployment(contract_name: &str) -> ContractDeplo
         program_id: ProgramId(HYLI_SMT_INCL_PROOF_VK.to_vec()),
         state_commitment: StateCommitment(vec![0u8; 4]),
         timeout_window: None,
+        registration_metadata: None,
     }
 }
 
-pub fn hyli_utxo_state_deployment(contract_name: &str) -> ContractDeployment {
+pub fn hyli_utxo_state_deployment(
+    contract_name: &str,
+    contract_config: &ContractConfig,
+) -> ContractDeployment {
+    let registration_metadata = borsh::to_vec(contract_config)
+        .expect("ContractConfig should serialize for registration metadata");
     let hyli_utxo_state = HyliUtxoState::default();
     ContractDeployment {
         contract_name: ContractName(contract_name.to_string()),
         program_id: ProgramId(HYLI_UTXO_STATE_VK.to_vec()),
         state_commitment: hyli_utxo_state.commitment(),
         timeout_window: None,
+        registration_metadata: Some(registration_metadata),
     }
 }
 

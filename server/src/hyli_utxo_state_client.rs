@@ -10,21 +10,24 @@ use client_sdk::{
 };
 use hex::encode as hex_encode;
 use hyli_utxo_state::{
-    state::{HyliUtxoState, HyliUtxoStateAction},
+    state::{ContractConfig, HyliUtxoState, HyliUtxoStateAction},
     zk::BorshableH256,
     HyliUtxoZkVmBatch, HyliUtxoZkVmState,
 };
 use sdk::{
+    caller::ExecutionContext,
     utils::{as_hyli_output, parse_raw_calldata},
-    Blob, Calldata, Contract, ContractName, HyliOutput, RunResult, StateCommitment,
+    Blob, BlobIndex, Calldata, Contract, ContractName, HyliOutput, RegisterContractAction,
+    RunResult, StateCommitment,
 };
 use tracing::info;
 use utoipa::openapi::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-#[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoStateExecutor {
     state: HyliUtxoState,
+    config: ContractConfig,
 }
 
 impl Clone for HyliUtxoStateExecutor {
@@ -32,11 +35,19 @@ impl Clone for HyliUtxoStateExecutor {
         let encoded = borsh::to_vec(&self.state).expect("HyliUtxoState should serialize for clone");
         let state =
             borsh::from_slice(&encoded).expect("HyliUtxoState should deserialize for clone");
-        Self { state }
+        let config = self.config.clone();
+        Self { state, config }
     }
 }
 
 impl HyliUtxoStateExecutor {
+    pub fn new(config: ContractConfig) -> Self {
+        Self {
+            state: HyliUtxoState::default(),
+            config,
+        }
+    }
+
     pub fn utxo_state(&self) -> &HyliUtxoState {
         &self.state
     }
@@ -47,7 +58,7 @@ impl HyliUtxoStateExecutor {
         nullified_keys: &[BorshableH256],
     ) -> Result<HyliUtxoZkVmState> {
         self.state
-            .to_zkvm_state(note_keys, nullified_keys)
+            .to_zkvm_state(self.config.clone(), note_keys, nullified_keys)
             .map_err(|e| anyhow!(e))
     }
 
@@ -74,6 +85,7 @@ impl HyliUtxoStateExecutor {
         if !created.is_empty() {
             self.state.record_created(created).map_err(|e| anyhow!(e))?;
         }
+        self.state.update_roots();
         Ok(())
     }
 
@@ -141,13 +153,19 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
         _contract: &Contract,
         metadata: &Option<Vec<u8>>,
     ) -> Result<Self> {
-        let state = match metadata {
-            Some(bytes) if !bytes.is_empty() => {
-                borsh::from_slice(bytes).context("decoding HyliUtxoState")?
-            }
-            _ => HyliUtxoState::default(),
+        let config = if let Some(bytes) = metadata {
+            borsh::from_slice(bytes)
+                .context("decoding ContractConfig from registration metadata")?
+        } else {
+            return Err(anyhow!(
+                "Contract registration metadata is required to construct HyliUtxoStateExecutor"
+            ));
         };
-        Ok(HyliUtxoStateExecutor { state })
+
+        Ok(HyliUtxoStateExecutor {
+            state: HyliUtxoState::default(),
+            config,
+        })
     }
 
     fn build_commitment_metadata(&self, blob: &Blob) -> Result<Vec<u8>> {
@@ -186,8 +204,31 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
     fn handle(&mut self, calldata: &Calldata) -> Result<HyliOutput> {
         let initial_commitment = self.get_state_commitment();
 
-        let (_, execution_ctx) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)
-            .map_err(|e| anyhow!("parsing calldata: {e}"))?;
+        let Ok((_, execution_ctx)) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)
+            .map_err(|e| anyhow!("parsing calldata: {e}"))
+        else {
+            let _blob0: RegisterContractAction = borsh::from_slice(
+                &calldata
+                    .blobs
+                    .get(&BlobIndex(0))
+                    .map(|b| &b.data.0)
+                    .ok_or_else(|| {
+                        anyhow!("calldata did not match HyliUtxoStateAction, checking for RegisterContractAction, but blob index 0 not found in calldata for RegisterContractAction")
+                    })?,
+            )
+            .map_err(|e| anyhow!("calldata did not match HyliUtxoStateAction, checking for RegisterContractAction but parsing first blob as RegisterContractAction failed: {e}"))?;
+
+            return Ok(as_hyli_output(
+                initial_commitment.clone(),
+                initial_commitment,
+                calldata,
+                &mut Ok((
+                    "Ignoring placeholder blob".as_bytes().to_vec(),
+                    ExecutionContext::default(),
+                    vec![],
+                )),
+            ));
+        };
 
         let (created, nullified) = self.update_from_blob(calldata)?;
 
@@ -256,13 +297,15 @@ async fn get_smt_witness(
     State(store): State<ContractHandlerStore<HyliUtxoStateExecutor>>,
 ) -> Result<Json<SmtWitnessResponse>, (axum::http::StatusCode, String)> {
     let store = store.read().await;
-    let executor = store
-        .state
-        .as_ref()
-        .ok_or_else(|| (axum::http::StatusCode::SERVICE_UNAVAILABLE, "State not yet initialized".to_string()))?;
+    let executor = store.state.as_ref().ok_or_else(|| {
+        (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "State not yet initialized".to_string(),
+        )
+    })?;
 
-    let c0 = parse_hex32(&params.commitment0)
-        .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
+    let c0 =
+        parse_hex32(&params.commitment0).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?;
     let c1 = match params.commitment1.as_deref() {
         Some(s) => parse_hex32(s).map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e))?,
         None => BorshableH256::from([0u8; 32]),

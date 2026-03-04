@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use axum::Router;
@@ -7,8 +7,9 @@ use client_sdk::{
     helpers::sp1::SP1Prover,
     rest_client::{NodeApiClient, NodeApiHttpClient},
 };
-use hyli_modules::modules::contract_state_indexer::{
-    ContractStateIndexer, ContractStateIndexerCtx,
+use hyli_modules::modules::{
+    contract_listener::{ContractListener, ContractListenerConf},
+    contract_state_indexer::{ContractStateIndexer, ContractStateIndexerCtx},
 };
 use hyli_modules::{
     bus::SharedMessageBus,
@@ -21,6 +22,7 @@ use hyli_modules::{
     },
     utils::logger::setup_otlp,
 };
+use hyli_utxo_state::state::ContractConfig;
 use sdk::{api::NodeInfo, verifiers, ContractName, Verifier};
 use server::{
     api::{ApiModule, ApiModuleCtx},
@@ -95,10 +97,15 @@ async fn main() -> Result<()> {
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?,
     );
 
+    let contract_config = ContractConfig {
+        utxo_contract_name: ContractName(config.utxo_contract_name.clone()),
+        smt_incl_proof_contract_name: ContractName(config.smt_incl_proof_contract_name.clone()),
+    };
     let hyli_utxo_contract = hyli_utxo_noir_deployment(&config.utxo_contract_name);
     let hyli_smt_incl_proof_contract =
         hyli_smt_incl_proof_noir_deployment(&config.smt_incl_proof_contract_name);
-    let hyli_utxo_state_contract = hyli_utxo_state_deployment(&config.utxo_state_contract_name);
+    let hyli_utxo_state_contract =
+        hyli_utxo_state_deployment(&config.utxo_state_contract_name, &contract_config);
     let contracts = vec![
         ContractInit {
             deployment: hyli_utxo_contract.clone(),
@@ -204,6 +211,17 @@ async fn main() -> Result<()> {
         .await
         .context("building API module")?;
 
+    let listener_contracts = HashSet::from([config.utxo_state_contract_name.clone().into()]);
+    handler
+        .build_module::<ContractListener>(ContractListenerConf {
+            database_url: config.indexer_database_url.clone(),
+            data_directory: config.data_directory.clone(),
+            contracts: listener_contracts,
+            poll_interval: Duration::from_secs(config.listener_poll_interval_secs),
+            replay_settled_from_start: true,
+        })
+        .await?;
+
     handler
         .build_module::<ContractStateIndexer<HyliUtxoStateExecutor>>(ContractStateIndexerCtx {
             data_directory: data_directory.clone(),
@@ -214,28 +232,16 @@ async fn main() -> Result<()> {
         .context("building ContractStateIndexer for hyli-utxo-state")?;
 
     handler
-        .build_module::<SignedDAListener<NodeStateBlockProcessor>>(DAListenerConf {
-            start_block: None,
-            data_directory: data_directory.clone(),
-            da_read_from: config.da_read_from.clone(),
-            timeout_client_secs: 10,
-            da_fallback_addresses: vec![],
-            processor_config: (),
-        })
-        .await
-        .context("building DA listener module")?;
-
-    handler
         .build_module::<AutoProver<HyliUtxoStateExecutor, SP1Prover>>(Arc::new(AutoProverCtx {
             data_directory: data_directory.clone(),
             prover: prover.clone(),
             contract_name: ContractName(config.utxo_state_contract_name.clone()),
             node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
-            default_state: HyliUtxoStateExecutor::default(),
-            buffer_blocks: config.buffer_blocks,
             max_txs_per_proof: config.max_txs_per_proof,
             tx_working_window_size: config.tx_working_window_size,
             api: Some(api_builder_ctx.clone()),
+            idle_flush_interval: Duration::from_secs(config.auto_prover_idle_flush_interval_secs),
+            tx_buffer_size: config.auto_prover_tx_buffer_size,
         }))
         .await
         .context("building auto prover module")?;
