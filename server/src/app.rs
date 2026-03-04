@@ -13,9 +13,14 @@ use sdk::{
     ProofTransaction, TxHash, Verifier,
 };
 use tracing::{info, warn};
-use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES};
+use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
 
-use crate::{init::HYLI_UTXO_NOIR_VK, noir_prover::HyliUtxoProofJob, tx::FAUCET_IDENTITY_PREFIX};
+use crate::{
+    init::HYLI_UTXO_NOIR_VK,
+    noir_prover::HyliUtxoProofJob,
+    smt_incl_prover::SmtInclProofJob,
+    tx::FAUCET_IDENTITY_PREFIX,
+};
 
 pub const FAUCET_MINT_AMOUNT: u64 = 10;
 
@@ -59,6 +64,7 @@ pub fn build_note(recipient_address: Element, amount: u64) -> Note {
 module_bus_client! {
 pub struct FaucetBusClient {
     sender(HyliUtxoProofJob),
+    sender(SmtInclProofJob),
     receiver(FaucetMintCommand),
     receiver(TransferCommand),
     receiver(TransferWithProofCommand),
@@ -70,6 +76,7 @@ pub struct FaucetAppContext {
     pub client: NodeApiHttpClient,
     pub utxo_contract_name: String,
     pub utxo_state_contract_name: String,
+    pub incl_proof_contract_name: String,
 }
 
 pub struct FaucetApp {
@@ -80,6 +87,7 @@ pub struct FaucetApp {
     note_index: u64,
     utxo_contract_name: String,
     utxo_state_contract_name: String,
+    incl_proof_contract_name: String,
 }
 
 impl Module for FaucetApp {
@@ -96,6 +104,7 @@ impl Module for FaucetApp {
             note_index: 0,
             utxo_contract_name: ctx.utxo_contract_name,
             utxo_state_contract_name: ctx.utxo_state_contract_name,
+            incl_proof_contract_name: ctx.incl_proof_contract_name,
         })
     }
 
@@ -131,6 +140,10 @@ impl FaucetApp {
 
         if let Err(err) = self.enqueue_proof_job(&blob_transaction, &tx_hash, utxo) {
             warn!(error = %err, "failed to enqueue Noir proof job");
+        }
+
+        if let Err(err) = self.enqueue_smt_incl_proof_job(&blob_transaction, &tx_hash) {
+            warn!(error = %err, "failed to enqueue SMT incl proof job");
         }
 
         Ok(())
@@ -173,15 +186,25 @@ impl FaucetApp {
                 nullifier_index += 1;
             }
         }
+        let mut incl_proof_bytes = vec![0u8; 3 * 32];
+        // first 2 * 32 bytes are same as hyli_utxo blob (input commitments)
+        incl_proof_bytes[..64].copy_from_slice(&blob_bytes[..64]);
+        // Last 32 bytes are the root hasher
+        incl_proof_bytes[64..96].copy_from_slice(&self.notes_root.to_be_bytes());
 
         let state_action: HyliUtxoStateAction = state_commitments;
 
         let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
         let hyli_utxo_data = BlobData(blob_bytes);
+        let hyli_smt_incl_data = BlobData(incl_proof_bytes);
         let state_blob_data = BlobData(
             borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
         );
+        let hyli_smt_incl_blob = Blob {
+            contract_name: ContractName(self.incl_proof_contract_name.clone()),
+            data: hyli_smt_incl_data,
+        };
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),
             data: hyli_utxo_data,
@@ -190,7 +213,10 @@ impl FaucetApp {
             contract_name: ContractName(self.utxo_state_contract_name.clone()),
             data: state_blob_data,
         };
-        let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
+        let blob_transaction = BlobTransaction::new(
+            identity,
+            vec![state_blob, hyli_utxo_blob, hyli_smt_incl_blob],
+        );
 
         Ok((blob_transaction, utxo))
     }
@@ -233,6 +259,52 @@ impl FaucetApp {
         self.bus
             .send(job)
             .context("broadcasting hyli_utxo proof job")?;
+
+        Ok(())
+    }
+
+    fn enqueue_smt_incl_proof_job(
+        &mut self,
+        blob_tx: &BlobTransaction,
+        tx_hash: &TxHash,
+    ) -> Result<()> {
+        let Some((blob_index, blob)) = blob_tx
+            .blobs
+            .iter()
+            .enumerate()
+            .find(|(_, blob)| blob.contract_name.0 == self.incl_proof_contract_name)
+        else {
+            bail!("hyli_smt_incl_proof blob not found in transaction payload");
+        };
+
+        if blob.data.0.len() < HYLI_SMT_INCL_BLOB_LENGTH_BYTES {
+            bail!(
+                "hyli_smt_incl_proof blob payload is {} bytes, expected {}",
+                blob.data.0.len(),
+                HYLI_SMT_INCL_BLOB_LENGTH_BYTES
+            );
+        }
+
+        let mut payload = [0u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES];
+        payload.copy_from_slice(&blob.data.0[..HYLI_SMT_INCL_BLOB_LENGTH_BYTES]);
+
+        // For zero commitments (mint/padding), siblings are unused by the circuit.
+        let siblings_0 = Box::new([[0u8; 32]; 256]);
+        let siblings_1 = Box::new([[0u8; 32]; 256]);
+
+        let job = SmtInclProofJob {
+            tx_hash: tx_hash.clone(),
+            identity: blob_tx.identity.clone(),
+            blob: payload,
+            tx_blob_count: blob_tx.blobs.len() as u32,
+            blob_index: blob_index as u32,
+            siblings_0,
+            siblings_1,
+        };
+
+        self.bus
+            .send(job)
+            .context("broadcasting hyli_smt_incl_proof job")?;
 
         Ok(())
     }
@@ -527,6 +599,7 @@ mod tests {
                 .expect("client init"),
             utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
             utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
+            incl_proof_contract_name: "hyli_smt_incl_proof".to_string(),
         };
 
         let mut app = FaucetApp::build(bus, context)

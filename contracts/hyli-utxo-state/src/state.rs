@@ -152,19 +152,14 @@ impl HyliUtxoState {
     ) -> Result<HyliUtxoZkVmState, String> {
         let notes = Self::build_witness(&self.notes_tree, note_keys)?;
         let nullified = Self::build_witness(&self.nullified_tree, nullified_keys)?;
-        let roots: [[u8; 8]; MAX_ROOTS] = self
-            .roots
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| {
-                format!(
-                    "failed to convert roots to array: expected length {}, found {}",
-                    MAX_ROOTS,
-                    self.roots.len()
-                )
-            })?;
+        let mut roots_vec: Vec<[u8; 8]> = self.roots.iter().cloned().collect();
+        roots_vec.resize(MAX_ROOTS, [0u8; 8]);
+        let roots: [[u8; 8]; MAX_ROOTS] = roots_vec.try_into().map_err(|_| {
+            format!(
+                "failed to convert roots to array: expected length {}",
+                MAX_ROOTS,
+            )
+        })?;
 
         Ok(HyliUtxoZkVmState {
             notes,
@@ -303,26 +298,16 @@ impl HyliUtxoZkVmState {
         }
 
         // Step3: Check that the noir input commitments match the action commitments.
-        let (created, _nullified) = Self::split_action(action);
-        let expected_input0 = created
-            .first()
-            .copied()
-            .ok_or_else(|| "action must have at least 1 created note".to_string())?;
-
-        if input_notes[0] != expected_input0 {
+        if !input_notes[0].is_zero() && !self.notes.contains_key(input_notes[0]) {
             return Err(
-                "hyli_utxo_blob input note 0 does not match action created note 0".to_string(),
-            );
+                "hyli_utxo_blob input note 0 does not match state provided notes tree".to_string(),
+            )?;
         }
 
-        let expected_input1 = created
-            .get(1)
-            .copied()
-            .unwrap_or_else(|| BorshableH256::from(H256::zero()));
-        if input_notes[1] != expected_input1 {
+        if !input_notes[1].is_zero() && !self.notes.contains_key(input_notes[1]) {
             return Err(
-                "hyli_utxo_blob input note 1 does not match action created note 1".to_string(),
-            );
+                "hyli_utxo_blob input note 1 does not match state provided notes tree".to_string(),
+            )?;
         }
 
         Ok(())

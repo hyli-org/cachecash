@@ -36,6 +36,7 @@ use server::{
     metrics::FaucetMetrics,
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
     note_store::{AddressRegistry, NoteStore},
+    smt_incl_prover::{HyliSmtInclNoirProver, SmtInclProverCtx},
     utils::load_utxo_state_proving_key,
 };
 use tracing::{error, info};
@@ -159,10 +160,19 @@ async fn main() -> Result<()> {
         .context("building hyli_utxo Noir prover module")?;
 
     handler
+        .build_module::<HyliSmtInclNoirProver>(Arc::new(SmtInclProverCtx {
+            node: node_client.clone() as Arc<dyn NodeApiClient + Send + Sync>,
+            contract: hyli_smt_incl_proof_contract.clone(),
+        }))
+        .await
+        .context("building hyli_smt_incl_proof Noir prover module")?;
+
+    handler
         .build_module::<FaucetApp>(FaucetAppContext {
             client: node_client.as_ref().clone(),
             utxo_contract_name: config.utxo_contract_name.clone(),
             utxo_state_contract_name: config.utxo_state_contract_name.clone(),
+            incl_proof_contract_name: config.smt_incl_proof_contract_name.clone(),
         })
         .await
         .context("building faucet module")?;
