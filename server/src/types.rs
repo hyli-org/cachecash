@@ -162,6 +162,8 @@ pub struct CreateBlobRequest {
     pub blob_data: Vec<u8>,
     /// 96-byte SMT blob data: [commit0 (32B)][commit1 (32B)][notes_root (32B)]
     pub smt_blob_data: Vec<u8>,
+    /// Raw blob bytes for `smt-token` contract (transfer evidence).
+    pub token_blob_data: Vec<u8>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
 }
@@ -198,6 +200,8 @@ pub struct FinalizeTransferRequest {
     pub blob_data: Vec<u8>,
     /// 96-byte SMT blob data: [commit0 (32B)][commit1 (32B)][notes_root (32B)]
     pub smt_blob_data: Vec<u8>,
+    /// Raw blob bytes for `smt-token` contract (transfer evidence).
+    pub token_blob_data: Vec<u8>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
     /// Base64-encoded proof bytes for hyli_utxo

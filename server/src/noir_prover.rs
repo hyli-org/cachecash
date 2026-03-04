@@ -11,7 +11,10 @@ use hyli_modules::{
 use sdk::{Identity, TxHash};
 use tokio::task::{JoinError, JoinSet};
 use tracing::{error, info};
-use zk_primitives::{HyliUtxo, ToBytes, Utxo, HYLI_BLOB_LENGTH_BYTES};
+use zk_primitives::{
+    HyliUtxo, ToBytes, Utxo, HYLI_BLOB_LENGTH_BYTES, HYLI_TOKEN_ACTION_MAX_BYTES,
+    HYLI_TOKEN_CONTRACT_NAME,
+};
 
 use crate::{
     init::ContractDeployment,
@@ -27,6 +30,9 @@ pub struct HyliUtxoProofJob {
     pub blob: [u8; HYLI_BLOB_LENGTH_BYTES],
     pub tx_blob_count: u32,
     pub blob_index: u32,
+    pub token_blob_index: u32,
+    pub token_blob_len: u32,
+    pub token_blob: [u8; HYLI_TOKEN_ACTION_MAX_BYTES],
 }
 
 impl BusMessage for HyliUtxoProofJob {
@@ -60,7 +66,7 @@ impl Module for HyliUtxoNoirProver {
         Self::check_bb_version()?;
 
         let bus = HyliUtxoNoirProverBusClient::new_from_bus(bus.new_handle()).await;
-        let prover = NoirProver::new();
+        let prover = NoirProver::default();
         let metrics = ctx.metrics.clone();
 
         Ok(Self {
@@ -211,13 +217,19 @@ impl HyliUtxoNoirProver {
             identity: padded_identity,
             tx_hash: hex::encode(&job.tx_hash.0),
             index: job.blob_index,
-            blob_number: 1,
+            blob_number: 2,
             blob_index: job.blob_index,
             blob_contract_name_len: contract_name.len() as u8,
             blob_contract_name: padded_contract_name,
             blob_capacity: HYLI_BLOB_LENGTH_BYTES as u32,
             blob_len: HYLI_BLOB_LENGTH_BYTES as u32,
             blob: job.blob,
+            token_blob_index: job.token_blob_index,
+            token_blob_contract_name_len: HYLI_TOKEN_CONTRACT_NAME.len() as u8,
+            token_blob_contract_name: HYLI_TOKEN_CONTRACT_NAME.to_string(),
+            token_blob_capacity: HYLI_TOKEN_ACTION_MAX_BYTES as u32,
+            token_blob_len: job.token_blob_len,
+            token_blob: job.token_blob,
             tx_blob_count: job.tx_blob_count,
             success: true,
             utxo: job.utxo.clone(),
@@ -232,7 +244,7 @@ pub(crate) fn pad_right_with_null(value: &str, target_len: usize) -> Result<Stri
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     Ok(padded)
 }

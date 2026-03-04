@@ -21,15 +21,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use serde::{Deserialize, Serialize};
     use test_strategy::proptest;
 
     use crate::Element;
-
-    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-    struct Example {
-        element: Element,
-    }
 
     #[proptest]
     fn elements_produce_identical_base_before_after_serialize(element: Element) {

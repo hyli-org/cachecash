@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 
 /// Number of public input fields emitted by the Hyli UTXO proof.
 pub const HYLI_UTXO_PUBLIC_INPUTS_COUNT: usize = 733;
+/// Max number of bytes reserved for serialized `SmtTokenAction::Transfer`.
+pub const HYLI_TOKEN_ACTION_MAX_BYTES: usize = 256;
+/// Token contract name expected by the hyli_utxo transfer-backed action.
+pub const HYLI_TOKEN_CONTRACT_NAME: &str = "smt-token";
 
 /// Number of field elements concatenated into the Hyli blob (2 input commitments + 2 nullifier commitments).
 pub const HYLI_BLOB_HASH_COUNT: usize = 4;
@@ -33,20 +37,32 @@ pub struct HyliUtxo {
     pub tx_hash: String,
     /// Transaction index inside the blob.
     pub index: u32,
-    /// Blob number inside the batch.
+    /// Number of blobs emitted by this proof output.
     pub blob_number: u32,
-    /// Index of the blob within the Hyli transaction call.
+    /// Index of the hyli_utxo blob within the Hyli transaction call.
     pub blob_index: u32,
-    /// Declared length for the blob contract name.
+    /// Declared length for the hyli_utxo blob contract name.
     pub blob_contract_name_len: u8,
-    /// Contract name attached to the blob (will be padded to 256 bytes).
+    /// Contract name attached to the hyli_utxo blob (will be padded to 256 bytes).
     pub blob_contract_name: String,
-    /// Blob capacity advertised by the host.
+    /// hyli_utxo blob capacity advertised by the host.
     pub blob_capacity: u32,
-    /// Actual blob length.
+    /// hyli_utxo blob length.
     pub blob_len: u32,
-    /// Blob payload (input commitments followed by nullifier commitments) exposed publicly.
+    /// hyli_utxo blob payload (input commitments followed by nullifier commitments).
     pub blob: [u8; HYLI_BLOB_LENGTH_BYTES],
+    /// Index of the smt-token transfer blob within the Hyli transaction call.
+    pub token_blob_index: u32,
+    /// Declared length for the token blob contract name.
+    pub token_blob_contract_name_len: u8,
+    /// Contract name attached to the token blob (will be padded to 256 bytes).
+    pub token_blob_contract_name: String,
+    /// token blob capacity advertised by the host.
+    pub token_blob_capacity: u32,
+    /// token blob length.
+    pub token_blob_len: u32,
+    /// token blob payload carrying raw `SmtTokenAction::Transfer` bytes.
+    pub token_blob: [u8; HYLI_TOKEN_ACTION_MAX_BYTES],
     /// Number of blobs included in the transaction.
     pub tx_blob_count: u32,
     /// Execution success flag reported by the host.
@@ -91,6 +107,12 @@ impl HyliUtxo {
         pad_string(&self.blob_contract_name, 256)
     }
 
+    /// Hyli expects the token blob contract name to occupy 256 characters.
+    #[must_use]
+    pub fn padded_token_blob_contract_name(&self) -> String {
+        pad_string(&self.token_blob_contract_name, 256)
+    }
+
     /// Returns the private commitments inserted into the nullifier tree for each input note.
     #[must_use]
     pub fn nullifier_commitments(&self) -> [Element; 2] {
@@ -115,7 +137,7 @@ impl HyliUtxo {
             write_index += HYLI_BLOB_HASH_BYTE_LENGTH;
         }
 
-        for field in nullifiers.iter() {
+        for field in &nullifiers {
             blob[write_index..write_index + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&field.to_be_bytes());
             write_index += HYLI_BLOB_HASH_BYTE_LENGTH;
@@ -128,15 +150,13 @@ impl HyliUtxo {
 fn pad_string(value: &str, target_len: usize) -> String {
     assert!(
         value.len() <= target_len,
-        "string '{}' exceeds maximum length {}",
-        value,
-        target_len
+        "string '{value}' exceeds maximum length {target_len}"
     );
 
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     padded
 }

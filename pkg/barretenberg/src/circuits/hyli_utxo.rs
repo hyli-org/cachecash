@@ -75,7 +75,6 @@ impl Verify for HyliUtxoProof {
 
 fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
     let mut map = InputMap::new();
-    let expected_blob = value.expected_blob();
 
     assert!(
         value.blob_capacity as usize == HYLI_BLOB_LENGTH_BYTES,
@@ -86,10 +85,6 @@ fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
         value.blob_len as usize == HYLI_BLOB_LENGTH_BYTES,
         "blob length must be {} bytes",
         HYLI_BLOB_LENGTH_BYTES
-    );
-    assert!(
-        value.blob == expected_blob,
-        "provided blob must match concatenated commitments"
     );
 
     map.insert(
@@ -167,7 +162,38 @@ fn build_hyli_input_map(value: &HyliUtxo) -> InputMap {
     map.insert(
         "blob".to_owned(),
         InputValue::Vec(
-            expected_blob
+            value
+                .blob
+                .iter()
+                .map(|b| InputValue::Field(Base::from(*b as u64)))
+                .collect(),
+        ),
+    );
+    map.insert(
+        "token_blob_index".to_owned(),
+        InputValue::Field(Base::from(value.token_blob_index as u64)),
+    );
+    map.insert(
+        "token_blob_contract_name_len".to_owned(),
+        InputValue::Field(Base::from(value.token_blob_contract_name_len as u64)),
+    );
+    map.insert(
+        "token_blob_contract_name".to_owned(),
+        InputValue::String(value.padded_token_blob_contract_name()),
+    );
+    map.insert(
+        "token_blob_capacity".to_owned(),
+        InputValue::Field(Base::from(value.token_blob_capacity as u64)),
+    );
+    map.insert(
+        "token_blob_len".to_owned(),
+        InputValue::Field(Base::from(value.token_blob_len as u64)),
+    );
+    map.insert(
+        "token_blob".to_owned(),
+        InputValue::Vec(
+            value
+                .token_blob
                 .iter()
                 .map(|b| InputValue::Field(Base::from(*b as u64)))
                 .collect(),

@@ -256,17 +256,16 @@ async fn main() -> Result<()> {
         .await
         .context("building auto prover module")?;
 
-    let mut router_guard = api_builder_ctx
+    let router = api_builder_ctx
         .router
         .lock()
-        .expect("API router mutex poisoned");
-    let router = router_guard.take().unwrap_or_else(Router::new);
-    drop(router_guard);
-
+        .expect("Context router should be available.")
+        .take()
+        .expect("Context router should be available.");
     let openapi = api_builder_ctx
         .openapi
         .lock()
-        .expect("OpenAPI mutex poisoned")
+        .expect("OpenAPI should be available")
         .clone();
 
     let rest_context = RestApiRunContext::new(

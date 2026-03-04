@@ -11,10 +11,9 @@ use crate::{
     types::{
         BlobHashResponse, BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord,
         FaucetRequest, FaucetResponse, FinalizeTransferRequest, FinalizeTransferResponse,
-        GetNotesQuery, GetNotesResponse, InputNoteData, ProvedTransferRequest,
-        RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse,
-        ServerConfigResponse, SubmitProofRequest, TransferResponse, UploadNoteRequest,
-        UploadNoteResponse,
+        GetNotesQuery, GetNotesResponse, RegisterAddressRequest, RegisterAddressResponse,
+        ResolveAddressResponse, ServerConfigResponse, SubmitProofRequest, TransferResponse,
+        UploadNoteRequest, UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -26,7 +25,6 @@ use axum::{
     Json, Router,
 };
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use element::Element;
 use hyli_modules::{
     bus::{BusClientSender, SharedMessageBus},
     module_bus_client, module_handle_messages,
@@ -35,11 +33,10 @@ use hyli_modules::{
 use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
 use sdk::{
     Blob, BlobData, BlobTransaction, ContractName, Hashed, Identity, ProgramId, ProofData,
-    ProofTransaction, TxHash, Verifier,
+    ProofTransaction, Verifier,
 };
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
-use zk_primitives::InputNote;
 
 pub struct ApiModule {
     bus: ApiModuleBusClient,
@@ -236,6 +233,11 @@ async fn create_blob(
             request.smt_blob_data.len()
         )));
     }
+    if request.token_blob_data.is_empty() {
+        return Err(ApiError::bad_request(
+            "token_blob_data must not be empty".to_string(),
+        ));
+    }
 
     let built = build_blob_transaction(&state, &request)?;
 
@@ -251,6 +253,10 @@ async fn create_blob(
         BlobInfo {
             contract_name: state.utxo_state_contract_name.clone(),
             data: built.state_blob_hex,
+        },
+        BlobInfo {
+            contract_name: "smt-token".to_string(),
+            data: built.token_blob_hex,
         },
         BlobInfo {
             contract_name: state.utxo_contract_name.clone(),
@@ -349,6 +355,7 @@ async fn submit_proof(
 struct BuiltBlob {
     transaction: BlobTransaction,
     state_blob_hex: String,
+    token_blob_hex: String,
     hyli_utxo_hex: String,
     smt_hex: String,
 }
@@ -373,6 +380,7 @@ fn build_blob_transaction(
     let contract_name = state.utxo_contract_name.clone();
     let identity = Identity(format!("transfer@{}", contract_name));
     let hyli_utxo_data = BlobData(request.blob_data.clone());
+    let token_blob_data = BlobData(request.token_blob_data.clone());
     let smt_blob_data = BlobData(request.smt_blob_data.clone());
     let state_blob_data = BlobData(
         borsh::to_vec(&state_action)
@@ -387,6 +395,10 @@ fn build_blob_transaction(
         contract_name: ContractName(contract_name.clone()),
         data: hyli_utxo_data.clone(),
     };
+    let token_blob = Blob {
+        contract_name: ContractName("smt-token".to_string()),
+        data: token_blob_data.clone(),
+    };
     let smt_incl_proof_blob = Blob {
         contract_name: ContractName(state.smt_incl_proof_contract_name.clone()),
         data: smt_blob_data.clone(),
@@ -394,12 +406,13 @@ fn build_blob_transaction(
 
     let transaction = BlobTransaction::new(
         identity,
-        vec![state_blob, hyli_utxo_blob, smt_incl_proof_blob],
+        vec![state_blob, token_blob, hyli_utxo_blob, smt_incl_proof_blob],
     );
 
     Ok(BuiltBlob {
         transaction,
         state_blob_hex: hex::encode(&state_blob_data.0),
+        token_blob_hex: hex::encode(&token_blob_data.0),
         hyli_utxo_hex: hex::encode(&hyli_utxo_data.0),
         smt_hex: hex::encode(&smt_blob_data.0),
     })
@@ -423,6 +436,11 @@ async fn hash_blob(
             request.smt_blob_data.len()
         )));
     }
+    if request.token_blob_data.is_empty() {
+        return Err(ApiError::bad_request(
+            "token_blob_data must not be empty".to_string(),
+        ));
+    }
 
     let built = build_blob_transaction(&state, &request)?;
     let tx_hash = built.transaction.hashed();
@@ -440,6 +458,7 @@ async fn finalize_transfer(
     let FinalizeTransferRequest {
         blob_data,
         smt_blob_data,
+        token_blob_data,
         output_notes,
         proof,
         public_inputs,
@@ -459,10 +478,16 @@ async fn finalize_transfer(
             smt_blob_data.len()
         )));
     }
+    if token_blob_data.is_empty() {
+        return Err(ApiError::bad_request(
+            "token_blob_data must not be empty".to_string(),
+        ));
+    }
 
     let blob_request = CreateBlobRequest {
         blob_data,
         smt_blob_data,
+        token_blob_data,
         output_notes,
     };
     let built = build_blob_transaction(&state, &blob_request)?;
@@ -538,27 +563,6 @@ async fn finalize_transfer(
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     use base64::prelude::*;
     BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
-}
-
-fn parse_input_note(data: &InputNoteData) -> Result<InputNote, ApiError> {
-    let secret_key = parse_element_hex(&data.secret_key, "secret_key")?;
-    Ok(InputNote::new(data.note.clone(), secret_key))
-}
-
-fn parse_element_hex(hex_str: &str, field_name: &str) -> Result<Element, ApiError> {
-    let normalized = hex_str.trim().strip_prefix("0x").unwrap_or(hex_str.trim());
-    if normalized.len() != 64 {
-        return Err(ApiError::bad_request(format!(
-            "{} must be 64 hex chars, got {}",
-            field_name,
-            normalized.len()
-        )));
-    }
-    let bytes = hex::decode(normalized)
-        .map_err(|e| ApiError::bad_request(format!("{} invalid hex: {}", field_name, e)))?;
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&bytes);
-    Ok(Element::from_be_bytes(arr))
 }
 
 // ---- Encrypted Notes Handlers ----

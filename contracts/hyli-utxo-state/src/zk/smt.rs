@@ -320,7 +320,7 @@ pub mod smt_fixture {
             format!("[{}]", s.join(", "))
         }
         fn fmt_siblings(s: &[[u8; 32]; 256]) -> String {
-            let rows: Vec<String> = s.iter().map(|r| fmt_bytes32(r)).collect();
+            let rows: Vec<String> = s.iter().map(fmt_bytes32).collect();
             format!("[{}]", rows.join(", "))
         }
         fn null_padded(s: &str, len: usize) -> String {
@@ -332,9 +332,9 @@ pub mod smt_fixture {
         let identity = "test@hyli_smt";
 
         println!("# Auto-generated Prover.toml for hyli_smt_incl_proof");
-        println!("# commitment_0 = {}", hex::encode(&commitment_bytes));
+        println!("# commitment_0 = {}", hex::encode(commitment_bytes));
         println!("# commitment_1 = 0000..00 (padding)");
-        println!("# notes_root   = {}", hex::encode(&root));
+        println!("# notes_root   = {}", hex::encode(root));
         println!();
         println!("version = 1");
         println!("initial_state_len = 4");
@@ -376,6 +376,7 @@ pub mod smt_fixture {
     }
 }
 
+#[allow(clippy::items_after_test_module)]
 impl BorshDeserialize for SMT<BorshableH256> {
     fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
         let expected_root = BorshableH256::deserialize_reader(reader)?;
@@ -384,9 +385,8 @@ impl BorshDeserialize for SMT<BorshableH256> {
         for _ in 0..len {
             let key = BorshableH256::deserialize_reader(reader)?;
             let value = BorshableH256::deserialize_reader(reader)?;
-            tree.update_leaf(key, value).map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("rebuilding SMT: {e}"))
-            })?;
+            tree.update_leaf(key, value)
+                .map_err(|e| io::Error::other(format!("rebuilding SMT: {e}")))?;
         }
         if tree.root() != expected_root {
             return Err(io::Error::new(

@@ -1,10 +1,3 @@
-use hyli_modules::telemetry::{Counter, Gauge, Histogram, KeyValue};
-use hyli_turmoil_shims::global_meter_or_panic;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
-
 #[cfg(not(feature = "instrumentation"))]
 #[derive(Clone)]
 pub struct FaucetMetrics {}

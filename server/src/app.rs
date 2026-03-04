@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
 use hash::hash_merge;
@@ -13,12 +13,13 @@ use sdk::{
     ProofTransaction, TxHash, Verifier,
 };
 use tracing::{info, warn};
-use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
+use zk_primitives::{
+    InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES,
+    HYLI_TOKEN_ACTION_MAX_BYTES, HYLI_TOKEN_CONTRACT_NAME,
+, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
 
 use crate::{
-    init::HYLI_UTXO_NOIR_VK,
-    noir_prover::HyliUtxoProofJob,
-    smt_incl_prover::SmtInclProofJob,
+    init::HYLI_UTXO_NOIR_VK, noir_prover::HyliUtxoProofJob, smt_incl_prover::SmtInclProofJob,
     tx::FAUCET_IDENTITY_PREFIX,
 };
 
@@ -127,6 +128,64 @@ impl Module for FaucetApp {
 }
 
 impl FaucetApp {
+    fn build_token_transfer_blob_for_note(output_note: &Note) -> Result<BlobData> {
+        let sender = b"sender";
+        let recipient = b"id@id";
+        let amount = u128::try_from(output_note.value)
+            .map_err(|_| anyhow!("output note value does not fit into u128"))?;
+
+        let mut payload = Vec::new();
+        payload.push(0u8); // SmtTokenAction::Transfer discriminant
+        payload.extend_from_slice(&(sender.len() as u32).to_le_bytes());
+        payload.extend_from_slice(sender);
+        payload.extend_from_slice(&(recipient.len() as u32).to_le_bytes());
+        payload.extend_from_slice(recipient);
+        payload.extend_from_slice(&amount.to_le_bytes());
+
+        if payload.len() > HYLI_TOKEN_ACTION_MAX_BYTES {
+            bail!(
+                "token action payload is too large: {} > {}",
+                payload.len(),
+                HYLI_TOKEN_ACTION_MAX_BYTES
+            );
+        }
+
+        Ok(BlobData(payload))
+    }
+
+    fn extract_token_blob(
+        blob_tx: &BlobTransaction,
+    ) -> Result<(u32, u32, [u8; HYLI_TOKEN_ACTION_MAX_BYTES])> {
+        let Some((token_blob_index, token_blob)) = blob_tx
+            .blobs
+            .iter()
+            .enumerate()
+            .find(|(_, blob)| blob.contract_name.0 == HYLI_TOKEN_CONTRACT_NAME)
+        else {
+            bail!(
+                "token blob for '{}' not found in transaction payload",
+                HYLI_TOKEN_CONTRACT_NAME
+            );
+        };
+
+        if token_blob.data.0.len() > HYLI_TOKEN_ACTION_MAX_BYTES {
+            bail!(
+                "token blob payload is {} bytes, max supported is {}",
+                token_blob.data.0.len(),
+                HYLI_TOKEN_ACTION_MAX_BYTES
+            );
+        }
+
+        let mut token_blob_bytes = [0u8; HYLI_TOKEN_ACTION_MAX_BYTES];
+        token_blob_bytes[..token_blob.data.0.len()].copy_from_slice(&token_blob.data.0);
+
+        Ok((
+            token_blob_index as u32,
+            token_blob.data.0.len() as u32,
+            token_blob_bytes,
+        ))
+    }
+
     async fn process_request(&mut self, request: FaucetMintCommand) -> Result<()> {
         let (blob_transaction, utxo) = self.build_transaction(&request.note)?;
 
@@ -213,9 +272,13 @@ impl FaucetApp {
             contract_name: ContractName(self.utxo_state_contract_name.clone()),
             data: state_blob_data,
         };
+        let token_blob = Blob {
+            contract_name: ContractName(HYLI_TOKEN_CONTRACT_NAME.to_string()),
+            data: Self::build_token_transfer_blob_for_note(&utxo.output_notes[0])?,
+        };
         let blob_transaction = BlobTransaction::new(
             identity,
-            vec![state_blob, hyli_utxo_blob, hyli_smt_incl_blob],
+            vec![state_blob, token_blob, hyli_utxo_blob, hyli_smt_incl_blob],
         );
 
         Ok((blob_transaction, utxo))
@@ -246,6 +309,7 @@ impl FaucetApp {
 
         let mut payload = [0u8; HYLI_BLOB_LENGTH_BYTES];
         payload.copy_from_slice(&blob.data.0[..HYLI_BLOB_LENGTH_BYTES]);
+        let (token_blob_index, token_blob_len, token_blob) = Self::extract_token_blob(blob_tx)?;
 
         let job = HyliUtxoProofJob {
             tx_hash: tx_hash.clone(),
@@ -254,6 +318,9 @@ impl FaucetApp {
             blob: payload,
             tx_blob_count: blob_tx.blobs.len() as u32,
             blob_index: blob_index as u32,
+            token_blob_index,
+            token_blob_len,
+            token_blob,
         };
 
         self.bus
@@ -413,7 +480,12 @@ impl FaucetApp {
             contract_name: ContractName(self.utxo_state_contract_name.clone()),
             data: state_blob_data,
         };
-        let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
+        let token_blob = Blob {
+            contract_name: ContractName(HYLI_TOKEN_CONTRACT_NAME.to_string()),
+            data: Self::build_token_transfer_blob_for_note(&cmd.output_notes[0])?,
+        };
+        let blob_transaction =
+            BlobTransaction::new(identity, vec![state_blob, token_blob, hyli_utxo_blob]);
 
         Ok(blob_transaction)
     }
@@ -477,7 +549,12 @@ impl FaucetApp {
             contract_name: ContractName(self.utxo_state_contract_name.clone()),
             data: state_blob_data,
         };
-        let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
+        let token_blob = Blob {
+            contract_name: ContractName(HYLI_TOKEN_CONTRACT_NAME.to_string()),
+            data: Self::build_token_transfer_blob_for_note(&output_notes[0])?,
+        };
+        let blob_transaction =
+            BlobTransaction::new(identity, vec![state_blob, token_blob, hyli_utxo_blob]);
 
         Ok((blob_transaction, utxo))
     }
@@ -498,7 +575,6 @@ mod tests {
         module_bus_client,
         modules::prover::{AutoProver, AutoProverCtx},
     };
-    use hyli_turmoil_shims::{init_global_meter_provider, init_test_meter_provider};
     use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
     use sdk::hyli_model_utils::TimestampMs;
 
@@ -620,6 +696,9 @@ mod tests {
         let identity = blob_tx.identity.0.clone();
         let tx_hash_placeholder = vec![0u8; 32];
 
+        let (token_blob_index, token_blob_len, token_blob) =
+            FaucetApp::extract_token_blob(&blob_tx).expect("extract token blob");
+
         let job = HyliUtxoProofJob {
             tx_hash: TxHash(tx_hash_placeholder.clone()),
             identity: blob_tx.identity.clone(),
@@ -627,6 +706,9 @@ mod tests {
             blob: blob_bytes,
             tx_blob_count: blob_tx.blobs.len() as u32,
             blob_index: blob_index as u32,
+            token_blob_index,
+            token_blob_len,
+            token_blob,
         };
 
         let hyli_utxo = HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
@@ -772,13 +854,19 @@ mod tests {
         let mut blob_bytes = [0u8; HYLI_BLOB_LENGTH_BYTES];
         blob_bytes.copy_from_slice(&payload[..HYLI_BLOB_LENGTH_BYTES]);
 
+        let (token_blob_index, token_blob_len, token_blob) =
+            FaucetApp::extract_token_blob(&blob_tx).expect("extract token blob");
+
         let job = HyliUtxoProofJob {
             tx_hash: TxHash(vec![0u8; 32]),
             identity: blob_tx.identity.clone(),
-            utxo,
+            utxo: utxo.clone(),
             blob: blob_bytes,
             tx_blob_count: blob_tx.blobs.len() as u32,
             blob_index: blob_index as u32,
+            token_blob_index,
+            token_blob_len,
+            token_blob,
         };
 
         let hyli_utxo = HyliUtxoNoirProver::build_hyli_utxo(TEST_UTXO_CONTRACT_NAME, &job)
