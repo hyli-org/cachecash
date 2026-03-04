@@ -1,8 +1,41 @@
 use std::{io, marker::PhantomData};
 
+use acvm::{AcirField, FieldElement};
 use borsh::{BorshDeserialize, BorshSerialize};
-use sdk::merkle_utils::SHA256Hasher;
 use sparse_merkle_tree::{default_store::DefaultStore, traits::Value, SparseMerkleTree, H256};
+
+#[derive(Debug)]
+pub struct Poseidon2Hasher {
+    buffer: Vec<FieldElement>,
+}
+
+impl Default for Poseidon2Hasher {
+    fn default() -> Self {
+        Self {
+            buffer: Vec::with_capacity(8),
+        }
+    }
+}
+
+impl sparse_merkle_tree::traits::Hasher for Poseidon2Hasher {
+    fn write_byte(&mut self, b: u8) {
+        self.buffer.push(FieldElement::from(b as u128));
+    }
+
+    fn write_h256(&mut self, h: &H256) {
+        let bytes = h.as_slice();
+        let lo = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
+        let hi = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
+        self.buffer.push(FieldElement::from(lo));
+        self.buffer.push(FieldElement::from(hi));
+    }
+
+    fn finish(self) -> H256 {
+        let result = bn254_blackbox_solver::poseidon_hash(&self.buffer).unwrap();
+        let le_bytes: [u8; 32] = result.to_le_bytes().try_into().unwrap();
+        H256::from(le_bytes)
+    }
+}
 
 pub trait GetKey {
     fn get_key(&self) -> BorshableH256;
@@ -143,7 +176,7 @@ impl<'a> From<&'a H256> for &'a BorshableH256 {
 
 #[derive(Debug, Default)]
 pub struct SMT<T: Value + Clone>(
-    SparseMerkleTree<SHA256Hasher, H256, DefaultStore<H256>>,
+    SparseMerkleTree<Poseidon2Hasher, H256, DefaultStore<H256>>,
     PhantomData<T>,
 );
 
@@ -243,7 +276,6 @@ pub fn build_siblings(
     tree: &SMT<BorshableH256>,
     commitment: BorshableH256,
 ) -> [[u8; 32]; 256] {
-    use sdk::merkle_utils::SHA256Hasher;
     let proof = tree.merkle_proof(std::iter::once(&commitment)).unwrap();
     let leaves_bitmap = proof.leaves_bitmap();
     let merkle_path = proof.merkle_path();
@@ -252,7 +284,7 @@ pub fn build_siblings(
     let mut path_idx = 0usize;
     for h in 0u32..256 {
         if leaves_bitmap[0].get_bit(h as u8) {
-            let hash: [u8; 32] = merkle_path[path_idx].hash::<SHA256Hasher>().into();
+            let hash: [u8; 32] = merkle_path[path_idx].hash::<Poseidon2Hasher>().into();
             siblings[h as usize] = hash;
             path_idx += 1;
         }
@@ -295,7 +327,7 @@ pub mod smt_fixture {
             format!("[{}]", rows.join(", "))
         }
         fn null_padded(s: &str, len: usize) -> String {
-            let nulls: String = std::iter::repeat('\0').take(len - s.len()).collect();
+            let nulls: String = "\\u0000".repeat(len - s.len());
             format!("{}{}", s, nulls)
         }
 

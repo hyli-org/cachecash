@@ -1,44 +1,58 @@
-use dep::sha256::sha256_var;
+use dep::poseidon::poseidon2::Poseidon2;
 use std::ops::WrappingAdd;
 
 // ---------------------------------------------------------------------------
-// SMT hash helpers (mirror sparse-merkle-tree-0.6.1 / SHA256Hasher)
+// SMT hash helpers (Poseidon2-based, ZK-native)
 // ---------------------------------------------------------------------------
 
-// SHA256( height(1B) || node_key(32B) || value(32B) )  -- 65 bytes
+// Split a 32-byte LE H256 into two 128-bit Field elements (lo, hi).
+// Byte 0 is LSB. lo = bytes[0..16], hi = bytes[16..32].
+fn h256_to_fields(input: [u8; 32]) -> (Field, Field) {
+    let mut lo: Field = 0;
+    let mut hi: Field = 0;
+    let mut scale: Field = 1;
+    for i in 0..16 {
+        lo += (input[i] as Field) * scale;
+        hi += (input[16 + i] as Field) * scale;
+        scale *= 256;
+    }
+    (lo, hi)
+}
+
+// Convert a Field back to a 32-byte LE H256.
+// Field.to_be_bytes gives big-endian; reverse for little-endian.
+fn field_to_h256(f: Field) -> [u8; 32] {
+    let be: [u8; 32] = f.to_be_bytes();
+    let mut le: [u8; 32] = [0; 32];
+    for i in 0..32 {
+        le[i] = be[31 - i];
+    }
+    le
+}
+
+// Poseidon2([height, nk_lo, nk_hi, v_lo, v_hi], 5)
 fn hash_base_node(height: u8, node_key: [u8; 32], value: [u8; 32]) -> [u8; 32] {
-    let mut buf: [u8; 65] = [0; 65];
-    buf[0] = height;
-    for i in 0..32 {
-        buf[1 + i] = node_key[i];
-        buf[33 + i] = value[i];
-    }
-    sha256_var(buf, 65)
+    let (nk_lo, nk_hi) = h256_to_fields(node_key);
+    let (v_lo, v_hi) = h256_to_fields(value);
+    let h = Poseidon2::hash([height as Field, nk_lo, nk_hi, v_lo, v_hi], 5);
+    field_to_h256(h)
 }
 
-// SHA256( 0x02(1B) || base_node(32B) || zero_bits(32B) || zero_count(1B) )  -- 66 bytes
+// Poseidon2([2, bn_lo, bn_hi, zb_lo, zb_hi, zero_count], 6)
 fn hash_mwz(base_node: [u8; 32], zero_bits: [u8; 32], zero_count: u8) -> [u8; 32] {
-    let mut buf: [u8; 66] = [0; 66];
-    buf[0] = 0x02;
-    for i in 0..32 {
-        buf[1 + i] = base_node[i];
-        buf[33 + i] = zero_bits[i];
-    }
-    buf[65] = zero_count;
-    sha256_var(buf, 66)
+    let (bn_lo, bn_hi) = h256_to_fields(base_node);
+    let (zb_lo, zb_hi) = h256_to_fields(zero_bits);
+    let h = Poseidon2::hash([2, bn_lo, bn_hi, zb_lo, zb_hi, zero_count as Field], 6);
+    field_to_h256(h)
 }
 
-// SHA256( 0x01(1B) || height(1B) || node_key(32B) || lhs(32B) || rhs(32B) )  -- 98 bytes
+// Poseidon2([1, height, nk_lo, nk_hi, l_lo, l_hi, r_lo, r_hi], 8)
 fn hash_merge_normal(height: u8, node_key: [u8; 32], lhs: [u8; 32], rhs: [u8; 32]) -> [u8; 32] {
-    let mut buf: [u8; 98] = [0; 98];
-    buf[0] = 0x01;
-    buf[1] = height;
-    for i in 0..32 {
-        buf[2 + i] = node_key[i];
-        buf[34 + i] = lhs[i];
-        buf[66 + i] = rhs[i];
-    }
-    sha256_var(buf, 98)
+    let (nk_lo, nk_hi) = h256_to_fields(node_key);
+    let (l_lo, l_hi) = h256_to_fields(lhs);
+    let (r_lo, r_hi) = h256_to_fields(rhs);
+    let h = Poseidon2::hash([1, height as Field, nk_lo, nk_hi, l_lo, l_hi, r_lo, r_hi], 8);
+    field_to_h256(h)
 }
 
 // Bit at position h (LSB-first within each byte, like H256::get_bit)
