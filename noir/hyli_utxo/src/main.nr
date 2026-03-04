@@ -1,45 +1,50 @@
 use common::{check_commitment, check_input_note_ownership, InputNote, Note};
 use utxo_lib::utxo_main;
 
-global ACTION_CREATE_NOTE_FROM_TOKEN_TRANSFER: u8 = 1;
-global TOKEN_CONTRACT_NAME_LEN: u8 = 9;
+global HYLI_OUTPUT_VERSION: u32 = 2;
+global HYLI_BLOB_SLOTS: u32 = 2;
+global HYLI_BLOB_NAME_MAX: u32 = 256;
+global HYLI_BLOB_DATA_MAX: u32 = 256;
+global HYLI_PROGRAM_OUTPUTS_MAX: u32 = 4;
+global HYLI_UTXO_CONTRACT_NAME_LEN: u32 = 9;
+global HYLI_UTXO_BLOB_LEN: u32 = 128;
+global TOKEN_CONTRACT_NAME_LEN: u32 = 9;
 global TOKEN_ACTION_MAX_BYTES: u32 = 256;
-global TOKEN_BLOB_CAPACITY: u32 = 256;
 global EXPECTED_RECIPIENT_LEN: u32 = 5;
 
+struct BlobInput<let NAME_MAX: u32, let DATA_MAX: u32> {
+    index: u32,
+    contract_name_len: u32,
+    contract_name: str<NAME_MAX>,
+    data_len: u32,
+    data: [u8; DATA_MAX],
+}
+
+struct HyliOutput<let BLOBS_MAX: u32, let BLOB_NAME_MAX: u32, let BLOB_DATA_MAX: u32, let PROGRAM_OUTPUTS_MAX: u32> {
+    version: u32,
+    initial_state_len: u32,
+    initial_state: [u8; 4],
+    next_state_len: u32,
+    next_state: [u8; 4],
+    identity_len: u32,
+    identity: str<256>,
+    index: u32,
+    blob_count: u32,
+    blob_slots: u32,
+    blob_name_max: u32,
+    blob_data_max: u32,
+    blobs: [BlobInput<BLOB_NAME_MAX, BLOB_DATA_MAX>; BLOBS_MAX],
+    tx_blob_count: u32,
+    tx_hash_len: u32,
+    tx_hash: [u8; 32],
+    success: bool,
+    program_outputs_max: u32,
+    program_outputs_len: u32,
+    program_outputs: [u8; PROGRAM_OUTPUTS_MAX],
+}
+
 fn main(
-    // Hyli-required public plumbing
-    version: pub u32,
-    initial_state_len: pub u32,
-    initial_state: pub [u8; 4],
-    next_state_len: pub u32,
-    next_state: pub [u8; 4],
-    identity_len: pub u8,
-    identity: pub str<256>,
-    tx_hash: pub str<64>,
-    index: pub u32,
-    blob_number: pub u32,
-    // `parse_noir_output` calls `parse_blobs`, which expects:
-    // `blob_number`, then N blob tuples:
-    //   (index, contract_name_len, contract_name, capacity, len, data)
-    // This first tuple is the hyli_utxo blob.
-    blob_index: pub u32,
-    blob_contract_name_len: pub u8,
-    blob_contract_name: pub str<256>,
-    blob_capacity: pub u32,
-    blob_len: pub u32,
-    blob: pub [u8; 128],
-    // Second tuple for `parse_blobs`: smt-token transfer evidence blob.
-    // Keeping it in this blob tuple format is what makes it node-verified.
-    token_blob_index: pub u32,
-    token_blob_contract_name_len: pub u8,
-    token_blob_contract_name: pub str<256>,
-    token_blob_capacity: pub u32,
-    token_blob_len: pub u32,
-    token_blob: pub [u8; 256],
-    tx_blob_count: pub u32,
-    success: pub bool,
-    // Wrapped UTXO inputs (mirrors noir/utxo)
+    hyli_output: pub HyliOutput<HYLI_BLOB_SLOTS, HYLI_BLOB_NAME_MAX, HYLI_BLOB_DATA_MAX, HYLI_PROGRAM_OUTPUTS_MAX>,
     input_notes: [InputNote; 2],
     output_notes: [Note; 2],
     pmessage4: Field,
@@ -49,60 +54,71 @@ fn main(
     // ---------------------------------------------------------------------
     // Hyli contract framing
     // ---------------------------------------------------------------------
-    assert(success, "contract execution must succeed");
-    assert(version == 1, "unsupported Hyli output version");
-
-    assert(initial_state_len == 4, "initial_state must be 4 bytes");
-    assert(next_state_len == 4, "next_state must be 4 bytes");
-
-    assert(blob_capacity == 128, "blob capacity must be 128 bytes");
-    assert(blob_len == 128, "blob length must be 128 bytes");
-    // We expose exactly 2 blob tuples to match the public inputs encoded for
-    // `parse_blobs`: hyli_utxo blob + smt-token blob.
-    assert(blob_number == 2, "exactly two blobs are expected");
-    assert(tx_blob_count >= blob_number, "transaction must provide enough blobs");
-    assert(blob_index == index, "blob index must align with invocation index");
-
-    // // Basic hygiene on the identity payload so the plumbing is exercised.
-    // let identity_bytes = identity.as_bytes();
-    // assert(identity_bytes.len() == identity_len as u32, "identity_len mismatch");
-
-    // let tx_hash_bytes = tx_hash.as_bytes();
-    // assert(tx_hash_bytes.len() <= 64, "tx hash too long");
-
-    assert(identity_len as u32 <= 256, "identity length overflow");
-    assert(blob_contract_name_len == 9, "blob contract name must be 9 bytes");
+    assert(hyli_output.success, "contract execution must succeed");
+    assert(hyli_output.version == HYLI_OUTPUT_VERSION, "unsupported Hyli output version");
+    assert(hyli_output.initial_state_len == 4, "initial_state must be 4 bytes");
+    assert(hyli_output.next_state_len == 4, "next_state must be 4 bytes");
+    assert(hyli_output.identity_len <= 256, "identity length overflow");
+    assert(hyli_output.blob_slots == HYLI_BLOB_SLOTS, "invalid blob slots");
+    assert(hyli_output.blob_name_max == HYLI_BLOB_NAME_MAX, "invalid blob name max");
+    assert(hyli_output.blob_data_max == HYLI_BLOB_DATA_MAX, "invalid blob data max");
+    assert(hyli_output.blob_count >= 1, "blob_count must be at least 1");
+    assert(hyli_output.blob_count <= hyli_output.blob_slots, "blob_count exceeds available slots");
+    assert(hyli_output.tx_hash_len == 32, "tx_hash must be 32 bytes");
     assert(
-        token_blob_contract_name_len == TOKEN_CONTRACT_NAME_LEN,
-        "invalid token blob contract name len",
+        hyli_output.program_outputs_max == HYLI_PROGRAM_OUTPUTS_MAX,
+        "invalid program outputs max",
     );
-    assert(token_blob_capacity == TOKEN_BLOB_CAPACITY, "invalid token blob capacity");
-    assert(token_blob_len > 0, "token blob payload must not be empty");
-    assert(token_blob_len <= TOKEN_ACTION_MAX_BYTES, "token blob payload too long");
+    assert(
+        hyli_output.program_outputs_len <= hyli_output.program_outputs_max,
+        "program outputs length overflow",
+    );
 
-    let token_contract_name_bytes = token_blob_contract_name.as_bytes();
-    assert(token_contract_name_bytes[0] == 115, "token contract must be smt-token");
-    assert(token_contract_name_bytes[1] == 109, "token contract must be smt-token");
-    assert(token_contract_name_bytes[2] == 116, "token contract must be smt-token");
-    assert(token_contract_name_bytes[3] == 45, "token contract must be smt-token");
-    assert(token_contract_name_bytes[4] == 116, "token contract must be smt-token");
-    assert(token_contract_name_bytes[5] == 111, "token contract must be smt-token");
-    assert(token_contract_name_bytes[6] == 107, "token contract must be smt-token");
-    assert(token_contract_name_bytes[7] == 101, "token contract must be smt-token");
-    assert(token_contract_name_bytes[8] == 110, "token contract must be smt-token");
+    let hyli_blob = hyli_output.blobs[0];
+    assert(hyli_blob.index == hyli_output.index, "blob index must align with invocation index");
+    assert(
+        hyli_blob.contract_name_len == HYLI_UTXO_CONTRACT_NAME_LEN,
+        "blob contract name must be hyli_utxo",
+    );
+    assert(hyli_blob.data_len == HYLI_UTXO_BLOB_LEN, "hyli_utxo blob must be 128 bytes");
 
-    // Ensure the second tuple is a real tx blob reference and not the same
-    // tuple as hyli_utxo.
-    assert(token_blob_index < tx_blob_count, "token blob index out of range");
-    assert(token_blob_index != blob_index, "token blob must differ from hyli_utxo blob");
-    assert(ACTION_CREATE_NOTE_FROM_TOKEN_TRANSFER == 1, "action constant mismatch");
+    assert_contract_name_9(
+        hyli_blob.contract_name,
+        "hyli_utxo",
+        "blob contract must be hyli_utxo",
+    );
 
-    let _ = initial_state;
-    let _ = next_state;
-    let _ = blob_contract_name;
-    let _ = identity;
-    let _ = tx_hash;
-    let _ = blob;
+    // Optional smt-token blob:
+    // - when blob_count == 2, run full token checks and enforce transfer amount
+    // - when blob_count == 1, skip all token-blob checks
+    if hyli_output.blob_count == 2 {
+        let token_blob = hyli_output.blobs[1];
+        assert(token_blob.index < hyli_output.tx_blob_count, "token blob index out of range");
+        assert(token_blob.index != hyli_blob.index, "token blob must differ from hyli_utxo blob");
+        assert(
+            token_blob.contract_name_len == TOKEN_CONTRACT_NAME_LEN,
+            "invalid token blob contract name len",
+        );
+        assert(token_blob.data_len > 0, "token blob payload must not be empty");
+        assert(token_blob.data_len <= TOKEN_ACTION_MAX_BYTES, "token blob payload too long");
+
+        assert_contract_name_9(
+            token_blob.contract_name,
+            "smt-token",
+            "token contract must be smt-token",
+        );
+
+        let transfer_amount =
+            parse_and_validate_transfer_action(token_blob.data, token_blob.data_len);
+        assert(output_notes[0].value == transfer_amount, "created note amount must match transfer");
+    }
+
+    let _ = hyli_output.initial_state;
+    let _ = hyli_output.next_state;
+    let _ = hyli_output.identity;
+    let _ = hyli_output.tx_hash;
+    let _ = hyli_blob.data;
+    let _ = hyli_output.program_outputs;
 
     // ---------------------------------------------------------------------
     // Call through to the original UTXO circuit
@@ -117,9 +133,6 @@ fn main(
 
     check_input_note_ownership(input_notes[0]);
     check_input_note_ownership(input_notes[1]);
-
-    let transfer_amount = parse_and_validate_transfer_action(token_blob, token_blob_len);
-    assert(output_notes[0].value == transfer_amount, "created note amount must match transfer");
 }
 
 fn read_u32_le(bytes: [u8; 256], start: u32) -> u32 {
@@ -172,6 +185,15 @@ fn parse_and_validate_transfer_action(token_action: [u8; 256], token_action_len:
     assert(amount_start + 16 == token_action_len, "unexpected trailing token action bytes");
 
     read_u128_le_as_field(token_action, amount_start)
+}
+
+fn assert_contract_name_9<let ERR_LEN: u32>(name: str<256>, expected: str<9>, err: str<ERR_LEN>) {
+    let name_bytes = name.as_bytes();
+    let expected_bytes = expected.as_bytes();
+    for i in 0..9 {
+        let idx = i as u32;
+        assert(name_bytes[idx] == expected_bytes[idx], err);
+    }
 }
 
 #[test]
