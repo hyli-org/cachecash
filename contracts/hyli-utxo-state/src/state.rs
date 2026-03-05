@@ -30,7 +30,7 @@ pub struct HyliUtxoState {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoZkVmState {
-    pub notes: ZkVmWitnessVec<WitnessLeaf>,
+    pub created_notes: ZkVmWitnessVec<WitnessLeaf>,
     pub nullified_notes: ZkVmWitnessVec<WitnessLeaf>,
     pub config: ContractConfig,
     pub roots: [[u8; 8]; MAX_ROOTS],
@@ -73,7 +73,14 @@ struct CommitmentSnapshot {
     nullified_notes_root: BorshableH256,
 }
 
-pub type HyliUtxoStateAction = [BorshableH256; 4];
+/// The action for the Hyli UTXO state is empty since all necessary information is passed through the Noir blobs in the calldata.
+pub type HyliUtxoStateAction = [u8; 1];
+pub const HYLI_UTXO_STATE_ACTION: HyliUtxoStateAction = [0];
+
+/// The Hyli UTXO blob contains the commitments for the created notes and nullifiers for the nullified notes, in that order.
+pub type HyliUtxoBlob = [BorshableH256; 4];
+
+pub type SeparatedHyliUtxoBlob = ([BorshableH256; 2], [BorshableH256; 2]);
 
 impl HyliUtxoState {
     pub fn update_roots(&mut self) {
@@ -147,10 +154,10 @@ impl HyliUtxoState {
     pub fn to_zkvm_state(
         &self,
         config: ContractConfig,
-        note_keys: &[BorshableH256],
+        created_note_keys: &[BorshableH256],
         nullified_keys: &[BorshableH256],
     ) -> Result<HyliUtxoZkVmState, String> {
-        let notes = Self::build_witness(&self.notes_tree, note_keys)?;
+        let created_notes = Self::build_witness(&self.notes_tree, created_note_keys)?;
         let nullified = Self::build_witness(&self.nullified_tree, nullified_keys)?;
         let mut roots_vec: Vec<[u8; 8]> = self.roots.iter().cloned().collect();
         roots_vec.resize(MAX_ROOTS, [0u8; 8]);
@@ -162,7 +169,7 @@ impl HyliUtxoState {
         })?;
 
         Ok(HyliUtxoZkVmState {
-            notes,
+            created_notes,
             nullified_notes: nullified,
             config,
             roots,
@@ -236,17 +243,10 @@ impl HyliUtxoState {
 impl sdk::FullStateRevert for HyliUtxoZkVmState {}
 
 impl HyliUtxoZkVmState {
-    /// The padding nullifier constant - must match HyliUtxoState::PADDING_NULLIFIER
-    const PADDING_NULLIFIER: [u8; 32] = [
-        0x0b, 0x63, 0xa5, 0x37, 0x87, 0x02, 0x1a, 0x4a, 0x96, 0x2a, 0x45, 0x2c, 0x29, 0x21, 0xb3,
-        0x66, 0x3a, 0xff, 0x1f, 0xfd, 0x8d, 0x55, 0x10, 0x54, 0x0f, 0x8e, 0x65, 0x9e, 0x78, 0x29,
-        0x56, 0xf1,
-    ];
-
     pub fn new(config: ContractConfig) -> Self {
         Self {
             config,
-            notes: Default::default(),
+            created_notes: Default::default(),
             nullified_notes: Default::default(),
             roots: [[0u8; 8]; MAX_ROOTS],
         }
@@ -278,7 +278,7 @@ impl HyliUtxoZkVmState {
         }
 
         // Step 2: Check that the nullifiers in the smt blob match those in the utxo blob.
-        let (_output_notes, utxo_nullifiers) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)?;
+        let (_, utxo_nullifiers) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)?;
 
         if utxo_nullifiers[0] != smt_nullifier0 {
             return Err(
@@ -296,17 +296,23 @@ impl HyliUtxoZkVmState {
         Ok(())
     }
 
-    fn apply_action(&mut self, action: &HyliUtxoStateAction) -> Result<(), String> {
-        let (created, nullified) = Self::split_action(action);
+    fn apply_action(&mut self, calldata: &Calldata) -> Result<(), String> {
+        let hyli_utxo_blob = calldata
+            .blobs
+            .get(&sdk::BlobIndex(1))
+            .ok_or_else(|| "hyli_utxo blob not found in calldata".to_string())?;
 
-        if self.notes.values.len() != created.len() {
+        let (created, nullified) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)
+            .map_err(|e| format!("failed to parse hyli_utxo blob: {e}"))?;
+
+        if self.created_notes.values.len() != created.len() {
             return Err("notes witness entries do not match action size".to_string());
         }
         if self.nullified_notes.values.len() != nullified.len() {
             return Err("nullified witness entries do not match action size".to_string());
         }
 
-        for (leaf, commitment) in self.notes.values.iter_mut().zip(created.iter()) {
+        for (leaf, commitment) in self.created_notes.values.iter_mut().zip(created.iter()) {
             leaf.value = *commitment;
         }
 
@@ -316,45 +322,25 @@ impl HyliUtxoZkVmState {
 
         Ok(())
     }
-
-    fn split_action(action: &HyliUtxoStateAction) -> (Vec<BorshableH256>, Vec<BorshableH256>) {
-        let created: Vec<_> = action
-            .iter()
-            .take(2)
-            .copied()
-            .filter(|c| c.0 != H256::zero())
-            .collect();
-        let nullified: Vec<_> = action
-            .iter()
-            .skip(2)
-            .copied()
-            .filter(|c| {
-                let bytes: [u8; 32] = c.0.into();
-                c.0 != H256::zero() && bytes != Self::PADDING_NULLIFIER
-            })
-            .collect();
-
-        (created, nullified)
-    }
 }
 
 impl sdk::ZkContract for HyliUtxoZkVmState {
     fn execute(&mut self, calldata: &Calldata) -> RunResult {
-        let (action, ctx) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)?;
+        let (_, ctx) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)?;
 
-        self.notes.ensure_all_zero()?;
+        self.created_notes.ensure_all_zero()?;
         self.nullified_notes.ensure_all_zero()?;
 
         self.check_noir_blobs(calldata)?;
 
-        self.apply_action(&action)?;
+        self.apply_action(calldata)?;
 
         Ok((Vec::new(), ctx, Vec::new()))
     }
 
     fn commit(&self) -> StateCommitment {
         let notes_root = self
-            .notes
+            .created_notes
             .compute_root()
             .expect("compute notes root from witness");
         let nullified_root = self
@@ -401,9 +387,7 @@ impl sdk::TransactionalZkContract for HyliUtxoZkVmBatch {
     }
 }
 
-pub fn parse_hyli_utxo_blob(
-    bytes: &[u8],
-) -> Result<([BorshableH256; 2], [BorshableH256; 2]), String> {
+pub fn parse_hyli_utxo_blob(bytes: &[u8]) -> Result<SeparatedHyliUtxoBlob, String> {
     const EXPECTED_SIZE: usize = 128;
     if bytes.len() != EXPECTED_SIZE {
         return Err(format!(
@@ -465,7 +449,7 @@ mod tests {
             smt_incl_proof_contract_name: "dummy_smt_incl".into(),
         });
         let root = BorshableH256::from([byte; 32]);
-        state.notes.proof = Proof::CurrentRootHash(root);
+        state.created_notes.proof = Proof::CurrentRootHash(root);
         state.nullified_notes.proof = Proof::CurrentRootHash(BorshableH256::from([byte; 32]));
         state
     }
@@ -481,7 +465,7 @@ mod tests {
         batch.extend_with(HyliUtxoZkVmBatch::from_state(s3.clone()));
 
         fn assert_root(batch: &HyliUtxoZkVmBatch, expected: u8) {
-            match &batch.current.notes.proof {
+            match &batch.current.created_notes.proof {
                 Proof::CurrentRootHash(root) => {
                     let actual: [u8; 32] = (*root).into();
                     assert_eq!(actual, [expected; 32]);

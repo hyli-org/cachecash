@@ -8,7 +8,10 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::{contract_state_indexer::CSIBusEvent, Module},
 };
-use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+use hyli_utxo_state::{
+    state::{HyliUtxoBlob, HyliUtxoStateAction, HYLI_UTXO_STATE_ACTION},
+    zk::BorshableH256,
+};
 use sdk::{
     Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData,
     ProofTransaction, TxHash, Verifier,
@@ -201,14 +204,13 @@ impl FaucetApp {
         incl_proof_bytes[..64].copy_from_slice(&blob_bytes[64..128]);
         incl_proof_bytes[64..96].copy_from_slice(&self.notes_root.to_be_bytes());
 
-        let state_action: HyliUtxoStateAction = state_commitments;
-
         let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
         let hyli_utxo_data = BlobData(blob_bytes);
         let hyli_smt_incl_data = BlobData(incl_proof_bytes);
         let state_blob_data = BlobData(
-            borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
+            borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
+                .expect("HyliUtxoStateAction serialization failed"),
         );
         let hyli_smt_incl_blob = Blob {
             contract_name: ContractName(self.incl_proof_contract_name.clone()),
@@ -398,24 +400,12 @@ impl FaucetApp {
         nullifier_0.copy_from_slice(&cmd.blob[64..96]);
         nullifier_1.copy_from_slice(&cmd.blob[96..128]);
 
-        // Build state action: [created_0, created_1, nullified_0, nullified_1]
-        let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
-
-        // Output commitments (created)
-        state_commitments[0] = BorshableH256::from(cmd.output_notes[0].commitment().to_be_bytes());
-        state_commitments[1] = BorshableH256::from(cmd.output_notes[1].commitment().to_be_bytes());
-
-        // Nullifiers from blob
-        state_commitments[2] = BorshableH256::from(nullifier_0);
-        state_commitments[3] = BorshableH256::from(nullifier_1);
-
-        let state_action: HyliUtxoStateAction = state_commitments;
-
         let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("transfer@{}", contract_name));
         let hyli_utxo_data = BlobData(cmd.blob.to_vec());
         let state_blob_data = BlobData(
-            borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
+            borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
+                .expect("HyliUtxoStateAction serialization failed"),
         );
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),
@@ -458,28 +448,12 @@ impl FaucetApp {
             offset += HYLI_BLOB_HASH_BYTE_LENGTH;
         }
 
-        // Build state action: [created_0, created_1, nullified_0, nullified_1]
-        let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
-
-        // Output commitments (created)
-        state_commitments[0] = BorshableH256::from(output_notes[0].commitment().to_be_bytes());
-        state_commitments[1] = BorshableH256::from(output_notes[1].commitment().to_be_bytes());
-
-        // Nullifiers
-        for (i, input) in input_notes.iter().enumerate() {
-            if !input.note.is_padding_note() {
-                let nullifier = hash_merge([input.note.psi, input.secret_key]);
-                state_commitments[2 + i] = BorshableH256::from(nullifier.to_be_bytes());
-            }
-        }
-
-        let state_action: HyliUtxoStateAction = state_commitments;
-
         let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("transfer@{}", contract_name));
         let hyli_utxo_data = BlobData(blob_bytes);
         let state_blob_data = BlobData(
-            borsh::to_vec(&state_action).expect("HyliUtxoStateAction serialization failed"),
+            borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
+                .expect("HyliUtxoStateAction serialization failed"),
         );
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),

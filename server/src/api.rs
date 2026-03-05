@@ -30,7 +30,10 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
-use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+use hyli_utxo_state::{
+    state::{HyliUtxoBlob, HYLI_UTXO_STATE_ACTION},
+    zk::BorshableH256,
+};
 use sdk::{
     Blob, BlobData, BlobTransaction, ContractName, Hashed, Identity, ProgramId, ProofData,
     ProofTransaction, Verifier,
@@ -359,20 +362,12 @@ fn build_blob_transaction(
     nullifier_0.copy_from_slice(&request.blob_data[64..96]);
     nullifier_1.copy_from_slice(&request.blob_data[96..128]);
 
-    let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
-    state_commitments[0] = BorshableH256::from(request.output_notes[0].commitment().to_be_bytes());
-    state_commitments[1] = BorshableH256::from(request.output_notes[1].commitment().to_be_bytes());
-    state_commitments[2] = BorshableH256::from(nullifier_0);
-    state_commitments[3] = BorshableH256::from(nullifier_1);
-
-    let state_action: HyliUtxoStateAction = state_commitments;
-
     let contract_name = state.utxo_contract_name.clone();
     let identity = Identity(format!("transfer@{}", contract_name));
     let hyli_utxo_data = BlobData(request.blob_data.clone());
     let smt_blob_data = BlobData(request.smt_blob_data.clone());
     let state_blob_data = BlobData(
-        borsh::to_vec(&state_action)
+        borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
             .map_err(|e| ApiError::internal(format!("serialization failed: {}", e)))?,
     );
 

@@ -11,7 +11,10 @@ use client_sdk::{
 use hex::encode as hex_encode;
 use hyli_modules::bus::BusMessage;
 use hyli_utxo_state::{
-    state::{ContractConfig, HyliUtxoState, HyliUtxoStateAction},
+    state::{
+        parse_hyli_utxo_blob, ContractConfig, HyliUtxoBlob, HyliUtxoState, HyliUtxoStateAction,
+        SeparatedHyliUtxoBlob,
+    },
     zk::BorshableH256,
     HyliUtxoZkVmBatch, HyliUtxoZkVmState,
 };
@@ -66,11 +69,11 @@ impl HyliUtxoStateExecutor {
 
     pub fn zkvm_witness(
         &self,
-        note_keys: &[BorshableH256],
+        created_note_keys: &[BorshableH256],
         nullified_keys: &[BorshableH256],
     ) -> Result<HyliUtxoZkVmState> {
         self.state
-            .to_zkvm_state(self.config.clone(), note_keys, nullified_keys)
+            .to_zkvm_state(self.config.clone(), created_note_keys, nullified_keys)
             .map_err(|e| anyhow!(e))
     }
 
@@ -101,19 +104,16 @@ impl HyliUtxoStateExecutor {
         Ok(())
     }
 
-    fn update_from_blob(
-        &mut self,
-        calldata: &Calldata,
-    ) -> Result<(Vec<BorshableH256>, Vec<BorshableH256>)> {
-        let (_, state_blob) = calldata
+    fn update_from_blob(&mut self, calldata: &Calldata) -> Result<SeparatedHyliUtxoBlob> {
+        let (_, utxo_blob) = calldata
             .blobs
             .iter()
-            .find(|(index, _)| *index == calldata.index)
+            .find(|(_, blob)| blob.contract_name == self.config.utxo_contract_name)
             .ok_or_else(|| anyhow!("state blob not found in calldata"))?;
 
-        let action: HyliUtxoStateAction =
-            BorshDeserialize::try_from_slice(&state_blob.data.0).map_err(|e| anyhow!(e))?;
-        let (created, nullified) = Self::split_action(&action);
+        let (created, nullified) = parse_hyli_utxo_blob(&utxo_blob.data.0)
+            .map_err(|e| anyhow!("parsing HyliUtxoBlob into commitments: {e}"))?;
+
         info!(
             created_len = created.len(),
             nullified_len = nullified.len(),
@@ -130,31 +130,6 @@ impl HyliUtxoStateExecutor {
         0x66, 0x3a, 0xff, 0x1f, 0xfd, 0x8d, 0x55, 0x10, 0x54, 0x0f, 0x8e, 0x65, 0x9e, 0x78, 0x29,
         0x56, 0xf1,
     ];
-
-    fn split_action(action: &HyliUtxoStateAction) -> (Vec<BorshableH256>, Vec<BorshableH256>) {
-        let created = action
-            .iter()
-            .take(2)
-            .copied()
-            .filter(|commitment| {
-                let bytes: [u8; 32] = commitment.0.into();
-                bytes != [0u8; 32]
-            })
-            .collect();
-
-        let nullified = action
-            .iter()
-            .skip(2)
-            .copied()
-            .filter(|commitment| {
-                let bytes: [u8; 32] = commitment.0.into();
-                // Skip all-zeros AND the padding nullifier
-                bytes != [0u8; 32] && bytes != Self::PADDING_NULLIFIER
-            })
-            .collect();
-
-        (created, nullified)
-    }
 }
 
 impl TxExecutorHandler for HyliUtxoStateExecutor {
@@ -180,11 +155,20 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
         })
     }
 
-    fn build_commitment_metadata(&self, blob: &Blob) -> Result<Vec<u8>> {
-        let action: HyliUtxoStateAction =
-            BorshDeserialize::try_from_slice(&blob.data.0).map_err(|e| anyhow!(e))?;
+    fn build_commitment_metadata(&self, calldata: &Calldata) -> Result<Vec<u8>> {
+        let (_, blob) = calldata
+            .blobs
+            .iter()
+            .find(|(_, blob)| blob.contract_name == self.config.utxo_contract_name)
+            .ok_or_else(|| {
+                anyhow!(
+                    "state blob for contract '{}' not found in calldata",
+                    self.config.utxo_contract_name.0
+                )
+            })?;
 
-        let (created, nullified) = Self::split_action(&action);
+        let (created, nullified) = parse_hyli_utxo_blob(&blob.data.0)
+            .map_err(|e| anyhow!("parsing HyliUtxoBlob into commitments for metadata: {e}"))?;
 
         info!(
             created_len = created.len(),

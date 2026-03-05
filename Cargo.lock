@@ -2963,7 +2963,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 [[package]]
 name = "hyli-bus"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "anymap",
@@ -2987,7 +2987,7 @@ dependencies = [
 [[package]]
 name = "hyli-client-sdk"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -3010,7 +3010,7 @@ dependencies = [
 [[package]]
 name = "hyli-contract-sdk"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "borsh",
  "hyli-model",
@@ -3024,7 +3024,7 @@ dependencies = [
 [[package]]
 name = "hyli-crypto"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "blst",
@@ -3037,7 +3037,7 @@ dependencies = [
 [[package]]
 name = "hyli-model"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "base64",
@@ -3056,14 +3056,14 @@ dependencies = [
  "sha3",
  "sqlx",
  "strum 0.27.2",
- "strum_macros 0.27.2",
+ "strum_macros 0.28.0",
  "utoipa",
 ]
 
 [[package]]
 name = "hyli-modules"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "assertables",
@@ -3102,7 +3102,7 @@ dependencies = [
 [[package]]
 name = "hyli-net"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -3132,7 +3132,7 @@ dependencies = [
 [[package]]
 name = "hyli-net-macros"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "proc-macro-crate 3.4.0",
  "proc-macro2",
@@ -3143,7 +3143,7 @@ dependencies = [
 [[package]]
 name = "hyli-net-traits"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "hyli-net-macros",
 ]
@@ -3166,7 +3166,7 @@ dependencies = [
 [[package]]
 name = "hyli-turmoil-shims"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "borsh",
  "opentelemetry",
@@ -3191,7 +3191,7 @@ dependencies = [
 [[package]]
 name = "hyli-verifiers"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#3aaae160d2ec1cc780b954ab295677d1ce31ea30"
+source = "git+https://github.com/hyli-org/hyli.git?branch=commitment_metadata_calldata#ebb0667eb5e1440f33232ab81f9bd700009f7071"
 dependencies = [
  "anyhow",
  "borsh",
@@ -7567,9 +7567,9 @@ dependencies = [
 
 [[package]]
 name = "strum_macros"
-version = "0.27.2"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+checksum = "ab85eea0270ee17587ed4156089e10b9e6880ee688791d45a905f5b1ca36f664"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
