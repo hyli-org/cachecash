@@ -270,40 +270,27 @@ impl HyliUtxoZkVmState {
         };
 
         // Step 1: Check that the smt_blob's notes root matches the computed notes root from the witness.
-        let (smt_incl_input0, smt_incl_input1, smt_blob_notes_root) =
+        let (smt_nullifier0, smt_nullifier1, smt_blob_notes_root) =
             parse_hyli_smt_incl_blob(&smt_blob.data.0)?;
 
-        if self.roots.contains(smt_blob_notes_root) {
+        if !self.roots.contains(smt_blob_notes_root) {
             return Err("smt inclusion proof blob does not match notes root".to_string());
         }
 
-        // Step2: check that hyli_utxo_blob and smt_blob contain the same commitments in the expected positions.
-        let (input_notes, _nullified) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)?;
+        // Step 2: Check that the nullifiers in the smt blob match those in the utxo blob.
+        let (_output_notes, utxo_nullifiers) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)?;
 
-        if input_notes[0] != smt_incl_input0 {
+        if utxo_nullifiers[0] != smt_nullifier0 {
             return Err(
-                "hyli_utxo_blob input note 0 does not match smt inclusion proof input 0"
+                "hyli_utxo_blob nullifier 0 does not match smt inclusion proof nullifier 0"
                     .to_string(),
             );
         }
-        if input_notes[1] != smt_incl_input1 {
+        if utxo_nullifiers[1] != smt_nullifier1 {
             return Err(
-                "hyli_utxo_blob input note 1 does not match smt inclusion proof input 1"
+                "hyli_utxo_blob nullifier 1 does not match smt inclusion proof nullifier 1"
                     .to_string(),
             );
-        }
-
-        // Step3: Check that the noir input commitments match the action commitments.
-        if !input_notes[0].is_zero() && !self.notes.contains_key(input_notes[0]) {
-            return Err(
-                "hyli_utxo_blob input note 0 does not match state provided notes tree".to_string(),
-            )?;
-        }
-
-        if !input_notes[1].is_zero() && !self.notes.contains_key(input_notes[1]) {
-            return Err(
-                "hyli_utxo_blob input note 1 does not match state provided notes tree".to_string(),
-            )?;
         }
 
         Ok(())
@@ -434,10 +421,10 @@ pub fn parse_hyli_utxo_blob(
         })
         .collect::<Result<_, _>>()?;
 
-    let input_notes = [commitments[0], commitments[1]];
-    let nullified = [commitments[2], commitments[3]];
+    let output_notes = [commitments[0], commitments[1]];
+    let nullifiers = [commitments[2], commitments[3]];
 
-    Ok((input_notes, nullified))
+    Ok((output_notes, nullifiers))
 }
 
 pub fn parse_hyli_smt_incl_blob(
@@ -451,13 +438,13 @@ pub fn parse_hyli_smt_incl_blob(
         ));
     }
 
-    let commitment0 = BorshableH256::from(
+    let nullifier0 = BorshableH256::from(
         <[u8; 32]>::try_from(&bytes[0..32])
-            .map_err(|_| "Failed to read commitment0 from smt blob".to_string())?,
+            .map_err(|_| "Failed to read nullifier0 from smt blob".to_string())?,
     );
-    let commitment1 = BorshableH256::from(
+    let nullifier1 = BorshableH256::from(
         <[u8; 32]>::try_from(&bytes[32..64])
-            .map_err(|_| "Failed to read commitment1 from smt blob".to_string())?,
+            .map_err(|_| "Failed to read nullifier1 from smt blob".to_string())?,
     );
 
     // Only extract fingerprint for notes root (first 8 bytes) since that's the only one we need to verify in the zk contract.
@@ -465,7 +452,7 @@ pub fn parse_hyli_smt_incl_blob(
         .try_into()
         .map_err(|_| "Failed to read notes root fingerprint from smt blob".to_string())?;
 
-    Ok((commitment0, commitment1, notes_root_fingerprint))
+    Ok((nullifier0, nullifier1, notes_root_fingerprint))
 }
 
 #[cfg(test)]

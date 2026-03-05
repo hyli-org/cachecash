@@ -1,4 +1,4 @@
-use crate::{ToBytes, UtxoProofBytes};
+use crate::{InputNote, ToBytes, UtxoProofBytes};
 use element::Element;
 use serde::{Deserialize, Serialize};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub const HYLI_SMT_INCL_PUBLIC_INPUTS_COUNT: usize = 692;
 
 /// Total length in bytes of the SMT inclusion proof blob.
-/// Layout: [commitment_0 (32B)][commitment_1 (32B)][notes_root (32B)]
+/// Layout: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
 pub const HYLI_SMT_INCL_BLOB_LENGTH_BYTES: usize = 96;
 
 /// Hyli-specific metadata and witness values required to construct the SMT inclusion proof.
@@ -39,15 +39,17 @@ pub struct HyliSmtIncl {
     pub blob_capacity: u32,
     /// Actual blob length (must be 96).
     pub blob_len: u32,
-    /// 96-byte blob: [commitment_0 (32B)][commitment_1 (32B)][notes_root (32B)]
+    /// 96-byte blob: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
     pub blob: [u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES],
     /// Number of blobs included in the transaction.
     pub tx_blob_count: u32,
     /// Execution success flag reported by the host.
     pub success: bool,
-    /// SMT siblings for commitment_0 (256 levels × 32 bytes).
+    /// Input notes (note data + secret key) whose commitments are proven to be in the SMT.
+    pub input_notes: [InputNote; 2],
+    /// SMT siblings for input_notes[0] commitment (256 levels × 32 bytes).
     pub siblings_0: Box<[[u8; 32]; 256]>,
-    /// SMT siblings for commitment_1 (256 levels × 32 bytes).
+    /// SMT siblings for input_notes[1] commitment (256 levels × 32 bytes).
     pub siblings_1: Box<[[u8; 32]; 256]>,
 }
 

@@ -32,6 +32,10 @@ pub fn get_address(secret_key: Field) -> Field {
     poseidon2::Poseidon2::hash([secret_key, 0], 2)
 }
 
+pub fn compute_nullifier(psi: Field, secret_key: Field) -> Field {
+    poseidon2::Poseidon2::hash([psi, secret_key], 2)
+}
+
 pub fn check_input_note_ownership(input_note: InputNote) {
     if (input_note.note.value != 0) {
         assert(

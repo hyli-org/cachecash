@@ -207,6 +207,25 @@ fn build_smt_incl_input_map(value: &HyliSmtIncl) -> InputMap {
     );
 
     map.insert(
+        "input_notes".to_owned(),
+        InputValue::Vec(
+            value
+                .input_notes
+                .iter()
+                .map(|input_note| {
+                    let mut struct_ = std::collections::BTreeMap::new();
+                    struct_.insert("note".to_owned(), InputValue::from(&input_note.note));
+                    struct_.insert(
+                        "secret_key".to_owned(),
+                        InputValue::Field(input_note.secret_key.to_base()),
+                    );
+                    InputValue::Struct(struct_)
+                })
+                .collect(),
+        ),
+    );
+
+    map.insert(
         "siblings_0".to_owned(),
         InputValue::Vec(
             value

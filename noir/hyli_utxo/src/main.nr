@@ -1,11 +1,9 @@
-use common::{check_commitment, check_input_note_ownership, InputNote, Note};
-use poseidon::poseidon2;
+use common::{check_commitment, check_input_note_ownership, compute_nullifier, InputNote, Note};
 use utxo_lib::utxo_main;
 
 fn field_to_bytes(value: Field) -> [u8; 32] {
     value.to_be_bytes()
 }
-
 
 fn main(
     // Hyli-required public plumbing
@@ -62,17 +60,10 @@ fn main(
     let _ = initial_state;
     let _ = next_state;
 
-
     // ---------------------------------------------------------------------
     // Call through to the original UTXO circuit
     // ---------------------------------------------------------------------
-    utxo_main(
-        input_notes,
-        output_notes,
-        pmessage4,
-        commitments,
-        messages,
-    );
+    utxo_main(input_notes, output_notes, pmessage4, commitments, messages);
 
     // Mirror key checks so the Hyli host can rely on them directly.
     check_commitment(input_notes[0].note, commitments[0]);
@@ -89,22 +80,18 @@ fn main(
     let mut nullifier_commitments: [Field; 2] = [0; 2];
     for i in 0..2 {
         let note = input_notes[i];
-        let private_commitment = poseidon2::Poseidon2::hash([note.note.psi, note.secret_key], 2);
-        nullifier_commitments[i] = private_commitment;
+        nullifier_commitments[i] = compute_nullifier(note.note.psi, note.secret_key);
     }
 
     let expected_blob = build_blob_payload(commitments, nullifier_commitments);
     assert(blob == expected_blob, "blob must match concatenated commitments");
 }
 
-fn build_blob_payload(
-    commitments: [Field; 4],
-    nullifier_commitments: [Field; 2],
-) -> [u8; 128] {
+fn build_blob_payload(commitments: [Field; 4], nullifier_commitments: [Field; 2]) -> [u8; 128] {
     let mut bytes: [u8; 128] = [0; 128];
     let mut offset: u32 = 0;
 
-    for i in 0..2 {
+    for i in 2..4 {
         let commitment_bytes = field_to_bytes(commitments[i]);
         for j in 0..32 {
             let j_idx: u32 = j as u32;

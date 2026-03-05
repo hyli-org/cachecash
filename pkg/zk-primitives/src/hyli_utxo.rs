@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Number of public input fields emitted by the Hyli UTXO proof.
 pub const HYLI_UTXO_PUBLIC_INPUTS_COUNT: usize = 733;
 
-/// Number of field elements concatenated into the Hyli blob (2 input commitments + 2 nullifier commitments).
+/// Number of field elements concatenated into the Hyli blob (2 output commitments + 2 nullifier commitments).
 pub const HYLI_BLOB_HASH_COUNT: usize = 4;
 
 /// Size in bytes of a single field element commitment within the blob.
@@ -45,7 +45,7 @@ pub struct HyliUtxo {
     pub blob_capacity: u32,
     /// Actual blob length.
     pub blob_len: u32,
-    /// Blob payload (input commitments followed by nullifier commitments) exposed publicly.
+    /// Blob payload (output commitments followed by nullifier commitments) exposed publicly.
     pub blob: [u8; HYLI_BLOB_LENGTH_BYTES],
     /// Number of blobs included in the transaction.
     pub tx_blob_count: u32,
@@ -109,13 +109,13 @@ impl HyliUtxo {
         let mut blob = [0u8; HYLI_BLOB_LENGTH_BYTES];
         let mut write_index = 0usize;
 
-        for field in commitments.iter().take(2) {
+        for field in commitments.iter().skip(2) {
             blob[write_index..write_index + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&field.to_be_bytes());
             write_index += HYLI_BLOB_HASH_BYTE_LENGTH;
         }
 
-        for field in nullifiers.iter() {
+        for field in &nullifiers {
             blob[write_index..write_index + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&field.to_be_bytes());
             write_index += HYLI_BLOB_HASH_BYTE_LENGTH;

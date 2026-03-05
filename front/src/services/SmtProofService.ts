@@ -1,5 +1,6 @@
 import { Noir } from "@noir-lang/noir_js";
 import { UltraHonkBackend } from "@aztec/bb.js";
+import { PrivateNote } from "../types/note";
 
 class SmtProofService {
     // Cache only the circuit JSON; backend is created fresh for each proof
@@ -14,17 +15,26 @@ class SmtProofService {
     }
 
     async generateProof(params: {
-        smtBlobBytes: Uint8Array; // 96 bytes: [commit0, commit1, notes_root]
+        smtBlobBytes: Uint8Array; // 96 bytes: [nullifier0, nullifier1, notes_root]
         contractName: string; // smt_incl_proof_contract_name
         identity: string; // "transfer@{utxo_contract_name}"
         txHash: string;
         blobCount: number; // 3
+        inputNotes: [PrivateNote, PrivateNote]; // private: used to compute commitments for SMT lookup
+        secretKeys: [string, string]; // private: used to compute nullifiers
         siblings0: number[][]; // 256 x 32
         siblings1: number[][]; // 256 x 32
     }): Promise<{ proof: string; publicInputs: string[] }> {
         const circuit = await this.loadCircuit();
         const backend = new UltraHonkBackend((circuit as any).bytecode);
         const noir = new Noir(circuit as any);
+
+        const toCircuitNote = (note: PrivateNote) => ({
+            kind:    "0x" + note.contract,
+            value:   "0x" + note.value,
+            address: "0x" + note.address,
+            psi:     "0x" + note.psi,
+        });
 
         try {
             const inputs = {
@@ -46,6 +56,10 @@ class SmtProofService {
                 blob: Array.from(params.smtBlobBytes),
                 tx_blob_count: params.blobCount,
                 success: true,
+                input_notes: [
+                    { note: toCircuitNote(params.inputNotes[0]), secret_key: "0x" + params.secretKeys[0] },
+                    { note: toCircuitNote(params.inputNotes[1]), secret_key: "0x" + params.secretKeys[1] },
+                ],
                 siblings_0: params.siblings0,
                 siblings_1: params.siblings1,
             };

@@ -153,21 +153,22 @@ impl FaucetApp {
         let utxo = Utxo::new_mint([note.clone(), Note::padding_note()]);
 
         let leaf_elements = utxo.leaf_elements();
-        self.notes_root = leaf_elements[2];
         self.note_index = self.note_index.wrapping_add(1);
 
+        // Blob #1 (hyli_utxo): [outputCommit0 (32B)][outputCommit1 (32B)][nullifier0 (32B)][nullifier1 (32B)]
         let mut blob_bytes = vec![0u8; HYLI_BLOB_LENGTH_BYTES];
         let mut offset = 0usize;
 
-        for commitment in &leaf_elements[0..2] {
+        // Output commitments: leaf_elements[2] and leaf_elements[3]
+        for commitment in &leaf_elements[2..4] {
             blob_bytes[offset..offset + HYLI_BLOB_HASH_BYTE_LENGTH]
                 .copy_from_slice(&commitment.to_be_bytes());
             offset += HYLI_BLOB_HASH_BYTE_LENGTH;
         }
 
+        // State blob: [outputCommit0, outputCommit1, nullifier0, nullifier1]
         let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
-
-        for (index, commitment) in leaf_elements[2..].iter().enumerate() {
+        for (index, commitment) in leaf_elements[2..4].iter().enumerate() {
             state_commitments[index] = BorshableH256::from(commitment.to_be_bytes());
         }
 
@@ -186,10 +187,11 @@ impl FaucetApp {
                 nullifier_index += 1;
             }
         }
+
+        // Blob #2 (hyli_smt_incl_proof): [nullifier0 (32B)][nullifier1 (32B)][notes_root (32B)]
+        // Nullifiers are at bytes 64-127 of the UTXO blob.
         let mut incl_proof_bytes = vec![0u8; 3 * 32];
-        // first 2 * 32 bytes are same as hyli_utxo blob (input commitments)
-        incl_proof_bytes[..64].copy_from_slice(&blob_bytes[..64]);
-        // Last 32 bytes are the root hasher
+        incl_proof_bytes[..64].copy_from_slice(&blob_bytes[64..128]);
         incl_proof_bytes[64..96].copy_from_slice(&self.notes_root.to_be_bytes());
 
         let state_action: HyliUtxoStateAction = state_commitments;
@@ -298,6 +300,9 @@ impl FaucetApp {
             blob: payload,
             tx_blob_count: blob_tx.blobs.len() as u32,
             blob_index: blob_index as u32,
+            // Server auto-prover doesn't have access to private note data;
+            // padding notes are used as placeholders (proof generation will fail for real transfers).
+            input_notes: [InputNote::padding_note(), InputNote::padding_note()],
             siblings_0,
             siblings_1,
         };

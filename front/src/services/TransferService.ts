@@ -183,19 +183,19 @@ class TransferService {
     }
 
     /**
-     * Build 128-byte blob: [commit0 (32), commit1 (32), nullifier0 (32), nullifier1 (32)]
+     * Build 128-byte blob: [outputCommit0 (32), outputCommit1 (32), nullifier0 (32), nullifier1 (32)]
      */
-    async buildRawBlobData(inputNotes: [InputNoteData, InputNoteData]): Promise<Uint8Array> {
-        const [commit0, commit1, nullifier0, nullifier1] = await Promise.all([
-            computeCommitment(inputNotes[0].note),
-            computeCommitment(inputNotes[1].note),
+    async buildRawBlobData(outputNotes: [PrivateNote, PrivateNote], inputNotes: [InputNoteData, InputNoteData]): Promise<Uint8Array> {
+        const [outputCommit0, outputCommit1, nullifier0, nullifier1] = await Promise.all([
+            computeCommitment(outputNotes[0]),
+            computeCommitment(outputNotes[1]),
             computeNullifier(inputNotes[0].note.psi, inputNotes[0].secretKey),
             computeNullifier(inputNotes[1].note.psi, inputNotes[1].secretKey),
         ]);
 
         const blob = new Uint8Array(128);
-        blob.set(hexToBytes32(commit0), 0);
-        blob.set(hexToBytes32(commit1), 32);
+        blob.set(hexToBytes32(outputCommit0), 0);
+        blob.set(hexToBytes32(outputCommit1), 32);
         blob.set(hexToBytes32(nullifier0), 64);
         blob.set(hexToBytes32(nullifier1), 96);
         return blob;
@@ -235,14 +235,14 @@ class TransferService {
                     : createPaddingNote();
             const outputNotes: [PrivateNote, PrivateNote] = [transferNote, changeNote];
 
-            // 3. Build raw blob (commitments + nullifiers for inputs)
-            const blobBytes = await this.buildRawBlobData(selection.selectedInputs);
-
-            // Compute input commitments (first 2 fields of blob)
+            // Compute input commitments (needed for SMT witness lookup)
             const [commit0, commit1] = await Promise.all([
                 computeCommitment(selection.selectedInputs[0].note),
                 computeCommitment(selection.selectedInputs[1].note),
             ]);
+
+            // 3. Build raw blob (output commitments + nullifiers for inputs)
+            const blobBytes = await this.buildRawBlobData(outputNotes, selection.selectedInputs);
 
             // 4. Fetch SMT witnesses from the server indexer
             onProgress?.("smt-witness");
@@ -253,10 +253,11 @@ class TransferService {
             ]);
             const smtWitness = await nodeService.getSmtWitness(commit0, commit1, utxoStateContractName);
 
-            // Build SMT blob: [commit0 (32B)][commit1 (32B)][notes_root (32B)] = 96 bytes
+            // Build SMT blob: [nullifier0 (32B)][nullifier1 (32B)][notes_root (32B)] = 96 bytes
+            // Nullifiers are at bytes 64-127 of the UTXO blob (blobBytes).
             const smtBlobBytes = new Uint8Array(96);
-            smtBlobBytes.set(hexToBytes32(commit0), 0);
-            smtBlobBytes.set(hexToBytes32(commit1), 32);
+            smtBlobBytes.set(blobBytes.slice(64, 96), 0);
+            smtBlobBytes.set(blobBytes.slice(96, 128), 32);
             smtBlobBytes.set(hexToBytes32(smtWitness.notes_root), 64);
 
             // 5. Compute deterministic tx_hash without submitting (so proofs use the real hash)
@@ -295,6 +296,8 @@ class TransferService {
                 identity: `transfer@${contractName}`,
                 txHash,
                 blobCount: 3,
+                inputNotes: selection.selectedInputs.map((n) => n.note) as [PrivateNote, PrivateNote],
+                secretKeys: selection.selectedInputs.map((n) => n.secretKey) as [string, string],
                 siblings0: smtWitness.siblings_0,
                 siblings1: smtWitness.siblings_1,
             });

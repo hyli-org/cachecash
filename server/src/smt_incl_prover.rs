@@ -11,7 +11,7 @@ use hyli_modules::{
 use sdk::{Identity, TxHash};
 use tokio::task::{JoinError, JoinSet};
 use tracing::{error, info};
-use zk_primitives::{HyliSmtIncl, HyliSmtInclProof, ToBytes, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
+use zk_primitives::{InputNote, HyliSmtIncl, HyliSmtInclProof, ToBytes, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
 
 use crate::{
     init::ContractDeployment,
@@ -25,6 +25,7 @@ pub struct SmtInclProofJob {
     pub blob: [u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES],
     pub tx_blob_count: u32,
     pub blob_index: u32,
+    pub input_notes: [InputNote; 2],
     pub siblings_0: Box<[[u8; 32]; 256]>,
     pub siblings_1: Box<[[u8; 32]; 256]>,
 }
@@ -180,6 +181,7 @@ impl HyliSmtInclNoirProver {
             blob: job.blob,
             tx_blob_count: job.tx_blob_count,
             success: true,
+            input_notes: job.input_notes.clone(),
             siblings_0: job.siblings_0.clone(),
             siblings_1: job.siblings_1.clone(),
         })

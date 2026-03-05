@@ -1,5 +1,15 @@
 use dep::poseidon::poseidon2::Poseidon2;
+use common::{compute_nullifier, get_note_commitment, InputNote};
 use std::ops::WrappingAdd;
+
+/// Convert a commitment Field to its big-endian byte representation.
+fn commitment_to_bytes(commitment: Field) -> [u8; 32] {
+    if commitment == 0 {
+        [0u8; 32]
+    } else {
+        commitment.to_be_bytes()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // SMT hash helpers (Poseidon2-based, ZK-native)
@@ -51,7 +61,10 @@ fn hash_merge_normal(height: u8, node_key: [u8; 32], lhs: [u8; 32], rhs: [u8; 32
     let (nk_lo, nk_hi) = h256_to_fields(node_key);
     let (l_lo, l_hi) = h256_to_fields(lhs);
     let (r_lo, r_hi) = h256_to_fields(rhs);
-    let h = Poseidon2::hash([1, height as Field, nk_lo, nk_hi, l_lo, l_hi, r_lo, r_hi], 8);
+    let h = Poseidon2::hash(
+        [1, height as Field, nk_lo, nk_hi, l_lo, l_hi, r_lo, r_hi],
+        8,
+    );
     field_to_h256(h)
 }
 
@@ -192,6 +205,8 @@ fn main(
     blob: pub [u8; 96],
     tx_blob_count: pub u32,
     success: pub bool,
+    // Private inputs: input notes (note data + secret key for nullifier computation)
+    input_notes: [InputNote; 2],
     // Private SMT proof witnesses
     siblings_0: [[u8; 32]; 256],
     siblings_1: [[u8; 32]; 256],
@@ -222,20 +237,34 @@ fn main(
     let _ = blob_contract_name;
 
     // -------------------------------------------------------------------------
-    // Parse blob: [commitment_0 (32B)][commitment_1 (32B)][notes_root (32B)]
+    // Parse blob: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
     // -------------------------------------------------------------------------
-    let mut commitment_0: [u8; 32] = [0; 32];
-    let mut commitment_1: [u8; 32] = [0; 32];
+    let mut blob_nullifier_0: [u8; 32] = [0; 32];
+    let mut blob_nullifier_1: [u8; 32] = [0; 32];
     let mut notes_root: [u8; 32] = [0; 32];
 
     for i in 0..32 {
-        commitment_0[i] = blob[i];
-        commitment_1[i] = blob[32 + i];
+        blob_nullifier_0[i] = blob[i];
+        blob_nullifier_1[i] = blob[32 + i];
         notes_root[i] = blob[64 + i];
     }
 
     // -------------------------------------------------------------------------
-    // Verify SMT inclusion for both commitments
+    // Compute commitments (for SMT lookup) and nullifiers (for blob verification)
+    // -------------------------------------------------------------------------
+    let commitment_0 = commitment_to_bytes(get_note_commitment(input_notes[0].note));
+    let commitment_1 = commitment_to_bytes(get_note_commitment(input_notes[1].note));
+
+    let nullifier_0 =
+        compute_nullifier(input_notes[0].note.psi, input_notes[0].secret_key).to_be_bytes();
+    let nullifier_1 =
+        compute_nullifier(input_notes[1].note.psi, input_notes[1].secret_key).to_be_bytes();
+
+    assert(nullifier_0 == blob_nullifier_0, "nullifier_0 must match blob");
+    assert(nullifier_1 == blob_nullifier_1, "nullifier_1 must match blob");
+
+    // -------------------------------------------------------------------------
+    // Verify SMT inclusion for both input note commitments
     // -------------------------------------------------------------------------
     verify_inclusion(commitment_0, notes_root, siblings_0);
     verify_inclusion(commitment_1, notes_root, siblings_1);
