@@ -74,8 +74,7 @@ impl<T: Serialize + DeserializeOwned + Default> PersistentStore<T> {
         let temp_path = format!("{}.tmp", path);
         let file = fs::File::create(&temp_path)?;
         let writer = BufWriter::new(file);
-        serde_json::to_writer(writer, &*data)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        serde_json::to_writer(writer, &*data).map_err(io::Error::other)?;
         fs::rename(&temp_path, path)?;
         debug!(path = %path, "Persisted store to disk");
         Ok(())

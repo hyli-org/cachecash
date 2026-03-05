@@ -36,14 +36,16 @@ pub struct NoirProver {
     verifier: Verifier,
 }
 
-impl NoirProver {
-    /// Create a new prover instance.
-    pub fn new() -> Self {
+impl Default for NoirProver {
+    /// Create a default prover instance.
+    fn default() -> Self {
         Self {
             verifier: Verifier(sdk::verifiers::NOIR.to_string()),
         }
     }
+}
 
+impl NoirProver {
     /// Create a [`ProofTransaction`] for the provided artifacts.
     ///
     /// When `verify_locally` is enabled, the proof is checked using the Noir verifier shipped

@@ -14,8 +14,6 @@ use hyli_modules::modules::{
 use hyli_modules::{
     bus::SharedMessageBus,
     modules::{
-        block_processor::NodeStateBlockProcessor,
-        da_listener::{DAListenerConf, SignedDAListener},
         prover::{AutoProver, AutoProverCtx},
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
@@ -256,17 +254,18 @@ async fn main() -> Result<()> {
         .await
         .context("building auto prover module")?;
 
-    let mut router_guard = api_builder_ctx
+    #[allow(clippy::expect_used, reason = "Fail on misconfiguration")]
+    let router = api_builder_ctx
         .router
         .lock()
-        .expect("API router mutex poisoned");
-    let router = router_guard.take().unwrap_or_else(Router::new);
-    drop(router_guard);
-
+        .expect("Context router should be available.")
+        .take()
+        .expect("Context router should be available.");
+    #[allow(clippy::expect_used, reason = "Fail on misconfiguration")]
     let openapi = api_builder_ctx
         .openapi
         .lock()
-        .expect("OpenAPI mutex poisoned")
+        .expect("OpenAPI should be available")
         .clone();
 
     let rest_context = RestApiRunContext::new(

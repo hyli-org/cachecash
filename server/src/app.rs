@@ -14,14 +14,14 @@ use sdk::{
     ProofTransaction, TxHash, Verifier,
 };
 use tracing::{info, warn};
-use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
+use zk_primitives::{
+    InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES,
+    HYLI_SMT_INCL_BLOB_LENGTH_BYTES,
+};
 
 use crate::{
-    hyli_utxo_state_client::HyliUtxoStateEvent,
-    init::HYLI_UTXO_NOIR_VK,
-    noir_prover::HyliUtxoProofJob,
-    smt_incl_prover::SmtInclProofJob,
-    tx::FAUCET_IDENTITY_PREFIX,
+    hyli_utxo_state_client::HyliUtxoStateEvent, init::HYLI_UTXO_NOIR_VK,
+    noir_prover::HyliUtxoProofJob, smt_incl_prover::SmtInclProofJob, tx::FAUCET_IDENTITY_PREFIX,
 };
 
 pub const FAUCET_MINT_AMOUNT: u64 = 10;
@@ -510,7 +510,6 @@ mod tests {
         module_bus_client,
         modules::prover::{AutoProver, AutoProverCtx},
     };
-    use hyli_turmoil_shims::{init_global_meter_provider, init_test_meter_provider};
     use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
     use sdk::hyli_model_utils::TimestampMs;
 
@@ -534,6 +533,14 @@ mod tests {
 
     const TEST_UTXO_CONTRACT_NAME: &str = "hyli_utxo";
     const TEST_UTXO_STATE_CONTRACT_NAME: &str = "hyli-utxo-state";
+    const TEST_SMT_INCL_CONTRACT_NAME: &str = "hyli_smt_incl_proof";
+
+    fn get_config() -> hyli_utxo_state::state::ContractConfig {
+        hyli_utxo_state::state::ContractConfig {
+            utxo_contract_name: TEST_UTXO_CONTRACT_NAME.into(),
+            smt_incl_proof_contract_name: TEST_SMT_INCL_CONTRACT_NAME.into(),
+        }
+    }
 
     fn deterministic_address(label: &str) -> Element {
         let mut hasher = Sha3_256::new();
@@ -674,6 +681,7 @@ mod tests {
                 .expect("client init"),
             utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
             utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
+            incl_proof_contract_name: TEST_SMT_INCL_CONTRACT_NAME.to_string(),
         };
 
         let mut app = FaucetApp::build(bus, context)
@@ -725,7 +733,7 @@ mod tests {
         assert_eq!(actual_nullifiers, expected_nullifiers);
 
         // Ensure executor accepts the state blob without duplicate errors.
-        let mut executor = HyliUtxoStateExecutor::default();
+        let mut executor = HyliUtxoStateExecutor::new(get_config());
         let metadata = executor
             .build_commitment_metadata(state_blob)
             .expect("build commitment metadata");
@@ -768,6 +776,7 @@ mod tests {
                 .expect("client init"),
             utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
             utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
+            incl_proof_contract_name: TEST_SMT_INCL_CONTRACT_NAME.to_string(),
         };
 
         let mut app = FaucetApp::build(bus, context)
@@ -810,7 +819,7 @@ mod tests {
         let api_client = Arc::new(NodeApiMockClient::new());
         let mock_prover = Arc::new(MockProver {});
 
-        let default_executor = HyliUtxoStateExecutor::default();
+        let default_executor = HyliUtxoStateExecutor::new(get_config());
         let initial_commitment = default_executor.get_state_commitment();
         let program_id = ProgramId("MockProver".as_bytes().to_vec());
         let verifier: Verifier = "mock".into();
@@ -834,10 +843,10 @@ mod tests {
             contract_name: contract_name.clone(),
             node: node_arc,
             api: None,
-            default_state: default_executor.clone(),
-            buffer_blocks: 0,
             max_txs_per_proof: 4,
             tx_working_window_size: 1,
+            idle_flush_interval: Duration::from_secs(1),
+            tx_buffer_size: 1,
         });
 
         let auto_prover =
@@ -858,6 +867,7 @@ mod tests {
                 .expect("client init"),
             utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
             utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
+            incl_proof_contract_name: TEST_SMT_INCL_CONTRACT_NAME.to_string(),
         };
         let mut faucet = FaucetApp::build(faucet_bus, faucet_context)
             .await

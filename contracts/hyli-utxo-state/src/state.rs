@@ -52,7 +52,7 @@ impl HyliUtxoZkVmBatch {
 
     pub fn extend_with(&mut self, next: HyliUtxoZkVmBatch) {
         let mut merged = Vec::with_capacity(next.remaining.len() + 1 + self.remaining.len());
-        merged.extend(next.remaining.into_iter());
+        merged.extend(next.remaining);
         merged.push(next.current);
         merged.extend(std::mem::take(&mut self.remaining));
         self.remaining = merged;

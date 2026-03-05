@@ -128,15 +128,13 @@ impl HyliUtxo {
 fn pad_string(value: &str, target_len: usize) -> String {
     assert!(
         value.len() <= target_len,
-        "string '{}' exceeds maximum length {}",
-        value,
-        target_len
+        "string '{value}' exceeds maximum length {target_len}"
     );
 
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     padded
 }

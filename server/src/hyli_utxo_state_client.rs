@@ -220,7 +220,7 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
             .map_err(|e| anyhow!("parsing calldata: {e}"))
         else {
             let _blob0: RegisterContractAction = borsh::from_slice(
-                &calldata
+                calldata
                     .blobs
                     .get(&BlobIndex(0))
                     .map(|b| &b.data.0)

@@ -60,7 +60,7 @@ impl Module for HyliUtxoNoirProver {
         Self::check_bb_version()?;
 
         let bus = HyliUtxoNoirProverBusClient::new_from_bus(bus.new_handle()).await;
-        let prover = NoirProver::new();
+        let prover = NoirProver::default();
         let metrics = ctx.metrics.clone();
 
         Ok(Self {
@@ -232,7 +232,7 @@ pub(crate) fn pad_right_with_null(value: &str, target_len: usize) -> Result<Stri
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     Ok(padded)
 }

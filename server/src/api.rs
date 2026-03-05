@@ -11,10 +11,9 @@ use crate::{
     types::{
         BlobHashResponse, BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord,
         FaucetRequest, FaucetResponse, FinalizeTransferRequest, FinalizeTransferResponse,
-        GetNotesQuery, GetNotesResponse, InputNoteData, ProvedTransferRequest,
-        RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse,
-        ServerConfigResponse, SubmitProofRequest, TransferResponse, UploadNoteRequest,
-        UploadNoteResponse,
+        GetNotesQuery, GetNotesResponse, RegisterAddressRequest, RegisterAddressResponse,
+        ResolveAddressResponse, ServerConfigResponse, SubmitProofRequest, TransferResponse,
+        UploadNoteRequest, UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -26,7 +25,6 @@ use axum::{
     Json, Router,
 };
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
-use element::Element;
 use hyli_modules::{
     bus::{BusClientSender, SharedMessageBus},
     module_bus_client, module_handle_messages,
@@ -35,11 +33,10 @@ use hyli_modules::{
 use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
 use sdk::{
     Blob, BlobData, BlobTransaction, ContractName, Hashed, Identity, ProgramId, ProofData,
-    ProofTransaction, TxHash, Verifier,
+    ProofTransaction, Verifier,
 };
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
-use zk_primitives::InputNote;
 
 pub struct ApiModule {
     bus: ApiModuleBusClient,
@@ -538,27 +535,6 @@ async fn finalize_transfer(
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     use base64::prelude::*;
     BASE64_STANDARD.decode(input).map_err(|e| e.to_string())
-}
-
-fn parse_input_note(data: &InputNoteData) -> Result<InputNote, ApiError> {
-    let secret_key = parse_element_hex(&data.secret_key, "secret_key")?;
-    Ok(InputNote::new(data.note.clone(), secret_key))
-}
-
-fn parse_element_hex(hex_str: &str, field_name: &str) -> Result<Element, ApiError> {
-    let normalized = hex_str.trim().strip_prefix("0x").unwrap_or(hex_str.trim());
-    if normalized.len() != 64 {
-        return Err(ApiError::bad_request(format!(
-            "{} must be 64 hex chars, got {}",
-            field_name,
-            normalized.len()
-        )));
-    }
-    let bytes = hex::decode(normalized)
-        .map_err(|e| ApiError::bad_request(format!("{} invalid hex: {}", field_name, e)))?;
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&bytes);
-    Ok(Element::from_be_bytes(arr))
 }
 
 // ---- Encrypted Notes Handlers ----

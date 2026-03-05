@@ -95,7 +95,7 @@ impl<T: BorshDeserialize + BorshSerialize + Default + Value + GetKey + Ord + Clo
                     .0
                     .clone()
                     .compute_root::<Poseidon2Hasher>(leaves)
-                    .map(|root| BorshableH256::from(root))
+                    .map(BorshableH256::from)
                     .map_err(|e| format!("Failed to compute SMT root from proof: {e}"))
             }
         }

@@ -57,7 +57,7 @@ impl Module for HyliSmtInclNoirProver {
 
     async fn build(bus: SharedMessageBus, ctx: Self::Context) -> Result<Self> {
         let bus = SmtInclProverBusClient::new_from_bus(bus.new_handle()).await;
-        let prover = NoirProver::new();
+        let prover = NoirProver::default();
 
         Ok(Self { bus, ctx, prover })
     }
@@ -195,7 +195,7 @@ fn pad_right_with_null(value: &str, target_len: usize) -> Result<String> {
     let mut padded = String::with_capacity(target_len);
     padded.push_str(value);
     if value.len() < target_len {
-        padded.extend(std::iter::repeat('\0').take(target_len - value.len()));
+        padded.extend(std::iter::repeat_n('\0', target_len - value.len()));
     }
     Ok(padded)
 }
