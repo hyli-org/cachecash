@@ -419,7 +419,7 @@ function App() {
                 />
             )}
             {debugMode && (
-                <DebugNotesPanel notes={storedNotes} playerName={playerName} identity={playerKeys} />
+                <DebugNotesPanel notes={storedNotes} onClear={() => {}} />
             )}
         </div>
     );

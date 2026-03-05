@@ -21,7 +21,7 @@ class ProofService {
         if (!this.circuit) {
             this.circuit = await fetch("/hyli_utxo.json").then((r) => r.json());
         }
-        return this.circuit;
+        return this.circuit!;
     }
 
     async generateProof(

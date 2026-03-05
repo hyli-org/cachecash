@@ -252,11 +252,7 @@ impl HyliUtxoZkVmState {
         }
     }
 
-    fn check_noir_blobs(
-        &self,
-        action: &HyliUtxoStateAction,
-        calldata: &Calldata,
-    ) -> Result<(), String> {
+    fn check_noir_blobs(&self, calldata: &Calldata) -> Result<(), String> {
         let Some((_, hyli_utxo_blob)) = calldata
             .blobs
             .iter()
@@ -362,7 +358,7 @@ impl sdk::ZkContract for HyliUtxoZkVmState {
         self.notes.ensure_all_zero()?;
         self.nullified_notes.ensure_all_zero()?;
 
-        self.check_noir_blobs(&action, calldata)?;
+        self.check_noir_blobs(calldata)?;
 
         self.apply_action(&action)?;
 

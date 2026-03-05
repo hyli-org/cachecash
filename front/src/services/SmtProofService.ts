@@ -10,7 +10,7 @@ class SmtProofService {
         if (!this.circuit) {
             this.circuit = await fetch("/hyli_smt_incl_proof.json").then((r) => r.json());
         }
-        return this.circuit;
+        return this.circuit!;
     }
 
     async generateProof(params: {
