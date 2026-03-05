@@ -1,5 +1,6 @@
 mod agg_agg;
 mod agg_utxo;
+mod hyli_smt_incl_proof;
 mod hyli_utxo;
 mod migrate;
 mod note;

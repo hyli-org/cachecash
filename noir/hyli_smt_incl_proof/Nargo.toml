@@ -1,0 +1,8 @@
+[package]
+name = "hyli_smt_incl_proof"
+type = "bin"
+authors = [""]
+compiler_version = ">=0.36.0"
+
+[dependencies]
+poseidon = { tag = "v0.2.6", git = "https://github.com/noir-lang/poseidon" }

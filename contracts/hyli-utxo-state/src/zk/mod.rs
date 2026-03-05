@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use sdk::merkle_utils::{BorshableMerkleProof, SHA256Hasher};
+use sdk::merkle_utils::BorshableMerkleProof;
 use sparse_merkle_tree::{traits::Value, H256};
 
 pub mod smt;
 
-pub use smt::{BorshableH256, GetKey, WitnessLeaf, SMT};
+pub use smt::{BorshableH256, GetKey, Poseidon2Hasher, WitnessLeaf, SMT};
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub enum Proof {
@@ -54,6 +54,12 @@ impl<T: BorshDeserialize + BorshSerialize + Default + Value + GetKey + Ord + Clo
             .any(|candidate| candidate.get_key() == key)
     }
 
+    pub fn contains_key(&self, key: BorshableH256) -> bool {
+        self.values
+            .iter()
+            .any(|candidate| candidate.get_key() == key)
+    }
+
     pub fn insert(&mut self, value: T) -> bool {
         let key = value.get_key();
         if let Some(existing) = self
@@ -88,7 +94,7 @@ impl<T: BorshDeserialize + BorshSerialize + Default + Value + GetKey + Ord + Clo
                 proof
                     .0
                     .clone()
-                    .compute_root::<SHA256Hasher>(leaves)
+                    .compute_root::<Poseidon2Hasher>(leaves)
                     .map(|root| BorshableH256::from(root))
                     .map_err(|e| format!("Failed to compute SMT root from proof: {e}"))
             }

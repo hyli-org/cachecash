@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -xeuo pipefail
 
 # Compile the program
 NARGO=${NARGO:-nargo}
@@ -26,7 +26,8 @@ mkdir -p $REPO_ROOT/fixtures/keys
 
 # Get all program names from the workspace - the ordering of these is important,
 # as the hash from utxo is used in agg_utxo, and agg_utxo used in agg_agg
-PROGRAMS=("utxo" "hyli_utxo" "agg_utxo" "agg_agg" "signature" "points" "migrate")
+# PROGRAMS=("utxo" "hyli_utxo" "agg_utxo" "agg_agg" "signature" "points" "migrate")
+PROGRAMS=("hyli_utxo" "hyli_smt_incl_proof")
 
 # Define which programs should use the recursive flag (for IVC/recursive verification)
 # Note: Changed to standalone mode - no longer using IVC for these circuits
@@ -62,26 +63,26 @@ for NAME in "${PROGRAMS[@]}"; do
     && mv $REPO_ROOT/fixtures/keys/vk_hash $REPO_ROOT/fixtures/keys/${NAME}_key_hash
 
   # Print verification key hash as u256 and hex
-  echo "Verification key hash for $NAME:"
-  VK_HASH_OUTPUT=$(cd $REPO_ROOT && cargo run --bin vk_hash -- $REPO_ROOT/fixtures/keys/${NAME}_key_fields.json)
-  echo "$VK_HASH_OUTPUT" | sed 's/^/  /'
-  echo ""
+  # echo "Verification key hash for $NAME:"
+  # VK_HASH_OUTPUT=$(cd $REPO_ROOT && cargo run --bin vk_hash -- $REPO_ROOT/fixtures/keys/${NAME}_key_fields.json)
+  # echo "$VK_HASH_OUTPUT" | sed 's/^/  /'
+  # echo ""
 
   # Update agg_utxo/src/main.nr with the UTXO verification key hash
-  if [ "$NAME" == "utxo" ]; then
-    UTXO_VK_HASH=$(echo "$VK_HASH_OUTPUT" | grep "u256:" | cut -d' ' -f2)
-    echo "Updating agg_utxo/src/main.nr with UTXO verification key hash: $UTXO_VK_HASH"
-    sed -i.bak "s/global UTXO_VERIFICATION_KEY_HASH: Field = [0-9]*;/global UTXO_VERIFICATION_KEY_HASH: Field = $UTXO_VK_HASH;/" $REPO_ROOT/noir/agg_utxo/src/main.nr
-    rm $REPO_ROOT/noir/agg_utxo/src/main.nr.bak
-  fi
+  # if [ "$NAME" == "utxo" ]; then
+  #   UTXO_VK_HASH=$(echo "$VK_HASH_OUTPUT" | grep "u256:" | cut -d' ' -f2)
+  #   echo "Updating agg_utxo/src/main.nr with UTXO verification key hash: $UTXO_VK_HASH"
+  #   sed -i.bak "s/global UTXO_VERIFICATION_KEY_HASH: Field = [0-9]*;/global UTXO_VERIFICATION_KEY_HASH: Field = $UTXO_VK_HASH;/" $REPO_ROOT/noir/agg_utxo/src/main.nr
+  #   rm $REPO_ROOT/noir/agg_utxo/src/main.nr.bak
+  # fi
 
   # Update agg_agg/src/main.nr with the agg_utxo verification key hash
-  if [ "$NAME" == "agg_utxo" ]; then
-    AGG_UTXO_VK_HASH=$(echo "$VK_HASH_OUTPUT" | grep "u256:" | cut -d' ' -f2)
-    echo "Updating agg_agg/src/main.nr with agg_utxo verification key hash: $AGG_UTXO_VK_HASH"
-    sed -i.bak "s/global AGG_UTXO_VERIFICATION_KEY_HASH: Field = [0-9]*;/global AGG_UTXO_VERIFICATION_KEY_HASH: Field = $AGG_UTXO_VK_HASH;/" $REPO_ROOT/noir/agg_agg/src/main.nr
-    rm $REPO_ROOT/noir/agg_agg/src/main.nr.bak
-  fi
+  # if [ "$NAME" == "agg_utxo" ]; then
+  #   AGG_UTXO_VK_HASH=$(echo "$VK_HASH_OUTPUT" | grep "u256:" | cut -d' ' -f2)
+  #   echo "Updating agg_agg/src/main.nr with agg_utxo verification key hash: $AGG_UTXO_VK_HASH"
+  #   sed -i.bak "s/global AGG_UTXO_VERIFICATION_KEY_HASH: Field = [0-9]*;/global AGG_UTXO_VERIFICATION_KEY_HASH: Field = $AGG_UTXO_VK_HASH;/" $REPO_ROOT/noir/agg_agg/src/main.nr
+  #   rm $REPO_ROOT/noir/agg_agg/src/main.nr.bak
+  # fi
 
 done
 

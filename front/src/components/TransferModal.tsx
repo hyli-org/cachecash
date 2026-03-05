@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { FullIdentity } from "../services/KeyService";
 import { addressService } from "../services/AddressService";
-import { transferService, InputNoteData, parseNoteValue } from "../services/TransferService";
+import { transferService, InputNoteData, parseNoteValue, TransferStep } from "../services/TransferService";
 import { PrivateNote } from "../types/note";
 
 interface TransferModalProps {
@@ -14,6 +14,52 @@ interface TransferModalProps {
 
 type TransferStatus = "input" | "submitting" | "success" | "error";
 
+type ProgressStep = "resolving" | TransferStep;
+
+const PROGRESS_STEPS: { key: ProgressStep; label: string; desc: string }[] = [
+    {
+        key: "resolving",
+        label: "Resolving recipient",
+        desc: "Looking up the recipient's UTXO address from their username.",
+    },
+    {
+        key: "smt-witness",
+        label: "Fetching inclusion witnesses",
+        desc: "Retrieving cryptographic witnesses that prove your notes exist in the UTXO tree.",
+    },
+    {
+        key: "creating-blob",
+        label: "Preparing transaction",
+        desc: "Building the transaction blobs with your note commitments and nullifiers.",
+    },
+    {
+        key: "proving-utxo",
+        label: "Generating UTXO proof",
+        desc: "Proving the validity of your note and the new note for the recipient — zero-knowledge.",
+    },
+    {
+        key: "proving-smt",
+        label: "Generating SMT proof",
+        desc: "Proving your note is included in the Sparse Merkle Tree. This ensures privacy.",
+    },
+    {
+        key: "submitting-proofs",
+        label: "Submitting transaction & proofs",
+        desc: "Broadcasting the transaction and its proofs to the Hyli network.",
+    },
+];
+
+function stepStatus(
+    step: ProgressStep,
+    current: ProgressStep | null,
+): "done" | "active" | "pending" {
+    const idx = PROGRESS_STEPS.findIndex((s) => s.key === step);
+    const curIdx = current ? PROGRESS_STEPS.findIndex((s) => s.key === current) : -1;
+    if (idx < curIdx) return "done";
+    if (idx === curIdx) return "active";
+    return "pending";
+}
+
 export function TransferModal({ playerName, identity, availableNotes, onClose }: TransferModalProps) {
     const [recipientInput, setRecipientInput] = useState("");
     const [amount, setAmount] = useState("");
@@ -22,9 +68,9 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
     const [txHash, setTxHash] = useState<string | null>(null);
     const [transferNote, setTransferNote] = useState<PrivateNote | null>(null);
     const [noteCopied, setNoteCopied] = useState(false);
-    // true when recipient was a direct address (no encryption possible)
     const [noteShareNeeded, setNoteShareNeeded] = useState(false);
     const [consolidationStep, setConsolidationStep] = useState(0);
+    const [progressStep, setProgressStep] = useState<ProgressStep | null>(null);
 
     const totalBalance = useMemo(
         () => availableNotes.reduce((sum, n) => sum + parseNoteValue(n.note), 0),
@@ -60,25 +106,22 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
             try {
                 setStatus("submitting");
                 setConsolidationStep(0);
+                setProgressStep("resolving");
                 setError(null);
 
-                // Resolve recipient: username → deriveFullIdentity, hex → treat as utxoAddress
                 let recipientUtxoAddress: string;
                 let recipientEncryptionPubkey: string | undefined;
 
                 const normalized = trimmedRecipient.replace(/^0x/i, "");
                 if (normalized.length === 64 && /^[0-9a-fA-F]+$/.test(normalized)) {
-                    // Direct UTXO address
                     recipientUtxoAddress = normalized;
                     recipientEncryptionPubkey = undefined;
                 } else {
-                    // Username: resolve via API registry
                     const resolved = await addressService.resolve(trimmedRecipient);
                     recipientUtxoAddress = resolved.utxoAddress;
                     recipientEncryptionPubkey = resolved.encryptionPubkey;
                 }
 
-                // Check if sending to self
                 if (recipientUtxoAddress.toLowerCase() === identity.utxoAddress.toLowerCase()) {
                     setError("You cannot send funds to yourself");
                     setStatus("input");
@@ -92,7 +135,11 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     identity,
                     playerName,
                     recipientEncryptionPubkey,
-                    (step) => setConsolidationStep(step),
+                    (step) => {
+                        setConsolidationStep(step);
+                        setProgressStep(null);
+                    },
+                    (step) => setProgressStep(step),
                 );
 
                 setStatus("success");
@@ -118,6 +165,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         setNoteCopied(false);
         setNoteShareNeeded(false);
         setConsolidationStep(0);
+        setProgressStep(null);
         onClose();
     }, [onClose]);
 
@@ -129,6 +177,7 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         setNoteCopied(false);
         setNoteShareNeeded(false);
         setConsolidationStep(0);
+        setProgressStep(null);
     }, []);
 
     const handleCopyNote = useCallback(() => {
@@ -141,80 +190,66 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
     }, [transferNote, txHash]);
 
     const modalContent = (
-        <div className="manage-notes-modal__backdrop" role="presentation">
-            <div className="manage-notes-modal" role="dialog" aria-modal="true" aria-labelledby="transfer-modal-title">
-                <div className="manage-notes-modal__header">
-                    <div className="manage-notes-modal__eyebrow">Send Money</div>
-                    <h2 id="transfer-modal-title" className="manage-notes-modal__title">
+        <div className="modal-backdrop" role="presentation">
+            <div className="modal" role="dialog" aria-modal="true" aria-labelledby="transfer-modal-title">
+                <div className="modal-header">
+                    <div className="modal-eyebrow">Send Money</div>
+                    <h2 id="transfer-modal-title" className="modal-title">
                         {playerName || "---"}
                     </h2>
                 </div>
 
-                <div className="manage-notes-modal__body">
+                <div className="modal-body">
                     {status === "input" && (
-                        <form onSubmit={handleSubmit}>
-                            <div className="manage-notes-modal__description">
-                                Transfer funds to another user securely.
-                            </div>
+                        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                            <p className="modal-section-desc">
+                                Transfer funds to another user. Enter their username or UTXO address.
+                            </p>
 
-                            <div style={{ marginTop: "1rem" }}>
-                                <label htmlFor="recipient-input" style={{ display: "block", marginBottom: "0.5rem" }}>
-                                    Recipient (Username or UTXO Address)
+                            <div className="form-group">
+                                <label htmlFor="recipient-input" className="form-label">
+                                    Recipient
                                 </label>
                                 <input
                                     id="recipient-input"
                                     type="text"
+                                    className="form-input"
                                     value={recipientInput}
                                     onChange={(e) => setRecipientInput(e.target.value)}
-                                    placeholder="username or 0x..."
-                                    style={{ width: "100%", padding: "0.5rem", fontSize: "0.9rem" }}
+                                    placeholder="username or 0x…"
                                     required
                                 />
+                                <span className="form-hint">Username or 64-character hex UTXO address</span>
                             </div>
 
-                            <div style={{ marginTop: "1rem" }}>
-                                <label htmlFor="amount" style={{ display: "block", marginBottom: "0.5rem" }}>
+                            <div className="form-group">
+                                <label htmlFor="amount" className="form-label">
                                     Amount
                                 </label>
                                 <input
                                     id="amount"
                                     type="number"
+                                    className="form-input"
                                     value={amount}
                                     onChange={(e) => setAmount(e.target.value)}
                                     placeholder="0"
                                     min="1"
                                     max={totalBalance}
-                                    style={{ width: "100%", padding: "0.5rem" }}
                                     required
                                 />
+                                <span className="form-hint">
+                                    Available: {totalBalance.toLocaleString()} ({availableNotes.length} note
+                                    {availableNotes.length !== 1 ? "s" : ""})
+                                </span>
                             </div>
 
-                            <div className="manage-notes-modal__count" style={{ marginTop: "1rem" }}>
-                                Available: {totalBalance} ({availableNotes.length} note
-                                {availableNotes.length !== 1 ? "s" : ""})
-                            </div>
-                            {totalBalance === 0 && (
-                                <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#666" }}>
-                                    Tip: Request funds from the faucet by slicing pumpkins first, or receive a transfer
-                                    from another user.
-                                </div>
-                            )}
+                            {error && <div className="status-error">{error}</div>}
 
-                            {error && (
-                                <div className="manage-notes-modal__message manage-notes-modal__message--error">
-                                    {error}
-                                </div>
-                            )}
-
-                            <div className="manage-notes-modal__actions" style={{ marginTop: "1.5rem" }}>
-                                <button type="submit" className="pixel-button">
-                                    Send Transfer
+                            <div style={{ display: "flex", gap: "0.5rem" }}>
+                                <button type="submit" className="btn btn-primary">
+                                    Send
                                 </button>
-                                <button
-                                    type="button"
-                                    className="pixel-button pixel-button--ghost"
-                                    onClick={handleClose}
-                                >
+                                <button type="button" className="btn btn-ghost" onClick={handleClose}>
                                     Cancel
                                 </button>
                             </div>
@@ -222,124 +257,92 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     )}
 
                     {status === "submitting" && (
-                        <div style={{ textAlign: "center", padding: "2rem 0" }}>
-                            {consolidationStep > 0 ? (
-                                <>
-                                    <div className="manage-notes-modal__description">
-                                        Consolidating notes (step {consolidationStep})…
-                                    </div>
-                                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
-                                        Your balance is spread across too many notes. Merging them first.
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="manage-notes-modal__description">Generating zero-knowledge proof…</div>
-                                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#666" }}>
-                                        This may take 10–30 seconds.
-                                    </div>
-                                </>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                            {consolidationStep > 0 && (
+                                <div className="status-info">
+                                    <strong>Consolidating notes (round {consolidationStep})…</strong>
+                                    <br />
+                                    Your balance is split across multiple notes. We need to merge them into one before
+                                    sending — this takes a moment.
+                                </div>
                             )}
-                            <div style={{ marginTop: "1rem" }}>
-                                <span className="loading-spinner">⏳</span>
+
+                            <div className="progress-steps">
+                                {PROGRESS_STEPS.map(({ key, label, desc }) => {
+                                    const state = stepStatus(key, progressStep);
+                                    return (
+                                        <div key={key} className={`progress-step progress-step--${state}`}>
+                                            <div className="progress-step-indicator">
+                                                {state === "done" ? "✓" : state === "active" ? "●" : "·"}
+                                            </div>
+                                            <div className="progress-step-content">
+                                                <div className="progress-step-label">{label}</div>
+                                                {state === "active" && (
+                                                    <div className="progress-step-desc">{desc}</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
+
+                            <p className="form-hint" style={{ textAlign: "center" }}>
+                                Proof generation may take 10–60 seconds.
+                            </p>
                         </div>
                     )}
 
                     {status === "success" && (
-                        <div style={{ textAlign: "center", padding: "1rem 0" }}>
-                            <div
-                                className="manage-notes-modal__description"
-                                style={{ fontSize: "1.2rem", marginBottom: "1rem" }}
-                            >
-                                ✅ Transfer Successful!
-                            </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                            <div className="success-title">Transfer Successful</div>
+
                             {txHash && (
-                                <div
-                                    style={{
-                                        marginTop: "1rem",
-                                        padding: "0.5rem",
-                                        borderRadius: "4px",
-                                        wordBreak: "break-all",
-                                        fontFamily: "monospace",
-                                        fontSize: "0.85rem",
-                                    }}
-                                >
-                                    <strong>Transaction:</strong> {txHash}
+                                <div className="modal-section">
+                                    <div className="modal-section-title">Transaction</div>
+                                    <div className="tx-hash-box">{txHash}</div>
                                 </div>
                             )}
+
                             {noteShareNeeded && transferNote ? (
-                                <div style={{ marginTop: "1rem", textAlign: "left" }}>
-                                    <div
-                                        className="manage-notes-modal__description"
-                                        style={{ marginBottom: "0.5rem", fontWeight: "bold" }}
-                                    >
-                                        Share this note with the recipient
-                                    </div>
-                                    <div
-                                        className="manage-notes-modal__description"
-                                        style={{ fontSize: "0.8rem", marginBottom: "0.5rem", color: "#555" }}
-                                    >
-                                        No encryption key is known for this address. Send the note below via
-                                        a messaging app so the recipient can import it.
-                                    </div>
+                                <div className="note-share-area">
+                                    <div className="note-share-label">Share this note with the recipient</div>
+                                    <p className="note-share-desc">
+                                        No encryption key is known for this address. Send the note below via a
+                                        messaging app so the recipient can import it.
+                                    </p>
                                     <textarea
                                         readOnly
                                         rows={6}
-                                        style={{
-                                            width: "100%",
-                                            fontFamily: "monospace",
-                                            fontSize: "0.72rem",
-                                            padding: "0.4rem",
-                                            boxSizing: "border-box",
-                                            resize: "none",
-                                        }}
+                                        className="form-input"
                                         value={JSON.stringify({ txHash, note: transferNote }, null, 2)}
                                     />
-                                    <button
-                                        type="button"
-                                        className="pixel-button pixel-button--ghost pixel-button--compact"
-                                        onClick={handleCopyNote}
-                                        style={{ marginTop: "0.5rem", width: "100%" }}
-                                    >
+                                    <button type="button" className="btn btn-secondary" onClick={handleCopyNote}>
                                         {noteCopied ? "Copied!" : "Copy note JSON"}
                                     </button>
                                 </div>
                             ) : (
-                                <div className="manage-notes-modal__description" style={{ marginTop: "1rem" }}>
-                                    Recipient will receive the note automatically.
-                                </div>
+                                <p className="modal-section-desc">
+                                    The recipient will receive the note automatically.
+                                </p>
                             )}
-                            <div className="manage-notes-modal__actions" style={{ marginTop: "1.5rem" }}>
-                                <button type="button" className="pixel-button" onClick={handleClose}>
-                                    Close
-                                </button>
-                            </div>
+
+                            <button type="button" className="btn btn-primary" onClick={handleClose}>
+                                Close
+                            </button>
                         </div>
                     )}
 
                     {status === "error" && (
-                        <div style={{ textAlign: "center", padding: "1rem 0" }}>
-                            <div
-                                className="manage-notes-modal__description"
-                                style={{ fontSize: "1.2rem", marginBottom: "1rem", color: "#d32f2f" }}
-                            >
-                                ❌ Transfer Failed
+                        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                            <div style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--error)" }}>
+                                Transfer Failed
                             </div>
-                            {error && (
-                                <div className="manage-notes-modal__message manage-notes-modal__message--error">
-                                    {error}
-                                </div>
-                            )}
-                            <div className="manage-notes-modal__actions" style={{ marginTop: "1.5rem" }}>
-                                <button type="button" className="pixel-button" onClick={handleTryAgain}>
+                            {error && <div className="status-error">{error}</div>}
+                            <div style={{ display: "flex", gap: "0.5rem" }}>
+                                <button type="button" className="btn btn-primary" onClick={handleTryAgain}>
                                     Try Again
                                 </button>
-                                <button
-                                    type="button"
-                                    className="pixel-button pixel-button--ghost"
-                                    onClick={handleClose}
-                                >
+                                <button type="button" className="btn btn-ghost" onClick={handleClose}>
                                     Cancel
                                 </button>
                             </div>
@@ -347,10 +350,8 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
                     )}
                 </div>
 
-                <div className="manage-notes-modal__footer">
-                    <div className="manage-notes-modal__description" style={{ fontSize: "0.85rem" }}>
-                        Your secret keys never leave your browser.
-                    </div>
+                <div className="modal-footer">
+                    <span className="modal-footer-note">Your secret keys never leave your browser.</span>
                 </div>
             </div>
         </div>

@@ -61,7 +61,6 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
     const [consolidateStatus, setConsolidateStatus]   = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    // Parsed notes for display (exclude zero-value / optimistic)
     const displayNotes = useMemo(
         () =>
             notes
@@ -156,7 +155,9 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
                     setConsolidateTotal(total);
                 },
             );
-            setConsolidateStatus(rounds === 0 ? "Already consolidated." : `Done — ${rounds} proof${rounds > 1 ? "s" : ""} generated.`);
+            setConsolidateStatus(
+                rounds === 0 ? "Already consolidated." : `Done — ${rounds} proof${rounds > 1 ? "s" : ""} generated.`,
+            );
         } catch (err) {
             console.error("Consolidation failed:", err);
             setConsolidateError(err instanceof Error ? err.message : "Consolidation failed.");
@@ -221,7 +222,7 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
                 }
                 const mergedNotes = mergeNotes(notes, data.notes);
                 setStoredNotes(playerName, mergedNotes);
-                setStatus(`_uploaded notes for ${playerName}_`);
+                setStatus(`Uploaded notes for ${playerName}.`);
             } catch (uploadError) {
                 console.error("Failed to upload notes archive", uploadError);
                 setError("We could not read that archive. Please try a different file.");
@@ -286,134 +287,58 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
     );
 
     const modalContent = (
-        <div className="manage-notes-modal__backdrop" role="presentation">
+        <div className="modal-backdrop" role="presentation">
             <div
-                className="manage-notes-modal"
+                className="modal"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="manage-notes-title"
             >
-                <div className="manage-notes-modal__header">
-                    <div className="manage-notes-modal__eyebrow">Settings</div>
-                    <h2 id="manage-notes-title" className="manage-notes-modal__title">
+                <div className="modal-header">
+                    <div className="modal-eyebrow">Settings</div>
+                    <h2 id="manage-notes-title" className="modal-title">
                         {playerName || "---"}
                     </h2>
                 </div>
 
-                <div className="manage-notes-modal__body">
-
+                <div className="modal-body">
                     {/* ── UTXO Address ── */}
                     {identity?.utxoAddress && (
-                        <section style={{ marginBottom: "1.25rem" }}>
-                            <div
-                                style={{
-                                    fontWeight: "bold",
-                                    fontSize: "0.8rem",
-                                    textTransform: "uppercase",
-                                    letterSpacing: "0.05em",
-                                    marginBottom: "0.4rem",
-                                }}
-                            >
-                                Your UTXO address
-                            </div>
-                            <div
-                                style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "0.5rem",
-                                }}
-                            >
-                                <code
-                                    style={{
-                                        fontFamily: "monospace",
-                                        fontSize: "0.72rem",
-                                        wordBreak: "break-all",
-                                        flex: 1,
-                                    }}
-                                    title={identity.utxoAddress}
-                                >
+                        <div className="modal-section">
+                            <div className="modal-section-title">Your Address</div>
+                            <p className="modal-section-desc">
+                                Share this address so others can send you notes directly.
+                            </p>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                <code className="mono" style={{ flex: 1 }} title={identity.utxoAddress}>
                                     {identity.utxoAddress}
                                 </code>
                                 <button
                                     type="button"
-                                    className="pixel-button pixel-button--ghost pixel-button--compact"
+                                    className="btn btn-ghost btn-sm"
                                     onClick={handleCopyAddress}
                                     style={{ flexShrink: 0 }}
                                 >
                                     {addressCopied ? "Copied!" : "Copy"}
                                 </button>
                             </div>
-                            <div
-                                style={{
-                                    fontSize: "0.72rem",
-                                    color: "#666",
-                                    marginTop: "0.25rem",
-                                }}
-                            >
-                                Share this address so others can send you notes directly.
-                            </div>
-                        </section>
+                        </div>
                     )}
 
                     {/* ── Notes list ── */}
-                    <section style={{ marginBottom: "1.25rem" }}>
-                        <div
-                            style={{
-                                fontWeight: "bold",
-                                fontSize: "0.8rem",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.05em",
-                                marginBottom: "0.4rem",
-                            }}
-                        >
-                            Notes ({displayNotes.length})
-                        </div>
+                    <div className="modal-section">
+                        <div className="modal-section-title">Notes ({displayNotes.length})</div>
                         {displayNotes.length === 0 ? (
-                            <div style={{ fontSize: "0.85rem", color: "#666" }}>
-                                No spendable notes yet. Slice some pumpkins!
-                            </div>
+                            <p className="modal-section-desc">No spendable notes yet.</p>
                         ) : (
-                            <ul
-                                style={{
-                                    listStyle: "none",
-                                    margin: 0,
-                                    padding: 0,
-                                    maxHeight: "180px",
-                                    overflowY: "auto",
-                                    border: "1px solid #ccc",
-                                }}
-                            >
+                            <ul className="modal-notes-list">
                                 {displayNotes.map(({ stored, note, value }) => (
-                                    <li
-                                        key={createNoteKey(stored)}
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            alignItems: "center",
-                                            padding: "0.35rem 0.5rem",
-                                            borderBottom: "1px solid #eee",
-                                            fontSize: "0.8rem",
-                                            gap: "0.5rem",
-                                        }}
-                                    >
-                                        <span style={{ fontWeight: "bold", flexShrink: 0 }}>
-                                            {value.toLocaleString()}
-                                        </span>
-                                        <span
-                                            style={{
-                                                fontFamily: "monospace",
-                                                color: "#555",
-                                                fontSize: "0.7rem",
-                                                flex: 1,
-                                                overflow: "hidden",
-                                                textOverflow: "ellipsis",
-                                                whiteSpace: "nowrap",
-                                            }}
-                                            title={note.psi}
-                                        >
+                                    <li key={createNoteKey(stored)} className="modal-note-item">
+                                        <span className="modal-note-value">{value.toLocaleString()}</span>
+                                        <span className="modal-note-hash" title={note.psi}>
                                             psi:{shortHex(note.psi)}
                                         </span>
-                                        <span style={{ color: "#888", flexShrink: 0, fontSize: "0.7rem" }}>
+                                        <span className="modal-note-date">
                                             {new Date(stored.storedAt).toLocaleDateString()}
                                         </span>
                                     </li>
@@ -421,151 +346,113 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
                             </ul>
                         )}
                         {identity && spendableCount >= 2 && (
-                            <div style={{ marginTop: "0.75rem" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                <p className="modal-section-desc">
+                                    Merge all notes into one for faster future transfers.
+                                </p>
                                 <button
                                     type="button"
-                                    className="pixel-button pixel-button--ghost pixel-button--compact"
+                                    className="btn btn-secondary"
                                     onClick={handleConsolidate}
                                     disabled={isConsolidating}
+                                    style={{ alignSelf: "flex-start" }}
                                 >
                                     {isConsolidating
                                         ? `Consolidating… (${consolidateStep}/${consolidateTotal})`
                                         : `Consolidate (${spendableCount} → 1)`}
                                 </button>
                                 {consolidateError && (
-                                    <div className="manage-notes-modal__message manage-notes-modal__message--error" style={{ marginTop: "0.4rem" }}>
-                                        {consolidateError}
-                                    </div>
+                                    <div className="status-error">{consolidateError}</div>
                                 )}
                                 {consolidateStatus && (
-                                    <div className="manage-notes-modal__message manage-notes-modal__message--status" style={{ marginTop: "0.4rem" }}>
-                                        {consolidateStatus}
-                                    </div>
+                                    <div className="status-success">{consolidateStatus}</div>
                                 )}
                             </div>
                         )}
-                    </section>
+                    </div>
 
-                    {/* ── Paste note ── */}
-                    <section style={{ marginBottom: "1.25rem" }}>
-                        <div
-                            style={{
-                                fontWeight: "bold",
-                                fontSize: "0.8rem",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.05em",
-                                marginBottom: "0.4rem",
-                            }}
-                        >
-                            Import note
-                        </div>
-                        <p className="manage-notes-modal__description">
-                            Paste a note JSON received from another player.
+                    {/* ── Import note ── */}
+                    <div className="modal-section">
+                        <div className="modal-section-title">Import Note</div>
+                        <p className="modal-section-desc">
+                            Paste a note JSON received from another user. The sender must share this if
+                            no encryption key is registered.
                         </p>
                         <textarea
+                            className="form-input"
                             value={pasteJson}
-                            onChange={(e) => { setPasteJson(e.target.value); setPasteError(null); setPasteStatus(null); }}
+                            onChange={(e) => {
+                                setPasteJson(e.target.value);
+                                setPasteError(null);
+                                setPasteStatus(null);
+                            }}
                             placeholder={'{\n  "txHash": "...",\n  "note": { ... }\n}'}
                             rows={5}
-                            style={{
-                                width: "100%",
-                                fontFamily: "monospace",
-                                fontSize: "0.72rem",
-                                padding: "0.4rem",
-                                boxSizing: "border-box",
-                                resize: "vertical",
-                            }}
                         />
                         <button
                             type="button"
-                            className="pixel-button pixel-button--ghost"
+                            className="btn btn-secondary"
                             onClick={handlePasteImport}
-                            style={{ marginTop: "0.4rem" }}
+                            style={{ alignSelf: "flex-start" }}
                         >
                             Import
                         </button>
-                        {pasteError && (
-                            <div className="manage-notes-modal__message manage-notes-modal__message--error">
-                                {pasteError}
-                            </div>
-                        )}
-                        {pasteStatus && (
-                            <div className="manage-notes-modal__message manage-notes-modal__message--status">
-                                {pasteStatus}
-                            </div>
-                        )}
-                    </section>
+                        {pasteError && <div className="status-error">{pasteError}</div>}
+                        {pasteStatus && <div className="status-success">{pasteStatus}</div>}
+                    </div>
 
-                    {/* ── Archive ── */}
-                    <section>
-                        <div
-                            style={{
-                                fontWeight: "bold",
-                                fontSize: "0.8rem",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.05em",
-                                marginBottom: "0.4rem",
-                            }}
-                        >
-                            Backup
-                        </div>
-                        <p className="manage-notes-modal__description">
-                            Download a backup or upload a saved archive of your notes.
+                    {/* ── Backup ── */}
+                    <div className="modal-section">
+                        <div className="modal-section-title">Backup</div>
+                        <p className="modal-section-desc">
+                            Download a backup archive to keep your notes safe if you clear browser data.
+                            You can also restore from a previously saved archive.
                         </p>
-                        <div className="manage-notes-modal__count">{noteCountLabel}</div>
+                        <p className="form-hint">{noteCountLabel}</p>
+
                         <div
-                            className={`manage-notes-modal__actions manage-notes-modal__upload${
-                                isDragOver ? " is-active" : ""
-                            }`}
+                            className={`upload-area${isDragOver ? " is-drag-over" : ""}`}
                             onDragEnter={handleDragEnter}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
                             onDrop={handleDrop}
                         >
-                            <button
-                                type="button"
-                                className="pixel-button pixel-button--ghost"
-                                onClick={handleDownload}
-                                disabled={notes.length === 0 || isDownloading}
-                            >
-                                {isDownloading ? "Preparing…" : "Download archive"}
-                            </button>
-                            <button
-                                type="button"
-                                className={`pixel-button pixel-button--ghost manage-notes-modal__upload-button${
-                                    isDragOver ? " is-drag-over" : ""
-                                }`}
-                                onClick={handleUploadClick}
-                                disabled={isUploading}
-                            >
-                                {isUploading ? "Uploading…" : "Upload archive"}
-                            </button>
+                            <div className="upload-actions">
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={handleDownload}
+                                    disabled={notes.length === 0 || isDownloading}
+                                >
+                                    {isDownloading ? "Preparing…" : "Download archive"}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={handleUploadClick}
+                                    disabled={isUploading}
+                                >
+                                    {isUploading ? "Uploading…" : "Upload archive"}
+                                </button>
+                            </div>
+                            <div className="upload-area-hint">Drag a .zip onto this area or choose a file</div>
                             <input
                                 ref={fileInputRef}
-                                className="manage-notes-modal__file-input"
+                                className="file-input-hidden"
                                 type="file"
                                 accept=".zip"
                                 onChange={handleUpload}
                             />
-                            <div className="manage-notes-modal__upload-hint">
-                                Drag a .zip onto Upload or choose a file
-                            </div>
                         </div>
-                        {error && (
-                            <div className="manage-notes-modal__message manage-notes-modal__message--error">
-                                {error}
-                            </div>
-                        )}
-                        {status && (
-                            <div className="manage-notes-modal__message manage-notes-modal__message--status">
-                                {status}
-                            </div>
-                        )}
-                    </section>
+
+                        {error && <div className="status-error">{error}</div>}
+                        {status && <div className="status-success">{status}</div>}
+                    </div>
                 </div>
 
-                <div className="manage-notes-modal__footer">
-                    <button type="button" className="pixel-button pixel-button--ghost" onClick={onClose}>
+                <div className="modal-footer">
+                    <span className="modal-footer-note">Your keys stay local — nothing is sent to a server.</span>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
                         Close
                     </button>
                 </div>

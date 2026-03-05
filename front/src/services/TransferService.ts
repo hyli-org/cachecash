@@ -4,8 +4,9 @@ import { poseidon2Service } from "./Poseidon2Service";
 import { encryptedNoteService } from "./EncryptedNoteService";
 import { nodeService } from "./NodeService";
 import { proofService } from "./ProofService";
+import { smtProofService } from "./SmtProofService";
 import { markNotesPending, clearPendingNotes, getPendingNotePsis, setStoredNotes, getStoredNotes, addStoredNote } from "./noteStorage";
-import { fetchContractName } from "./ConfigService";
+import { fetchContractName, fetchUtxoStateContractName, fetchSmtContractName } from "./ConfigService";
 
 /** An input note ready for proving */
 export interface InputNoteData {
@@ -27,13 +28,21 @@ export interface NoteSelection {
     totalInput: number;
 }
 
+/** Transfer step reported via onProgress callback */
+export type TransferStep =
+    | "smt-witness"
+    | "creating-blob"
+    | "proving-utxo"
+    | "proving-smt"
+    | "submitting-proofs";
+
 /** Blob data for proof generation */
 export interface BlobData {
     blob: Uint8Array; // 128 bytes
     contractName: string; // "hyli_utxo"
     identity: string; // "transfer@hyli_utxo"
     txHash: string; // 64-char hex (filled in after /api/blob/create)
-    blobCount: number; // 2
+    blobCount: number; // 3
     blobIndex: number; // 1
 }
 
@@ -202,6 +211,7 @@ class TransferService {
         senderIdentity: FullIdentity,
         playerName: string,
         recipientEncryptionPubkey?: string,
+        onProgress?: (step: TransferStep) => void,
     ): Promise<{ txHash: string; transferNote: PrivateNote }> {
         // 1. Select notes
         const selection = this.selectNotesForTransfer(availableInputs, amount);
@@ -228,15 +238,33 @@ class TransferService {
             // 3. Build raw blob (commitments + nullifiers for inputs)
             const blobBytes = await this.buildRawBlobData(selection.selectedInputs);
 
-            // 4. POST /api/blob/create
-            const contractName = await fetchContractName();
-            const createResponse = await nodeService.createBlob(blobBytes, outputNotes);
-            const txHash = createResponse.tx_hash;
-
-            // 5. Compute all 4 commitments for the proof
-            const [commit0, commit1, commit2, commit3] = await Promise.all([
+            // Compute input commitments (first 2 fields of blob)
+            const [commit0, commit1] = await Promise.all([
                 computeCommitment(selection.selectedInputs[0].note),
                 computeCommitment(selection.selectedInputs[1].note),
+            ]);
+
+            // 4. Fetch SMT witnesses from the server indexer
+            onProgress?.("smt-witness");
+            const [contractName, utxoStateContractName, smtContractName] = await Promise.all([
+                fetchContractName(),
+                fetchUtxoStateContractName(),
+                fetchSmtContractName(),
+            ]);
+            const smtWitness = await nodeService.getSmtWitness(commit0, commit1, utxoStateContractName);
+
+            // Build SMT blob: [commit0 (32B)][commit1 (32B)][notes_root (32B)] = 96 bytes
+            const smtBlobBytes = new Uint8Array(96);
+            smtBlobBytes.set(hexToBytes32(commit0), 0);
+            smtBlobBytes.set(hexToBytes32(commit1), 32);
+            smtBlobBytes.set(hexToBytes32(smtWitness.notes_root), 64);
+
+            // 5. Compute deterministic tx_hash without submitting (so proofs use the real hash)
+            onProgress?.("creating-blob");
+            const { tx_hash: txHash } = await nodeService.hashBlob(blobBytes, smtBlobBytes, outputNotes);
+
+            // 6. Compute all 4 commitments for the hyli_utxo proof
+            const [commit2, commit3] = await Promise.all([
                 computeCommitment(outputNotes[0]),
                 computeCommitment(outputNotes[1]),
             ]);
@@ -247,23 +275,43 @@ class TransferService {
                 contractName,
                 identity: `transfer@${contractName}`,
                 txHash,
-                blobCount: 2,
+                blobCount: 3,
                 blobIndex: 1,
             };
 
-            // 6. Generate ZK proof
-            const { proof, publicInputs } = await proofService.generateProof(
+            // 7. Generate ZK proofs sequentially (parallel execution causes WASM heap corruption)
+            onProgress?.("proving-utxo");
+            const utxoResult = await proofService.generateProof(
                 selection.selectedInputs,
                 outputNotes,
                 blobData,
                 commitments,
                 1, // kind = 1 (transfer)
             );
+            onProgress?.("proving-smt");
+            const smtResult = await smtProofService.generateProof({
+                smtBlobBytes,
+                contractName: smtContractName,
+                identity: `transfer@${contractName}`,
+                txHash,
+                blobCount: 3,
+                siblings0: smtWitness.siblings_0,
+                siblings1: smtWitness.siblings_1,
+            });
 
-            // 7. POST /api/proof/submit
-            await nodeService.submitProof(txHash, proof, publicInputs);
+            // 8. Submit blob tx + both proofs atomically
+            onProgress?.("submitting-proofs");
+            await nodeService.finalizeTransfer(
+                blobBytes,
+                smtBlobBytes,
+                outputNotes,
+                utxoResult.proof,
+                utxoResult.publicInputs,
+                smtResult.proof,
+                smtResult.publicInputs,
+            );
 
-            // 8. Update stored notes: remove spent, add change note
+            // 9. Update stored notes: remove spent, add change note
             const currentNotes = getStoredNotes(playerName);
             const spentPsiSet = new Set(spentPsis);
             let updatedNotes = currentNotes.filter((stored) => {
@@ -286,7 +334,7 @@ class TransferService {
             // Clear pending state
             clearPendingNotes(playerName, spentPsis);
 
-            // 9. Upload encrypted note for recipient (best effort)
+            // 10. Upload encrypted note for recipient (best effort)
             if (recipientEncryptionPubkey) {
                 try {
                     await encryptedNoteService.uploadNote(
@@ -345,6 +393,7 @@ class TransferService {
         pair: [InputNoteData, InputNoteData],
         senderIdentity: FullIdentity,
         playerName: string,
+        onProgress?: (step: TransferStep) => void,
     ): Promise<void> {
         const amount = parseNoteValue(pair[0].note) + parseNoteValue(pair[1].note);
         const { txHash, transferNote } = await this.executeTransfer(
@@ -353,7 +402,8 @@ class TransferService {
             pair,
             senderIdentity,
             playerName,
-            // no encryption pubkey – self-transfer, note goes straight to local storage
+            undefined,
+            onProgress,
         );
         addStoredNote(playerName, {
             txHash: `consolidation:${txHash}`,
@@ -375,6 +425,7 @@ class TransferService {
         playerName: string,
         recipientEncryptionPubkey?: string,
         onConsolidating?: (step: number) => void,
+        onProgress?: (step: TransferStep) => void,
     ): Promise<{ txHash: string; transferNote: PrivateNote }> {
         let currentInputs = [...availableInputs];
         let step = 0;
@@ -386,7 +437,7 @@ class TransferService {
             const pair = this.notesForConsolidation(currentInputs);
             if (!pair) break; // shouldn't happen – needsConsolidation already verified 2+ notes
 
-            await this.executeConsolidation(pair, senderIdentity, playerName);
+            await this.executeConsolidation(pair, senderIdentity, playerName, onProgress);
 
             // Reload from storage so the freshly merged note is visible
             currentInputs = this.getSpendableNotes(
@@ -403,6 +454,7 @@ class TransferService {
             senderIdentity,
             playerName,
             recipientEncryptionPubkey,
+            onProgress,
         );
     }
 
@@ -416,6 +468,7 @@ class TransferService {
         senderIdentity: FullIdentity,
         playerName: string,
         onStep?: (step: number, total: number) => void,
+        onProgress?: (step: TransferStep) => void,
     ): Promise<number> {
         let currentInputs = [...availableInputs];
         const total = Math.max(0, currentInputs.length - 1); // rounds needed
@@ -428,7 +481,7 @@ class TransferService {
             const pair = this.notesForConsolidation(currentInputs);
             if (!pair) break;
 
-            await this.executeConsolidation(pair, senderIdentity, playerName);
+            await this.executeConsolidation(pair, senderIdentity, playerName, onProgress);
 
             currentInputs = this.getSpendableNotes(
                 getStoredNotes(playerName),

@@ -9,4 +9,5 @@ members = [
     "poseidon_alt",
     "utxo_lib",
     "hyli_utxo",
+    "hyli_smt_incl_proof",
 ]

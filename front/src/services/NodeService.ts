@@ -29,6 +29,12 @@ export interface CreateBlobResponse {
     blobs: Array<{ contract_name: string; data: string }>;
 }
 
+export interface SmtWitnessResponse {
+    notes_root: string;       // 64-char hex
+    siblings_0: number[][];   // 256 x 32 bytes
+    siblings_1: number[][];   // 256 x 32 bytes
+}
+
 class NodeService {
     private readonly baseUrl: string;
 
@@ -108,18 +114,20 @@ class NodeService {
 
     /**
      * POST /api/blob/create
-     * Submits the raw blob (commitments + nullifiers) and output notes.
+     * Submits the raw blob (commitments + nullifiers), SMT blob, and output notes.
      * Returns tx_hash and blob info.
      */
     async createBlob(
         blobBytes: Uint8Array,
+        smtBlobBytes: Uint8Array,
         outputNotes: [PrivateNote, PrivateNote]
     ): Promise<CreateBlobResponse> {
         const data = await this.request<CreateBlobResponse>("/api/blob/create", {
             method: "POST",
             body: JSON.stringify({
-                blob_data:    Array.from(blobBytes),
-                output_notes: outputNotes,
+                blob_data:     Array.from(blobBytes),
+                smt_blob_data: Array.from(smtBlobBytes),
+                output_notes:  outputNotes,
             }),
         });
 
@@ -131,20 +139,97 @@ class NodeService {
     }
 
     /**
+     * POST /api/blob/hash
+     * Computes the deterministic tx_hash for the given blob data WITHOUT submitting to the chain.
+     * Use the returned tx_hash for proof generation, then call finalizeTransfer().
+     */
+    async hashBlob(
+        blobBytes: Uint8Array,
+        smtBlobBytes: Uint8Array,
+        outputNotes: [PrivateNote, PrivateNote],
+    ): Promise<{ tx_hash: string }> {
+        const data = await this.request<{ tx_hash: string }>("/api/blob/hash", {
+            method: "POST",
+            body: JSON.stringify({
+                blob_data:     Array.from(blobBytes),
+                smt_blob_data: Array.from(smtBlobBytes),
+                output_notes:  outputNotes,
+            }),
+        });
+        if (!data) {
+            throw new Error("Unexpected empty response from /api/blob/hash");
+        }
+        return data;
+    }
+
+    /**
+     * POST /api/transfer/finalize
+     * Atomically submits the blob transaction + both proofs.
+     * Call this after generating proofs with the tx_hash from hashBlob().
+     */
+    async finalizeTransfer(
+        blobBytes: Uint8Array,
+        smtBlobBytes: Uint8Array,
+        outputNotes: [PrivateNote, PrivateNote],
+        proof: string,
+        publicInputs: string[],
+        smtProof: string,
+        smtPublicInputs: string[],
+    ): Promise<{ tx_hash: string }> {
+        const data = await this.request<{ tx_hash: string }>("/api/transfer/finalize", {
+            method: "POST",
+            body: JSON.stringify({
+                blob_data:         Array.from(blobBytes),
+                smt_blob_data:     Array.from(smtBlobBytes),
+                output_notes:      outputNotes,
+                proof,
+                public_inputs:     publicInputs,
+                smt_proof:         smtProof,
+                smt_public_inputs: smtPublicInputs,
+            }),
+        });
+        if (!data) {
+            throw new Error("Unexpected empty response from /api/transfer/finalize");
+        }
+        return data;
+    }
+
+    /**
+     * GET /v1/indexer/contract/{utxoStateContractName}/smt-witness
+     * Returns the SMT witnesses (siblings) for the given input commitments.
+     */
+    async getSmtWitness(
+        commitment0: string,
+        commitment1: string,
+        utxoStateContractName: string,
+    ): Promise<SmtWitnessResponse> {
+        const url = `${this.baseUrl}/v1/indexer/contract/${utxoStateContractName}/smt-witness?commitment0=${commitment0}&commitment1=${commitment1}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`getSmtWitness failed with status ${response.status}`);
+        }
+        return response.json() as Promise<SmtWitnessResponse>;
+    }
+
+    /**
      * POST /api/proof/submit
-     * Submits the generated proof for the transaction.
+     * Submits both proofs (hyli_utxo + hyli_smt_incl_proof) for the transaction.
      */
     async submitProof(
         txHash: string,
         proof: string,
-        publicInputs: string[]
+        publicInputs: string[],
+        smtProof: string,
+        smtPublicInputs: string[],
     ): Promise<void> {
         await this.request("/api/proof/submit", {
             method: "POST",
             body: JSON.stringify({
-                tx_hash:       txHash,
+                tx_hash:          txHash,
                 proof,
-                public_inputs: publicInputs,
+                public_inputs:    publicInputs,
+                smt_proof:        smtProof,
+                smt_public_inputs: smtPublicInputs,
             }),
         });
     }

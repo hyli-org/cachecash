@@ -38,14 +38,35 @@ export function getNodeBaseUrl(): string {
         : import.meta.env.VITE_NODE_BASE_URL || "http://localhost:4321";
 }
 
-let contractNameCache: Promise<string> | null = null;
+interface ServerConfig {
+    contract_name: string;
+    utxo_state_contract_name: string;
+    smt_incl_proof_contract_name: string;
+}
+
+let configCache: Promise<ServerConfig> | null = null;
+
+function fetchConfig(): Promise<ServerConfig> {
+    if (!configCache) {
+        configCache = fetch(`${getServerBaseUrl()}/api/config`)
+            .then((r) => r.json())
+            .catch(() => ({
+                contract_name: "hyli_utxo",
+                utxo_state_contract_name: "hyli-utxo-state",
+                smt_incl_proof_contract_name: "hyli_smt_incl_proof",
+            }));
+    }
+    return configCache;
+}
 
 export function fetchContractName(): Promise<string> {
-    if (!contractNameCache) {
-        contractNameCache = fetch(`${getServerBaseUrl()}/api/config`)
-            .then((r) => r.json())
-            .then((data) => data.contract_name as string)
-            .catch(() => "hyli_utxo");
-    }
-    return contractNameCache;
+    return fetchConfig().then((c) => c.contract_name);
+}
+
+export function fetchUtxoStateContractName(): Promise<string> {
+    return fetchConfig().then((c) => c.utxo_state_contract_name);
+}
+
+export function fetchSmtContractName(): Promise<string> {
+    return fetchConfig().then((c) => c.smt_incl_proof_contract_name);
 }

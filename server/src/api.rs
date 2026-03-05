@@ -5,15 +5,16 @@ use crate::{
         build_note, FaucetMintCommand, TransferCommand, TransferWithProofCommand,
         FAUCET_MINT_AMOUNT,
     },
-    init::HYLI_UTXO_NOIR_VK,
+    init::{HYLI_SMT_INCL_PROOF_VK, HYLI_UTXO_NOIR_VK},
     metrics::FaucetMetrics,
     note_store::{AddressRegistry, NoteStore},
     types::{
-        BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord, FaucetRequest,
-        FaucetResponse, GetNotesQuery, GetNotesResponse, InputNoteData, ProvedTransferRequest,
+        BlobHashResponse, BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord,
+        FaucetRequest, FaucetResponse, FinalizeTransferRequest, FinalizeTransferResponse,
+        GetNotesQuery, GetNotesResponse, InputNoteData, ProvedTransferRequest,
         RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse,
-        ServerConfigResponse, SubmitProofRequest, TransferRequest, TransferResponse,
-        UploadNoteRequest, UploadNoteResponse,
+        ServerConfigResponse, SubmitProofRequest, TransferResponse, UploadNoteRequest,
+        UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -33,8 +34,8 @@ use hyli_modules::{
 };
 use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
 use sdk::{
-    Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData,
-    ProofTransaction, Verifier,
+    Blob, BlobData, BlobTransaction, ContractName, Hashed, Identity, ProgramId, ProofData,
+    ProofTransaction, TxHash, Verifier,
 };
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
@@ -55,6 +56,7 @@ pub struct ApiModuleCtx {
     pub client: NodeApiHttpClient,
     pub utxo_contract_name: String,
     pub utxo_state_contract_name: String,
+    pub smt_incl_proof_contract_name: String,
 }
 
 #[derive(Clone)]
@@ -68,6 +70,7 @@ struct RouterCtx {
     client: NodeApiHttpClient,
     utxo_contract_name: String,
     utxo_state_contract_name: String,
+    smt_incl_proof_contract_name: String,
 }
 
 module_bus_client! {
@@ -95,6 +98,7 @@ impl Module for ApiModule {
             client: ctx.client.clone(),
             utxo_contract_name: ctx.utxo_contract_name.clone(),
             utxo_state_contract_name: ctx.utxo_state_contract_name.clone(),
+            smt_incl_proof_contract_name: ctx.smt_incl_proof_contract_name.clone(),
         };
 
         let cors = CorsLayer::new()
@@ -106,11 +110,12 @@ impl Module for ApiModule {
             .route("/_health", get(health))
             .route("/api/config", get(get_config))
             .route("/api/faucet", post(faucet))
-            .route("/api/transfer", post(transfer))
-            .route("/api/transfer/prove", post(transfer_with_proof))
             // Two-step transfer endpoints (client-side proving with real tx_hash)
             .route("/api/blob/create", post(create_blob))
             .route("/api/proof/submit", post(submit_proof))
+            // Atomic transfer: compute tx_hash before proving, then submit all at once
+            .route("/api/blob/hash", post(hash_blob))
+            .route("/api/transfer/finalize", post(finalize_transfer))
             // Encrypted notes endpoints
             .route("/api/notes", post(upload_note))
             .route("/api/notes/{recipient_tag}", get(get_notes))
@@ -144,6 +149,8 @@ async fn health() -> &'static str {
 async fn get_config(State(state): State<RouterCtx>) -> Json<ServerConfigResponse> {
     Json(ServerConfigResponse {
         contract_name: state.utxo_contract_name.clone(),
+        utxo_state_contract_name: state.utxo_state_contract_name.clone(),
+        smt_incl_proof_contract_name: state.smt_incl_proof_contract_name.clone(),
     })
 }
 
@@ -211,177 +218,47 @@ async fn faucet(
     Ok(Json(response))
 }
 
-async fn transfer(
-    State(state): State<RouterCtx>,
-    Json(request): Json<TransferRequest>,
-) -> Result<Json<TransferResponse>, ApiError> {
-    let RouterCtx { mut bus, .. } = state;
-
-    // Validate amount
-    if request.amount == 0 {
-        return Err(ApiError::bad_request("amount must be greater than zero"));
-    }
-
-    // Parse input notes
-    let input_notes: [InputNote; 2] = [
-        parse_input_note(&request.input_notes[0])?,
-        parse_input_note(&request.input_notes[1])?,
-    ];
-
-    // Validate value conservation (for Send: inputs == outputs)
-    let input_value = input_notes[0].note.value + input_notes[1].note.value;
-    let output_value = request.output_notes[0].value + request.output_notes[1].value;
-    if input_value != output_value {
-        return Err(ApiError::bad_request(format!(
-            "input and output values must match: input={}, output={}",
-            input_value, output_value
-        )));
-    }
-
-    // Send transfer command
-    bus.send(TransferCommand {
-        input_notes,
-        output_notes: request.output_notes.clone(),
-    })
-    .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    // Return change note if it has value
-    let change_note = if request.output_notes[1].value != Element::ZERO {
-        Some(request.output_notes[1].clone())
-    } else {
-        None
-    };
-
-    Ok(Json(TransferResponse {
-        tx_hash: "pending".to_string(),
-        change_note,
-    }))
-}
-
-/// Handle transfer with pre-generated proof (client-side proving)
-/// Secret keys never reach the server
-async fn transfer_with_proof(
-    State(state): State<RouterCtx>,
-    Json(request): Json<ProvedTransferRequest>,
-) -> Result<Json<TransferResponse>, ApiError> {
-    let RouterCtx { mut bus, .. } = state;
-
-    // Validate blob data size
-    if request.blob_data.len() != 128 {
-        return Err(ApiError::bad_request(format!(
-            "blob_data must be exactly 128 bytes, got {}",
-            request.blob_data.len()
-        )));
-    }
-
-    // Validate public inputs count (733 field elements for HyliUtxo)
-    if request.public_inputs.len() != 733 {
-        return Err(ApiError::bad_request(format!(
-            "public_inputs must have exactly 733 elements, got {}",
-            request.public_inputs.len()
-        )));
-    }
-
-    // Decode proof from base64
-    let proof_bytes = base64_decode(&request.proof)
-        .map_err(|e| ApiError::bad_request(format!("invalid base64 proof: {}", e)))?;
-
-    // Convert blob_data to fixed array
-    let mut blob = [0u8; 128];
-    blob.copy_from_slice(&request.blob_data);
-
-    // Send transfer with proof command
-    bus.send(TransferWithProofCommand {
-        proof: proof_bytes,
-        public_inputs: request.public_inputs.clone(),
-        blob,
-        output_notes: request.output_notes.clone(),
-    })
-    .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    // Return change note if it has value
-    let change_note = if request.output_notes[1].value != Element::ZERO {
-        Some(request.output_notes[1].clone())
-    } else {
-        None
-    };
-
-    // Note: tx_hash will be "pending" until the blob is submitted
-    // In a production system, we would wait for the transaction and return the actual hash
-    Ok(Json(TransferResponse {
-        tx_hash: "pending".to_string(),
-        change_note,
-    }))
-}
-
-/// Create a blob transaction and return the tx_hash (step 1 of two-step transfer)
-/// This allows the client to generate a proof with the real tx_hash
+/// Create a blob transaction and return the tx_hash (legacy two-step endpoint).
+/// Prefer /api/blob/hash + /api/transfer/finalize for atomic submission.
 async fn create_blob(
     State(state): State<RouterCtx>,
     Json(request): Json<CreateBlobRequest>,
 ) -> Result<Json<CreateBlobResponse>, ApiError> {
-    // Validate blob data size
     if request.blob_data.len() != 128 {
         return Err(ApiError::bad_request(format!(
             "blob_data must be exactly 128 bytes, got {}",
             request.blob_data.len()
         )));
     }
+    if request.smt_blob_data.len() != 96 {
+        return Err(ApiError::bad_request(format!(
+            "smt_blob_data must be exactly 96 bytes, got {}",
+            request.smt_blob_data.len()
+        )));
+    }
 
-    // Extract nullifiers from the blob (bytes 64-128 contain nullifier_0 and nullifier_1)
-    let mut nullifier_0 = [0u8; 32];
-    let mut nullifier_1 = [0u8; 32];
-    nullifier_0.copy_from_slice(&request.blob_data[64..96]);
-    nullifier_1.copy_from_slice(&request.blob_data[96..128]);
+    let built = build_blob_transaction(&state, &request)?;
 
-    // Build state action: [created_0, created_1, nullified_0, nullified_1]
-    let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
-
-    // Output commitments (created)
-    state_commitments[0] = BorshableH256::from(request.output_notes[0].commitment().to_be_bytes());
-    state_commitments[1] = BorshableH256::from(request.output_notes[1].commitment().to_be_bytes());
-
-    // Nullifiers from blob
-    state_commitments[2] = BorshableH256::from(nullifier_0);
-    state_commitments[3] = BorshableH256::from(nullifier_1);
-
-    let state_action: HyliUtxoStateAction = state_commitments;
-
-    let contract_name = state.utxo_contract_name.clone();
-    let identity = Identity(format!("transfer@{}", contract_name));
-    let hyli_utxo_data = BlobData(request.blob_data.clone());
-    let state_blob_data = BlobData(
-        borsh::to_vec(&state_action)
-            .map_err(|e| ApiError::internal(format!("serialization failed: {}", e)))?,
-    );
-    let hyli_utxo_blob = Blob {
-        contract_name: contract_name.clone().into(),
-        data: hyli_utxo_data.clone(),
-    };
-    let state_blob = Blob {
-        contract_name: ContractName(state.utxo_state_contract_name.clone()),
-        data: state_blob_data.clone(),
-    };
-    let blob_transaction = BlobTransaction::new(identity, vec![state_blob, hyli_utxo_blob]);
-
-    // Submit blob transaction directly to the node
     let tx_hash = state
         .client
-        .send_tx_blob(blob_transaction)
+        .send_tx_blob(built.transaction)
         .await
         .map_err(|e| ApiError::internal(format!("failed to send blob tx: {}", e)))?;
 
-    tracing::info!(%tx_hash, "Submitted blob transaction (step 1 of two-step transfer)");
+    tracing::info!(%tx_hash, "Submitted blob transaction (create_blob)");
 
-    // Return blob info for client to use in proof generation
     let blobs = vec![
         BlobInfo {
             contract_name: state.utxo_state_contract_name.clone(),
-            data: hex::encode(&state_blob_data.0),
+            data: built.state_blob_hex,
         },
         BlobInfo {
-            contract_name: contract_name,
-            data: hex::encode(&hyli_utxo_data.0),
+            contract_name: state.utxo_contract_name.clone(),
+            data: built.hyli_utxo_hex,
+        },
+        BlobInfo {
+            contract_name: state.smt_incl_proof_contract_name.clone(),
+            data: built.smt_hex,
         },
     ];
 
@@ -397,23 +274,14 @@ async fn submit_proof(
     Json(request): Json<SubmitProofRequest>,
 ) -> Result<Json<TransferResponse>, ApiError> {
     // Validate tx_hash
-    if request.tx_hash.is_empty() {
+    if request.tx_hash.0.is_empty() {
         return Err(ApiError::bad_request("tx_hash must not be empty"));
     }
 
-    // Validate public inputs count (733 field elements for HyliUtxo)
-    if request.public_inputs.len() != 733 {
-        return Err(ApiError::bad_request(format!(
-            "public_inputs must have exactly 733 elements, got {}",
-            request.public_inputs.len()
-        )));
-    }
-
-    // Decode proof from base64
+    // ---- hyli_utxo proof ----
     let proof_bytes = base64_decode(&request.proof)
         .map_err(|e| ApiError::bad_request(format!("invalid base64 proof: {}", e)))?;
 
-    // Convert public inputs from hex strings to bytes
     let public_inputs_bytes: Vec<u8> = request
         .public_inputs
         .iter()
@@ -423,12 +291,10 @@ async fn submit_proof(
         })
         .collect();
 
-    // Combine public inputs and proof
     let mut proof_with_inputs = public_inputs_bytes;
     proof_with_inputs.extend_from_slice(&proof_bytes);
 
-    // Build and submit proof transaction to the node
-    let proof_tx = ProofTransaction {
+    let utxo_proof_tx = ProofTransaction {
         contract_name: ContractName(state.utxo_contract_name.clone()),
         program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
         verifier: Verifier(sdk::verifiers::NOIR.to_string()),
@@ -437,16 +303,235 @@ async fn submit_proof(
 
     state
         .client
-        .send_tx_proof(proof_tx)
+        .send_tx_proof(utxo_proof_tx)
         .await
-        .map_err(|e| ApiError::internal(format!("failed to send proof tx: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("failed to send utxo proof tx: {}", e)))?;
 
-    tracing::info!(tx_hash = %request.tx_hash, "Submitted proof transaction (step 2 of two-step transfer)");
+    // ---- hyli_smt_incl_proof proof ----
+    let smt_proof_bytes = base64_decode(&request.smt_proof)
+        .map_err(|e| ApiError::bad_request(format!("invalid base64 smt_proof: {}", e)))?;
+
+    let smt_public_inputs_bytes: Vec<u8> = request
+        .smt_public_inputs
+        .iter()
+        .flat_map(|hex_str| {
+            let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            hex::decode(normalized).unwrap_or_else(|_| vec![0u8; 32])
+        })
+        .collect();
+
+    let mut smt_proof_with_inputs = smt_public_inputs_bytes;
+    smt_proof_with_inputs.extend_from_slice(&smt_proof_bytes);
+
+    let smt_proof_tx = ProofTransaction {
+        contract_name: ContractName(state.smt_incl_proof_contract_name.clone()),
+        program_id: ProgramId(HYLI_SMT_INCL_PROOF_VK.to_vec()),
+        verifier: Verifier(sdk::verifiers::NOIR.to_string()),
+        proof: ProofData(smt_proof_with_inputs),
+    };
+
+    state
+        .client
+        .send_tx_proof(smt_proof_tx)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to send smt proof tx: {}", e)))?;
+
+    tracing::info!(tx_hash = %request.tx_hash, "Submitted proof transactions (step 2 of two-step transfer)");
 
     Ok(Json(TransferResponse {
         tx_hash: request.tx_hash,
         change_note: None,
     }))
+}
+
+// ---- Shared blob-building helper ----
+
+struct BuiltBlob {
+    transaction: BlobTransaction,
+    state_blob_hex: String,
+    hyli_utxo_hex: String,
+    smt_hex: String,
+}
+
+fn build_blob_transaction(
+    state: &RouterCtx,
+    request: &CreateBlobRequest,
+) -> Result<BuiltBlob, ApiError> {
+    let mut nullifier_0 = [0u8; 32];
+    let mut nullifier_1 = [0u8; 32];
+    nullifier_0.copy_from_slice(&request.blob_data[64..96]);
+    nullifier_1.copy_from_slice(&request.blob_data[96..128]);
+
+    let mut state_commitments = [BorshableH256::from([0u8; 32]); 4];
+    state_commitments[0] = BorshableH256::from(request.output_notes[0].commitment().to_be_bytes());
+    state_commitments[1] = BorshableH256::from(request.output_notes[1].commitment().to_be_bytes());
+    state_commitments[2] = BorshableH256::from(nullifier_0);
+    state_commitments[3] = BorshableH256::from(nullifier_1);
+
+    let state_action: HyliUtxoStateAction = state_commitments;
+
+    let contract_name = state.utxo_contract_name.clone();
+    let identity = Identity(format!("transfer@{}", contract_name));
+    let hyli_utxo_data = BlobData(request.blob_data.clone());
+    let smt_blob_data = BlobData(request.smt_blob_data.clone());
+    let state_blob_data = BlobData(
+        borsh::to_vec(&state_action)
+            .map_err(|e| ApiError::internal(format!("serialization failed: {}", e)))?,
+    );
+
+    let state_blob = Blob {
+        contract_name: ContractName(state.utxo_state_contract_name.clone()),
+        data: state_blob_data.clone(),
+    };
+    let hyli_utxo_blob = Blob {
+        contract_name: ContractName(contract_name.clone()),
+        data: hyli_utxo_data.clone(),
+    };
+    let smt_incl_proof_blob = Blob {
+        contract_name: ContractName(state.smt_incl_proof_contract_name.clone()),
+        data: smt_blob_data.clone(),
+    };
+
+    let transaction = BlobTransaction::new(
+        identity,
+        vec![state_blob, hyli_utxo_blob, smt_incl_proof_blob],
+    );
+
+    Ok(BuiltBlob {
+        transaction,
+        state_blob_hex: hex::encode(&state_blob_data.0),
+        hyli_utxo_hex: hex::encode(&hyli_utxo_data.0),
+        smt_hex: hex::encode(&smt_blob_data.0),
+    })
+}
+
+/// Compute the tx_hash for blob data without submitting to the chain.
+/// Client uses this to generate proofs with the real tx_hash, then calls /api/transfer/finalize.
+async fn hash_blob(
+    State(state): State<RouterCtx>,
+    Json(request): Json<CreateBlobRequest>,
+) -> Result<Json<BlobHashResponse>, ApiError> {
+    if request.blob_data.len() != 128 {
+        return Err(ApiError::bad_request(format!(
+            "blob_data must be exactly 128 bytes, got {}",
+            request.blob_data.len()
+        )));
+    }
+    if request.smt_blob_data.len() != 96 {
+        return Err(ApiError::bad_request(format!(
+            "smt_blob_data must be exactly 96 bytes, got {}",
+            request.smt_blob_data.len()
+        )));
+    }
+
+    let built = build_blob_transaction(&state, &request)?;
+    let tx_hash = built.transaction.hashed();
+
+    Ok(Json(BlobHashResponse { tx_hash }))
+}
+
+/// Submit blob transaction + both proofs atomically.
+/// Client must have called /api/blob/hash first to get tx_hash for proof generation.
+async fn finalize_transfer(
+    State(state): State<RouterCtx>,
+    Json(request): Json<FinalizeTransferRequest>,
+) -> Result<Json<FinalizeTransferResponse>, ApiError> {
+    // Destructure upfront to avoid partial-move issues
+    let FinalizeTransferRequest {
+        blob_data,
+        smt_blob_data,
+        output_notes,
+        proof,
+        public_inputs,
+        smt_proof,
+        smt_public_inputs,
+    } = request;
+
+    if blob_data.len() != 128 {
+        return Err(ApiError::bad_request(format!(
+            "blob_data must be exactly 128 bytes, got {}",
+            blob_data.len()
+        )));
+    }
+    if smt_blob_data.len() != 96 {
+        return Err(ApiError::bad_request(format!(
+            "smt_blob_data must be exactly 96 bytes, got {}",
+            smt_blob_data.len()
+        )));
+    }
+
+    let blob_request = CreateBlobRequest {
+        blob_data,
+        smt_blob_data,
+        output_notes,
+    };
+    let built = build_blob_transaction(&state, &blob_request)?;
+    let tx_hash = built.transaction.hashed();
+
+    // Submit blob transaction
+    state
+        .client
+        .send_tx_blob(built.transaction)
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to send blob tx: {}", e)))?;
+
+    tracing::info!(%tx_hash, "Submitted blob transaction (finalize_transfer)");
+
+    // ---- hyli_utxo proof ----
+    let proof_bytes = base64_decode(&proof)
+        .map_err(|e| ApiError::bad_request(format!("invalid base64 proof: {}", e)))?;
+
+    let public_inputs_bytes: Vec<u8> = public_inputs
+        .iter()
+        .flat_map(|hex_str| {
+            let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            hex::decode(normalized).unwrap_or_else(|_| vec![0u8; 32])
+        })
+        .collect();
+
+    let mut proof_with_inputs = public_inputs_bytes;
+    proof_with_inputs.extend_from_slice(&proof_bytes);
+
+    state
+        .client
+        .send_tx_proof(ProofTransaction {
+            contract_name: ContractName(state.utxo_contract_name.clone()),
+            program_id: ProgramId(HYLI_UTXO_NOIR_VK.to_vec()),
+            verifier: Verifier(sdk::verifiers::NOIR.to_string()),
+            proof: ProofData(proof_with_inputs),
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to send utxo proof tx: {}", e)))?;
+
+    // ---- hyli_smt_incl_proof proof ----
+    let smt_proof_bytes = base64_decode(&smt_proof)
+        .map_err(|e| ApiError::bad_request(format!("invalid base64 smt_proof: {}", e)))?;
+
+    let smt_public_inputs_bytes: Vec<u8> = smt_public_inputs
+        .iter()
+        .flat_map(|hex_str| {
+            let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            hex::decode(normalized).unwrap_or_else(|_| vec![0u8; 32])
+        })
+        .collect();
+
+    let mut smt_proof_with_inputs = smt_public_inputs_bytes;
+    smt_proof_with_inputs.extend_from_slice(&smt_proof_bytes);
+
+    state
+        .client
+        .send_tx_proof(ProofTransaction {
+            contract_name: ContractName(state.smt_incl_proof_contract_name.clone()),
+            program_id: ProgramId(HYLI_SMT_INCL_PROOF_VK.to_vec()),
+            verifier: Verifier(sdk::verifiers::NOIR.to_string()),
+            proof: ProofData(smt_proof_with_inputs),
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to send smt proof tx: {}", e)))?;
+
+    tracing::info!(%tx_hash, "Submitted proof transactions (finalize_transfer)");
+
+    Ok(Json(FinalizeTransferResponse { tx_hash }))
 }
 
 /// Decode base64 string to bytes

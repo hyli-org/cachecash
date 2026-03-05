@@ -9,9 +9,11 @@ hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 hyli-registry = { workspace = true }
 
 # Hyli
-hyli-modules = { workspace = true }
+hyli-modules = { workspace = true, features = ["indexer"] }
 hyli-verifiers = { workspace = true }
-client-sdk = { workspace = true, features = ["rest", "sp1", "axum"] }
+client-sdk = { workspace = true, features = ["rest", "sp1", "axum", "csi"] }
+utoipa = { version = "5.4.0", features = ["axum_extras"] }
+utoipa-axum = { version = "0.2.0" }
 sdk = { workspace = true, features = ["tracing", "full-model"] }
 hyli-turmoil-shims = { workspace = true }
 
