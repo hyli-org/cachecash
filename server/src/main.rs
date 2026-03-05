@@ -28,7 +28,7 @@ use server::{
     api::{ApiModule, ApiModuleCtx},
     app::{FaucetApp, FaucetAppContext},
     conf::Conf,
-    hyli_utxo_state_client::HyliUtxoStateExecutor,
+    hyli_utxo_state_client::{HyliUtxoStateEvent, HyliUtxoStateExecutor},
     init::{
         hyli_smt_incl_proof_noir_deployment, hyli_utxo_noir_deployment, hyli_utxo_state_deployment,
         init_node, ContractInit,
@@ -233,7 +233,7 @@ async fn main() -> Result<()> {
         .await?;
 
     handler
-        .build_module::<ContractStateIndexer<HyliUtxoStateExecutor>>(ContractStateIndexerCtx {
+        .build_module::<ContractStateIndexer<HyliUtxoStateExecutor, HyliUtxoStateEvent>>(ContractStateIndexerCtx {
             data_directory: data_directory.clone(),
             contract_name: ContractName(config.utxo_state_contract_name.clone()),
             api: api_builder_ctx.clone(),

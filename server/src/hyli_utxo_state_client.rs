@@ -9,6 +9,7 @@ use client_sdk::{
     transaction_builder::TxExecutorHandler,
 };
 use hex::encode as hex_encode;
+use hyli_modules::bus::BusMessage;
 use hyli_utxo_state::{
     state::{ContractConfig, HyliUtxoState, HyliUtxoStateAction},
     zk::BorshableH256,
@@ -17,12 +18,23 @@ use hyli_utxo_state::{
 use sdk::{
     caller::ExecutionContext,
     utils::{as_hyli_output, parse_raw_calldata},
-    Blob, BlobIndex, Calldata, Contract, ContractName, HyliOutput, RegisterContractAction,
-    RunResult, StateCommitment,
+    Blob, BlobIndex, BlobTransaction, Calldata, Contract, ContractName, HyliOutput,
+    RegisterContractAction, RunResult, StateCommitment, TxContext,
 };
+use std::sync::Arc;
 use tracing::info;
 use utoipa::openapi::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
+
+/// Event emitted by [`HyliUtxoStateExecutor`] whenever a transaction is successfully settled.
+/// Broadcast as `CSIBusEvent<HyliUtxoStateEvent>` on the message bus.
+#[derive(Clone, Debug)]
+pub struct HyliUtxoStateEvent {
+    /// The new SMT notes root (big-endian bytes) after the transaction was applied.
+    pub notes_root: [u8; 32],
+}
+
+impl BusMessage for HyliUtxoStateEvent {}
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 pub struct HyliUtxoStateExecutor {
@@ -321,7 +333,31 @@ async fn get_smt_witness(
     }))
 }
 
-impl ContractHandler for HyliUtxoStateExecutor {
+impl ContractHandler<HyliUtxoStateEvent> for HyliUtxoStateExecutor {
+    fn handle_transaction_success(
+        &mut self,
+        tx: &BlobTransaction,
+        index: BlobIndex,
+        _tx_context: Arc<TxContext>,
+    ) -> Result<Option<HyliUtxoStateEvent>> {
+        // Build calldata and apply the blob (update_from_blob → apply_commitments → update_roots)
+        let calldata = sdk::Calldata {
+            identity: tx.identity.clone(),
+            index,
+            blobs: tx.blobs.clone().into(),
+            tx_blob_count: tx.blobs.len(),
+            tx_hash: sdk::Hashed::hashed(tx),
+            tx_ctx: None,
+            private_input: vec![],
+        };
+        if let Err(e) = self.handle(&calldata) {
+            tracing::error!("Failed to handle blob {index} for hyli_utxo_state: {e}");
+            return Ok(None);
+        }
+        let notes_root: [u8; 32] = self.state.notes_root().into();
+        Ok(Some(HyliUtxoStateEvent { notes_root }))
+    }
+
     async fn api(store: ContractHandlerStore<Self>) -> (axum::Router<()>, OpenApi) {
         let (router, api) = OpenApiRouter::default()
             .routes(routes!(get_smt_witness))

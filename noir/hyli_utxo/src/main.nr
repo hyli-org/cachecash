@@ -65,15 +65,6 @@ fn main(
     // ---------------------------------------------------------------------
     utxo_main(input_notes, output_notes, pmessage4, commitments, messages);
 
-    // Mirror key checks so the Hyli host can rely on them directly.
-    check_commitment(input_notes[0].note, commitments[0]);
-    check_commitment(input_notes[1].note, commitments[1]);
-    check_commitment(output_notes[0], commitments[2]);
-    check_commitment(output_notes[1], commitments[3]);
-
-    check_input_note_ownership(input_notes[0]);
-    check_input_note_ownership(input_notes[1]);
-
     // ---------------------------------------------------------------------
     // Collect nullifier commitments to expose them through the blob payload.
     // ---------------------------------------------------------------------

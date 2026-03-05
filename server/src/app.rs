@@ -2,10 +2,11 @@ use anyhow::{bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
 use hash::hash_merge;
+use hex::encode as hex_encode;
 use hyli_modules::{
     bus::{BusClientSender, BusMessage, SharedMessageBus},
     module_bus_client, module_handle_messages,
-    modules::Module,
+    modules::{contract_state_indexer::CSIBusEvent, Module},
 };
 use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
 use sdk::{
@@ -16,6 +17,7 @@ use tracing::{info, warn};
 use zk_primitives::{InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
 
 use crate::{
+    hyli_utxo_state_client::HyliUtxoStateEvent,
     init::HYLI_UTXO_NOIR_VK,
     noir_prover::HyliUtxoProofJob,
     smt_incl_prover::SmtInclProofJob,
@@ -68,6 +70,7 @@ pub struct FaucetBusClient {
     receiver(FaucetMintCommand),
     receiver(TransferCommand),
     receiver(TransferWithProofCommand),
+    receiver(CSIBusEvent<HyliUtxoStateEvent>),
 }
 }
 
@@ -119,6 +122,10 @@ impl Module for FaucetApp {
             }
             listen<TransferWithProofCommand> cmd => {
                 self.process_transfer_with_proof(cmd).await?;
+            }
+            listen<CSIBusEvent<HyliUtxoStateEvent>> event => {
+                self.notes_root = Element::from_be_bytes(event.event.notes_root);
+                info!(notes_root = %hex_encode(event.event.notes_root), "Updated notes_root from state indexer event");
             }
         };
 
