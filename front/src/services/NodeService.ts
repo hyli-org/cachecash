@@ -112,6 +112,61 @@ class NodeService {
         return data;
     }
 
+    async requestDeposit(
+        utxoAddressHex: string,
+        amount?: number,
+        tokenContract = "oranj",
+        walletAccount?: string,
+        secp256k1Blob?: number[],
+        walletBlob?: number[],
+    ): Promise<FaucetResponse> {
+        const normalized = utxoAddressHex.trim().replace(/^0x/i, "");
+        if (normalized.length === 0) {
+            throw new Error("UTXO address must not be empty");
+        }
+        if (normalized.length !== 64) {
+            throw new Error("UTXO address must be a 32-byte hex string");
+        }
+
+        const payload: Record<string, unknown> = {
+            pubkey_hex: normalized,
+            token_contract: tokenContract,
+        };
+        if (typeof amount === "number") {
+            payload.amount = amount;
+        }
+        if (walletAccount) {
+            payload.wallet_account = walletAccount;
+        }
+        if (secp256k1Blob) {
+            payload.secp256k1_blob = secp256k1Blob;
+        }
+        if (walletBlob) {
+            payload.wallet_blob = walletBlob;
+        }
+
+        const data = await this.request<FaucetResponse>("/api/deposit", {
+            method: "POST",
+            headers: {
+                "X-Pubkey": normalized,
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!data) {
+            throw new Error("Unexpected deposit response");
+        }
+
+        const hasTxHash = typeof data.tx_hash === "string" && data.tx_hash.length > 0;
+        const hasNote = data.note !== undefined && data.note !== null;
+
+        if (!hasTxHash && !hasNote) {
+            throw new Error("Unexpected deposit response");
+        }
+
+        return data;
+    }
+
     /**
      * POST /api/blob/create
      * Submits the raw blob (commitments + nullifiers), SMT blob, and output notes.

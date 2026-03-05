@@ -9,6 +9,7 @@ import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
 import { ManageNotesModal } from "./components/ManageNotesModal";
 import { TransferModal } from "./components/TransferModal";
+import { DepositModal } from "./components/DepositModal";
 import { transferService, parseNoteValue } from "./services/TransferService";
 import { nodeService } from "./services/NodeService";
 import { addStoredNote } from "./services/noteStorage";
@@ -47,6 +48,7 @@ function AppContent() {
     const { notes: storedNotes } = useStoredNotes(playerName);
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
     const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
     const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
     const [addressCopied, setAddressCopied] = useState(false);
@@ -72,7 +74,12 @@ function AppContent() {
 
     const availableNotesForTransfer = useMemo(() => {
         if (!playerKeys || !playerName) return [];
-        return transferService.getSpendableNotes(storedNotes, playerKeys.zkSecretKey, playerName);
+        return transferService.getSpendableNotes(
+            storedNotes,
+            playerKeys.zkSecretKey,
+            playerKeys.utxoAddress,
+            playerName,
+        );
     }, [storedNotes, playerKeys, playerName]);
 
     const totalBalance = useMemo(
@@ -254,6 +261,15 @@ function AppContent() {
         setIsTransferModalOpen(false);
     }, []);
 
+    const handleOpenDepositModal = useCallback(() => {
+        if (!playerName) return;
+        setIsDepositModalOpen(true);
+    }, [playerName]);
+
+    const handleCloseDepositModal = useCallback(() => {
+        setIsDepositModalOpen(false);
+    }, []);
+
     const handleFaucet = useCallback(async () => {
         if (!playerKeys?.utxoAddress || !playerName || faucetStatus === "loading") return;
         setFaucetStatus("loading");
@@ -278,6 +294,7 @@ function AppContent() {
             setTimeout(() => setFaucetStatus("idle"), 4000);
         }
     }, [playerKeys?.utxoAddress, playerName, faucetStatus]);
+
 
     const handleCopyAddress = useCallback(() => {
         if (!playerKeys?.utxoAddress) return;
@@ -392,6 +409,14 @@ function AppContent() {
                                 </button>
                                 <button
                                     type="button"
+                                    className="btn btn-secondary"
+                                    onClick={handleOpenDepositModal}
+                                    disabled={faucetStatus === "loading" || !playerKeys}
+                                >
+                                    Deposit
+                                </button>
+                                <button
+                                    type="button"
                                     className="btn btn-ghost"
                                     onClick={handleOpenManageModal}
                                 >
@@ -481,6 +506,14 @@ function AppContent() {
                     identity={playerKeys}
                     availableNotes={availableNotesForTransfer}
                     onClose={handleCloseTransferModal}
+                />
+            )}
+            {isDepositModalOpen && (
+                <DepositModal
+                    playerName={playerName}
+                    walletAddress={wallet?.address ?? ""}
+                    identity={playerKeys}
+                    onClose={handleCloseDepositModal}
                 />
             )}
             {debugMode && (

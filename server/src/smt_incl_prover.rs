@@ -11,7 +11,9 @@ use hyli_modules::{
 use sdk::{Identity, TxHash};
 use tokio::task::{JoinError, JoinSet};
 use tracing::{error, info};
-use zk_primitives::{InputNote, HyliSmtIncl, HyliSmtInclProof, ToBytes, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
+use zk_primitives::{
+    HyliSmtIncl, HyliSmtInclProof, InputNote, ToBytes, HYLI_SMT_INCL_BLOB_LENGTH_BYTES,
+};
 
 use crate::{
     init::ContractDeployment,

@@ -2,18 +2,18 @@ use std::sync::Arc;
 
 use crate::{
     app::{
-        build_note, FaucetMintCommand, TransferCommand, TransferWithProofCommand,
-        FAUCET_MINT_AMOUNT,
+        build_note, FaucetDepositCommand, FaucetMintCommand, TransferCommand,
+        TransferWithProofCommand, FAUCET_MINT_AMOUNT,
     },
     init::{HYLI_SMT_INCL_PROOF_VK, HYLI_UTXO_NOIR_VK},
     metrics::FaucetMetrics,
     note_store::{AddressRegistry, NoteStore},
     types::{
-        BlobHashResponse, BlobInfo, CreateBlobRequest, CreateBlobResponse, EncryptedNoteRecord,
-        FaucetRequest, FaucetResponse, FinalizeTransferRequest, FinalizeTransferResponse,
-        GetNotesQuery, GetNotesResponse, RegisterAddressRequest, RegisterAddressResponse,
-        ResolveAddressResponse, ServerConfigResponse, SubmitProofRequest, TransferResponse,
-        UploadNoteRequest, UploadNoteResponse,
+        BlobHashResponse, BlobInfo, CreateBlobRequest, CreateBlobResponse, DepositRequest,
+        EncryptedNoteRecord, FaucetRequest, FaucetResponse, FinalizeTransferRequest,
+        FinalizeTransferResponse, GetNotesQuery, GetNotesResponse, RegisterAddressRequest,
+        RegisterAddressResponse, ResolveAddressResponse, ServerConfigResponse, SubmitProofRequest,
+        TransferResponse, UploadNoteRequest, UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -72,8 +72,9 @@ struct RouterCtx {
 
 module_bus_client! {
     #[derive(Debug)]
-    pub struct ApiModuleBusClient {
+pub struct ApiModuleBusClient {
         sender(FaucetMintCommand),
+        sender(FaucetDepositCommand),
         sender(TransferCommand),
         sender(TransferWithProofCommand),
     }
@@ -107,6 +108,7 @@ impl Module for ApiModule {
             .route("/_health", get(health))
             .route("/api/config", get(get_config))
             .route("/api/faucet", post(faucet))
+            .route("/api/deposit", post(deposit))
             // Two-step transfer endpoints (client-side proving with real tx_hash)
             .route("/api/blob/create", post(create_blob))
             .route("/api/proof/submit", post(submit_proof))
@@ -203,6 +205,84 @@ async fn faucet(
         recipient_pubkey: pubkey_bytes,
         amount,
         note: note.clone(),
+    })
+    .map_err(|err| {
+        metrics.record_failure("bus_send_failed");
+        ApiError::internal(err.to_string())
+    })?;
+
+    let response = FaucetResponse { note };
+    metrics.record_success(amount);
+
+    Ok(Json(response))
+}
+
+async fn deposit(
+    State(state): State<RouterCtx>,
+    Json(request): Json<DepositRequest>,
+) -> Result<Json<FaucetResponse>, ApiError> {
+    let RouterCtx {
+        default_amount,
+        mut bus,
+        metrics,
+        ..
+    } = state;
+
+    let default_amount = if default_amount == 0 {
+        FAUCET_MINT_AMOUNT
+    } else {
+        default_amount
+    };
+    let amount = request.amount.unwrap_or(default_amount);
+    if amount == 0 {
+        metrics.record_failure("invalid_amount");
+        return Err(ApiError::bad_request("amount must be greater than zero"));
+    }
+
+    let pubkey_hex = request.pubkey_hex.trim();
+    if pubkey_hex.is_empty() {
+        metrics.record_failure("missing_pubkey");
+        return Err(ApiError::bad_request("pubkey_hex must not be empty"));
+    }
+
+    let normalized_pubkey = pubkey_hex.strip_prefix("0x").unwrap_or(pubkey_hex);
+    let pubkey_bytes = match hex::decode(normalized_pubkey) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            metrics.record_failure("invalid_pubkey_hex");
+            return Err(ApiError::bad_request(format!("invalid pubkey_hex: {err}")));
+        }
+    };
+
+    if pubkey_bytes.len() != 32 {
+        metrics.record_failure("invalid_pubkey_length");
+        return Err(ApiError::bad_request("pubkey_hex must decode to 32 bytes"));
+    }
+
+    let token_contract = request
+        .token_contract
+        .unwrap_or_else(|| "oranj".to_string())
+        .trim()
+        .to_string();
+    if token_contract.is_empty() {
+        metrics.record_failure("missing_token_contract");
+        return Err(ApiError::bad_request("token_contract must not be empty"));
+    }
+
+    let mut address_bytes = [0u8; 32];
+    address_bytes.copy_from_slice(&pubkey_bytes);
+    let recipient_address = element::Element::from_be_bytes(address_bytes);
+
+    let note = build_note(recipient_address, amount);
+
+    bus.send(FaucetDepositCommand {
+        recipient_pubkey: pubkey_bytes,
+        amount,
+        note: note.clone(),
+        token_contract,
+        wallet_account: request.wallet_account,
+        secp256k1_blob: request.secp256k1_blob,
+        wallet_blob: request.wallet_blob,
     })
     .map_err(|err| {
         metrics.record_failure("bus_send_failed");

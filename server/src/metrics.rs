@@ -1,4 +1,3 @@
-
 #[cfg(not(feature = "instrumentation"))]
 #[derive(Clone)]
 pub struct FaucetMetrics {}

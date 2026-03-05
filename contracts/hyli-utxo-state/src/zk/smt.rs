@@ -308,9 +308,8 @@ impl BorshDeserialize for SMT<BorshableH256> {
         for _ in 0..len {
             let key = BorshableH256::deserialize_reader(reader)?;
             let value = BorshableH256::deserialize_reader(reader)?;
-            tree.update_leaf(key, value).map_err(|e| {
-                io::Error::other(format!("rebuilding SMT: {e}"))
-            })?;
+            tree.update_leaf(key, value)
+                .map_err(|e| io::Error::other(format!("rebuilding SMT: {e}")))?;
         }
         if tree.root() != expected_root {
             return Err(io::Error::new(
