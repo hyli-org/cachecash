@@ -120,15 +120,21 @@ class NodeService {
     async createBlob(
         blobBytes: Uint8Array,
         smtBlobBytes: Uint8Array,
-        outputNotes: [PrivateNote, PrivateNote]
+        outputNotes: [PrivateNote, PrivateNote],
+        tokenBlobBytes?: Uint8Array,
     ): Promise<CreateBlobResponse> {
+        const payload: Record<string, unknown> = {
+            blob_data:     Array.from(blobBytes),
+            smt_blob_data: Array.from(smtBlobBytes),
+            output_notes:  outputNotes,
+        };
+        if (tokenBlobBytes && tokenBlobBytes.length > 0) {
+            payload.token_blob_data = Array.from(tokenBlobBytes);
+        }
+
         const data = await this.request<CreateBlobResponse>("/api/blob/create", {
             method: "POST",
-            body: JSON.stringify({
-                blob_data:     Array.from(blobBytes),
-                smt_blob_data: Array.from(smtBlobBytes),
-                output_notes:  outputNotes,
-            }),
+            body: JSON.stringify(payload),
         });
 
         if (!data) {
@@ -147,14 +153,20 @@ class NodeService {
         blobBytes: Uint8Array,
         smtBlobBytes: Uint8Array,
         outputNotes: [PrivateNote, PrivateNote],
+        tokenBlobBytes?: Uint8Array,
     ): Promise<{ tx_hash: string }> {
+        const payload: Record<string, unknown> = {
+            blob_data:     Array.from(blobBytes),
+            smt_blob_data: Array.from(smtBlobBytes),
+            output_notes:  outputNotes,
+        };
+        if (tokenBlobBytes && tokenBlobBytes.length > 0) {
+            payload.token_blob_data = Array.from(tokenBlobBytes);
+        }
+
         const data = await this.request<{ tx_hash: string }>("/api/blob/hash", {
             method: "POST",
-            body: JSON.stringify({
-                blob_data:     Array.from(blobBytes),
-                smt_blob_data: Array.from(smtBlobBytes),
-                output_notes:  outputNotes,
-            }),
+            body: JSON.stringify(payload),
         });
         if (!data) {
             throw new Error("Unexpected empty response from /api/blob/hash");
@@ -175,18 +187,24 @@ class NodeService {
         publicInputs: string[],
         smtProof: string,
         smtPublicInputs: string[],
+        tokenBlobBytes?: Uint8Array,
     ): Promise<{ tx_hash: string }> {
+        const payload: Record<string, unknown> = {
+            blob_data:         Array.from(blobBytes),
+            smt_blob_data:     Array.from(smtBlobBytes),
+            output_notes:      outputNotes,
+            proof,
+            public_inputs:     publicInputs,
+            smt_proof:         smtProof,
+            smt_public_inputs: smtPublicInputs,
+        };
+        if (tokenBlobBytes && tokenBlobBytes.length > 0) {
+            payload.token_blob_data = Array.from(tokenBlobBytes);
+        }
+
         const data = await this.request<{ tx_hash: string }>("/api/transfer/finalize", {
             method: "POST",
-            body: JSON.stringify({
-                blob_data:         Array.from(blobBytes),
-                smt_blob_data:     Array.from(smtBlobBytes),
-                output_notes:      outputNotes,
-                proof,
-                public_inputs:     publicInputs,
-                smt_proof:         smtProof,
-                smt_public_inputs: smtPublicInputs,
-            }),
+            body: JSON.stringify(payload),
         });
         if (!data) {
             throw new Error("Unexpected empty response from /api/transfer/finalize");

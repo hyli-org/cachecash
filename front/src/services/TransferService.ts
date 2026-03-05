@@ -87,6 +87,22 @@ function hexToBytes32(hexStr: string): Uint8Array {
     return bytes;
 }
 
+function encodeU32Le(value: number): Uint8Array {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value, true);
+    return bytes;
+}
+
+function encodeU128Le(value: bigint): Uint8Array {
+    const bytes = new Uint8Array(16);
+    let current = value;
+    for (let i = 0; i < 16; i++) {
+        bytes[i] = Number(current & 0xffn);
+        current >>= 8n;
+    }
+    return bytes;
+}
+
 /**
  * Note commitment: poseidon2([0x2, kind, value, address, psi, 0, 0], 7)
  * Returns zero field element when kind == 0 (padding note)
@@ -131,6 +147,27 @@ function randomFieldElement(): string {
 }
 
 class TransferService {
+    private buildTokenTransferBlobForAmount(amount: number): Uint8Array {
+        const encoder = new TextEncoder();
+        const sender = encoder.encode("sender");
+        const recipient = encoder.encode("id@id");
+        const amountBytes = encodeU128Le(BigInt(amount));
+
+        const payload = new Uint8Array(1 + 4 + sender.length + 4 + recipient.length + 16);
+        let offset = 0;
+        payload[offset++] = 0; // SmtTokenAction::Transfer discriminant
+        payload.set(encodeU32Le(sender.length), offset);
+        offset += 4;
+        payload.set(sender, offset);
+        offset += sender.length;
+        payload.set(encodeU32Le(recipient.length), offset);
+        offset += 4;
+        payload.set(recipient, offset);
+        offset += recipient.length;
+        payload.set(amountBytes, offset);
+        return payload;
+    }
+
     private createOutputNote(recipientAddress: string, amount: number, contract: string): PrivateNote {
         const psi = randomFieldElement();
 
@@ -212,6 +249,7 @@ class TransferService {
         playerName: string,
         recipientEncryptionPubkey?: string,
         onProgress?: (step: TransferStep) => void,
+        includeTokenBlob: boolean = false,
     ): Promise<{ txHash: string; transferNote: PrivateNote }> {
         // 1. Select notes
         const selection = this.selectNotesForTransfer(availableInputs, amount);
@@ -258,10 +296,18 @@ class TransferService {
             smtBlobBytes.set(hexToBytes32(commit0), 0);
             smtBlobBytes.set(hexToBytes32(commit1), 32);
             smtBlobBytes.set(hexToBytes32(smtWitness.notes_root), 64);
+            const tokenBlobBytes = includeTokenBlob
+                ? this.buildTokenTransferBlobForAmount(amount)
+                : undefined;
 
             // 5. Compute deterministic tx_hash without submitting (so proofs use the real hash)
             onProgress?.("creating-blob");
-            const { tx_hash: txHash } = await nodeService.hashBlob(blobBytes, smtBlobBytes, outputNotes);
+            const { tx_hash: txHash } = await nodeService.hashBlob(
+                blobBytes,
+                smtBlobBytes,
+                outputNotes,
+                tokenBlobBytes,
+            );
 
             // 6. Compute all 4 commitments for the hyli_utxo proof
             const [commit2, commit3] = await Promise.all([
@@ -309,6 +355,7 @@ class TransferService {
                 utxoResult.publicInputs,
                 smtResult.proof,
                 smtResult.publicInputs,
+                tokenBlobBytes,
             );
 
             // 9. Update stored notes: remove spent, add change note
@@ -394,6 +441,7 @@ class TransferService {
         senderIdentity: FullIdentity,
         playerName: string,
         onProgress?: (step: TransferStep) => void,
+        includeTokenBlob: boolean = false,
     ): Promise<void> {
         const amount = parseNoteValue(pair[0].note) + parseNoteValue(pair[1].note);
         const { txHash, transferNote } = await this.executeTransfer(
@@ -404,6 +452,7 @@ class TransferService {
             playerName,
             undefined,
             onProgress,
+            includeTokenBlob,
         );
         addStoredNote(playerName, {
             txHash: `consolidation:${txHash}`,
@@ -426,6 +475,7 @@ class TransferService {
         recipientEncryptionPubkey?: string,
         onConsolidating?: (step: number) => void,
         onProgress?: (step: TransferStep) => void,
+        includeTokenBlob: boolean = false,
     ): Promise<{ txHash: string; transferNote: PrivateNote }> {
         let currentInputs = [...availableInputs];
         let step = 0;
@@ -437,7 +487,13 @@ class TransferService {
             const pair = this.notesForConsolidation(currentInputs);
             if (!pair) break; // shouldn't happen – needsConsolidation already verified 2+ notes
 
-            await this.executeConsolidation(pair, senderIdentity, playerName, onProgress);
+            await this.executeConsolidation(
+                pair,
+                senderIdentity,
+                playerName,
+                onProgress,
+                includeTokenBlob,
+            );
 
             // Reload from storage so the freshly merged note is visible
             currentInputs = this.getSpendableNotes(
@@ -455,6 +511,7 @@ class TransferService {
             playerName,
             recipientEncryptionPubkey,
             onProgress,
+            includeTokenBlob,
         );
     }
 
@@ -469,6 +526,7 @@ class TransferService {
         playerName: string,
         onStep?: (step: number, total: number) => void,
         onProgress?: (step: TransferStep) => void,
+        includeTokenBlob: boolean = false,
     ): Promise<number> {
         let currentInputs = [...availableInputs];
         const total = Math.max(0, currentInputs.length - 1); // rounds needed
@@ -481,7 +539,13 @@ class TransferService {
             const pair = this.notesForConsolidation(currentInputs);
             if (!pair) break;
 
-            await this.executeConsolidation(pair, senderIdentity, playerName, onProgress);
+            await this.executeConsolidation(
+                pair,
+                senderIdentity,
+                playerName,
+                onProgress,
+                includeTokenBlob,
+            );
 
             currentInputs = this.getSpendableNotes(
                 getStoredNotes(playerName),

@@ -60,7 +60,12 @@ function stepStatus(
     return "pending";
 }
 
-export function TransferModal({ playerName, identity, availableNotes, onClose }: TransferModalProps) {
+export function TransferModal({
+    playerName,
+    identity,
+    availableNotes,
+    onClose,
+}: TransferModalProps) {
     const [recipientInput, setRecipientInput] = useState("");
     const [amount, setAmount] = useState("");
     const [status, setStatus] = useState<TransferStatus>("input");
@@ -77,10 +82,8 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
         [availableNotes],
     );
 
-    const handleSubmit = useCallback(
-        async (event: FormEvent) => {
-            event.preventDefault();
-
+    const executeTransfer = useCallback(
+        async () => {
             if (!identity || !playerName) {
                 setError("Identity not available");
                 return;
@@ -153,6 +156,14 @@ export function TransferModal({ playerName, identity, availableNotes, onClose }:
             }
         },
         [recipientInput, amount, identity, playerName, availableNotes, totalBalance],
+    );
+
+    const handleSubmit = useCallback(
+        async (event: FormEvent) => {
+            event.preventDefault();
+            await executeTransfer();
+        },
+        [executeTransfer],
     );
 
     const handleClose = useCallback(() => {

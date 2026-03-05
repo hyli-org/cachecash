@@ -233,7 +233,11 @@ async fn create_blob(
             request.smt_blob_data.len()
         )));
     }
-    if request.token_blob_data.is_empty() {
+    if request
+        .token_blob_data
+        .as_ref()
+        .is_some_and(|data| data.is_empty())
+    {
         return Err(ApiError::bad_request(
             "token_blob_data must not be empty".to_string(),
         ));
@@ -255,10 +259,6 @@ async fn create_blob(
             data: built.state_blob_hex,
         },
         BlobInfo {
-            contract_name: "smt-token".to_string(),
-            data: built.token_blob_hex,
-        },
-        BlobInfo {
             contract_name: state.utxo_contract_name.clone(),
             data: built.hyli_utxo_hex,
         },
@@ -267,6 +267,16 @@ async fn create_blob(
             data: built.smt_hex,
         },
     ];
+    let mut blobs = blobs;
+    if let Some(token_blob_hex) = built.token_blob_hex {
+        blobs.insert(
+            1,
+            BlobInfo {
+                contract_name: "smt-token".to_string(),
+                data: token_blob_hex,
+            },
+        );
+    }
 
     Ok(Json(CreateBlobResponse {
         tx_hash: hex::encode(&tx_hash.0),
@@ -355,7 +365,7 @@ async fn submit_proof(
 struct BuiltBlob {
     transaction: BlobTransaction,
     state_blob_hex: String,
-    token_blob_hex: String,
+    token_blob_hex: Option<String>,
     hyli_utxo_hex: String,
     smt_hex: String,
 }
@@ -380,7 +390,6 @@ fn build_blob_transaction(
     let contract_name = state.utxo_contract_name.clone();
     let identity = Identity(format!("transfer@{}", contract_name));
     let hyli_utxo_data = BlobData(request.blob_data.clone());
-    let token_blob_data = BlobData(request.token_blob_data.clone());
     let smt_blob_data = BlobData(request.smt_blob_data.clone());
     let state_blob_data = BlobData(
         borsh::to_vec(&state_action)
@@ -395,24 +404,32 @@ fn build_blob_transaction(
         contract_name: ContractName(contract_name.clone()),
         data: hyli_utxo_data.clone(),
     };
-    let token_blob = Blob {
-        contract_name: ContractName("smt-token".to_string()),
-        data: token_blob_data.clone(),
-    };
     let smt_incl_proof_blob = Blob {
         contract_name: ContractName(state.smt_incl_proof_contract_name.clone()),
         data: smt_blob_data.clone(),
     };
 
-    let transaction = BlobTransaction::new(
-        identity,
-        vec![state_blob, token_blob, hyli_utxo_blob, smt_incl_proof_blob],
-    );
+    let mut blobs = vec![state_blob, hyli_utxo_blob, smt_incl_proof_blob];
+    let token_blob_hex = if let Some(token_blob_data) = request.token_blob_data.clone() {
+        let token_blob_data = BlobData(token_blob_data);
+        blobs.insert(
+            1,
+            Blob {
+                contract_name: ContractName("smt-token".to_string()),
+                data: token_blob_data.clone(),
+            },
+        );
+        Some(hex::encode(&token_blob_data.0))
+    } else {
+        None
+    };
+
+    let transaction = BlobTransaction::new(identity, blobs);
 
     Ok(BuiltBlob {
         transaction,
         state_blob_hex: hex::encode(&state_blob_data.0),
-        token_blob_hex: hex::encode(&token_blob_data.0),
+        token_blob_hex,
         hyli_utxo_hex: hex::encode(&hyli_utxo_data.0),
         smt_hex: hex::encode(&smt_blob_data.0),
     })
@@ -436,7 +453,11 @@ async fn hash_blob(
             request.smt_blob_data.len()
         )));
     }
-    if request.token_blob_data.is_empty() {
+    if request
+        .token_blob_data
+        .as_ref()
+        .is_some_and(|data| data.is_empty())
+    {
         return Err(ApiError::bad_request(
             "token_blob_data must not be empty".to_string(),
         ));
@@ -478,7 +499,7 @@ async fn finalize_transfer(
             smt_blob_data.len()
         )));
     }
-    if token_blob_data.is_empty() {
+    if token_blob_data.as_ref().is_some_and(|data| data.is_empty()) {
         return Err(ApiError::bad_request(
             "token_blob_data must not be empty".to_string(),
         ));

@@ -170,16 +170,16 @@ fn parse_and_validate_transfer_action(token_action: [u8; 256], token_action_len:
     assert(sender_end + 4 + EXPECTED_RECIPIENT_LEN + 16 <= token_action_len, "invalid sender len");
 
     let recipient_len = read_u32_le(token_action, sender_end);
-    assert(recipient_len == EXPECTED_RECIPIENT_LEN, "recipient must be id@id");
+    assert(recipient_len == EXPECTED_RECIPIENT_LEN, "recipient must be bank@hyli-utxo-state");
 
     let recipient_start = sender_end + 4;
     assert(recipient_start + EXPECTED_RECIPIENT_LEN + 16 <= token_action_len, "invalid recipient");
 
-    assert(token_action[recipient_start] == 105, "recipient must be id@id");
-    assert(token_action[recipient_start + 1] == 100, "recipient must be id@id");
-    assert(token_action[recipient_start + 2] == 64, "recipient must be id@id");
-    assert(token_action[recipient_start + 3] == 105, "recipient must be id@id");
-    assert(token_action[recipient_start + 4] == 100, "recipient must be id@id");
+    assert(token_action[recipient_start] == 105, "recipient must be bank@hyli-utxo-state");
+    assert(token_action[recipient_start + 1] == 100, "recipient must be bank@hyli-utxo-state");
+    assert(token_action[recipient_start + 2] == 64, "recipient must be bank@hyli-utxo-state");
+    assert(token_action[recipient_start + 3] == 105, "recipient must be bank@hyli-utxo-state");
+    assert(token_action[recipient_start + 4] == 100, "recipient must be bank@hyli-utxo-state");
 
     let amount_start = recipient_start + EXPECTED_RECIPIENT_LEN;
     assert(amount_start + 16 == token_action_len, "unexpected trailing token action bytes");

@@ -7,6 +7,7 @@ import { getNodeBaseUrl } from "./services/ConfigService";
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
 import { ManageNotesModal } from "./components/ManageNotesModal";
+import { DepositModal } from "./components/DepositModal";
 import { TransferModal } from "./components/TransferModal";
 import { transferService, parseNoteValue } from "./services/TransferService";
 import { nodeService } from "./services/NodeService";
@@ -43,6 +44,7 @@ function App() {
     const { notes: storedNotes } = useStoredNotes(playerName);
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
     const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
     const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
     const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
@@ -176,6 +178,15 @@ function App() {
 
     const handleCloseTransferModal = useCallback(() => {
         setIsTransferModalOpen(false);
+    }, []);
+
+    const handleOpenDepositModal = useCallback(() => {
+        if (!playerName) return;
+        setIsDepositModalOpen(true);
+    }, [playerName]);
+
+    const handleCloseDepositModal = useCallback(() => {
+        setIsDepositModalOpen(false);
     }, []);
 
     const handleFaucet = useCallback(async () => {
@@ -319,6 +330,13 @@ function App() {
                                 </button>
                                 <button
                                     type="button"
+                                    className="btn btn-deposit"
+                                    onClick={handleOpenDepositModal}
+                                >
+                                    Deposit
+                                </button>
+                                <button
+                                    type="button"
                                     className="btn btn-secondary"
                                     onClick={handleFaucet}
                                     disabled={faucetStatus === "loading" || !playerKeys}
@@ -416,6 +434,14 @@ function App() {
                     identity={playerKeys}
                     availableNotes={availableNotesForTransfer}
                     onClose={handleCloseTransferModal}
+                />
+            )}
+            {isDepositModalOpen && (
+                <DepositModal
+                    playerName={playerName}
+                    identity={playerKeys}
+                    availableNotes={availableNotesForTransfer}
+                    onClose={handleCloseDepositModal}
                 />
             )}
             {debugMode && (
