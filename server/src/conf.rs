@@ -11,7 +11,8 @@ pub struct Conf {
     pub rest_server_max_body_size: usize,
     pub default_faucet_amount: u64,
     pub node_url: String,
-    pub data_directory: PathBuf,
+    pub indexer_database_url: String,
+    pub data_directory: String,
     pub da_read_from: String,
     pub buffer_blocks: u32,
     pub max_txs_per_proof: usize,
@@ -32,6 +33,10 @@ pub struct Conf {
     /// Whether to persist encrypted notes to disk (default: false).
     #[serde(default)]
     pub persist_encrypted_notes: bool,
+
+    pub listener_poll_interval_secs: u64,
+    pub idle_flush_interval_secs: u64,
+    pub tx_buffer_size: usize,
 }
 
 fn default_max_note_payload_size() -> usize {

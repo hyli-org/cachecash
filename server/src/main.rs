@@ -1,4 +1,5 @@
 use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use axum::Router;
@@ -10,12 +11,13 @@ use client_sdk::{
 use hyli_modules::modules::{
     contract_listener::{ContractListener, ContractListenerConf},
     contract_state_indexer::{ContractStateIndexer, ContractStateIndexerCtx},
+use hyli_modules::modules::{
+    contract_listener::{ContractListener, ContractListenerConf},
+    contract_state_indexer::{ContractStateIndexer, ContractStateIndexerCtx},
 };
 use hyli_modules::{
     bus::SharedMessageBus,
     modules::{
-        block_processor::NodeStateBlockProcessor,
-        da_listener::{DAListenerConf, SignedDAListener},
         prover::{AutoProver, AutoProverCtx},
         rest::{RestApi, RestApiRunContext},
         BuildApiContextInner, ModulesHandler,
@@ -241,6 +243,18 @@ async fn main() -> Result<()> {
         .await
         .context("building ContractStateIndexer for hyli-utxo-state")?;
 
+    let listener_contracts = HashSet::from([ContractName(config.utxo_state_contract_name.clone())]);
+
+    handler
+        .build_module::<ContractListener>(ContractListenerConf {
+            database_url: config.indexer_database_url.clone(),
+            data_directory: config.data_directory.clone().into(),
+            contracts: listener_contracts,
+            poll_interval: Duration::from_secs(config.listener_poll_interval_secs),
+            replay_settled_from_start: true,
+        })
+        .await?;
+
     handler
         .build_module::<AutoProver<HyliUtxoStateExecutor, SP1Prover>>(Arc::new(AutoProverCtx {
             data_directory: data_directory.clone(),
@@ -250,8 +264,8 @@ async fn main() -> Result<()> {
             max_txs_per_proof: config.max_txs_per_proof,
             tx_working_window_size: config.tx_working_window_size,
             api: Some(api_builder_ctx.clone()),
-            idle_flush_interval: Duration::from_secs(config.auto_prover_idle_flush_interval_secs),
-            tx_buffer_size: config.auto_prover_tx_buffer_size,
+            tx_buffer_size: config.tx_buffer_size,
+            idle_flush_interval: Duration::from_secs(config.idle_flush_interval_secs),
         }))
         .await
         .context("building auto prover module")?;

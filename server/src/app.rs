@@ -910,10 +910,10 @@ mod tests {
             contract_name: contract_name.clone(),
             node: node_arc,
             api: None,
-            default_state: default_executor.clone(),
-            buffer_blocks: 0,
             max_txs_per_proof: 4,
             tx_working_window_size: 1,
+            tx_buffer_size: Default::default(),
+            idle_flush_interval: Default::default(),
         });
 
         let auto_prover =
