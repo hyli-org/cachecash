@@ -5,7 +5,7 @@ use crate::{
     prove::prove,
     traits::{Prove, Verify},
 };
-use element::Base;
+use element::{Base, Element};
 use lazy_static::lazy_static;
 use noirc_abi::{InputMap, input_parser::InputValue};
 use noirc_artifacts::program::ProgramArtifact;
@@ -206,6 +206,7 @@ fn build_smt_incl_input_map(value: &HyliSmtIncl) -> InputMap {
         InputValue::Field(Base::from(value.success as u64)),
     );
 
+    // Convert each [u8; 32] LE sibling to a single Base field element
     map.insert(
         "input_notes".to_owned(),
         InputValue::Vec(
@@ -231,14 +232,7 @@ fn build_smt_incl_input_map(value: &HyliSmtIncl) -> InputMap {
             value
                 .siblings_0
                 .iter()
-                .map(|sibling| {
-                    InputValue::Vec(
-                        sibling
-                            .iter()
-                            .map(|b| InputValue::Field(Base::from(*b as u64)))
-                            .collect(),
-                    )
-                })
+                .map(|sib| InputValue::Field(Element::from_le_bytes(*sib).to_base()))
                 .collect(),
         ),
     );
@@ -248,14 +242,7 @@ fn build_smt_incl_input_map(value: &HyliSmtIncl) -> InputMap {
             value
                 .siblings_1
                 .iter()
-                .map(|sibling| {
-                    InputValue::Vec(
-                        sibling
-                            .iter()
-                            .map(|b| InputValue::Field(Base::from(*b as u64)))
-                            .collect(),
-                    )
-                })
+                .map(|sib| InputValue::Field(Element::from_le_bytes(*sib).to_base()))
                 .collect(),
         ),
     );

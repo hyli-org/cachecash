@@ -1,6 +1,17 @@
 import { Noir } from "@noir-lang/noir_js";
 import { UltraHonkBackend } from "@aztec/bb.js";
-import { PrivateNote } from "../types/note";
+
+/**
+ * Convert a 32-byte LE array to a "0x..." hex field string (BE).
+ */
+function siblingsToFields(siblings: number[][]): string[] {
+    return siblings.map((sib) => {
+        // Reverse LE bytes to BE and format as hex
+        const be = new Uint8Array(32);
+        for (let i = 0; i < 32; i++) be[31 - i] = sib[i];
+        return "0x" + Array.from(be).map((b) => b.toString(16).padStart(2, "0")).join("");
+    });
+}
 
 class SmtProofService {
     // Cache only the circuit JSON; backend is created fresh for each proof
@@ -11,30 +22,21 @@ class SmtProofService {
         if (!this.circuit) {
             this.circuit = await fetch("/hyli_smt_incl_proof.json").then((r) => r.json());
         }
-        return this.circuit!;
+        return this.circuit;
     }
 
     async generateProof(params: {
-        smtBlobBytes: Uint8Array; // 96 bytes: [nullifier0, nullifier1, notes_root]
+        smtBlobBytes: Uint8Array; // 96 bytes: [commit0, commit1, notes_root]
         contractName: string; // smt_incl_proof_contract_name
         identity: string; // "transfer@{utxo_contract_name}"
         txHash: string;
         blobCount: number; // 3
-        inputNotes: [PrivateNote, PrivateNote]; // private: used to compute commitments for SMT lookup
-        secretKeys: [string, string]; // private: used to compute nullifiers
         siblings0: number[][]; // 256 x 32
         siblings1: number[][]; // 256 x 32
     }): Promise<{ proof: string; publicInputs: string[] }> {
         const circuit = await this.loadCircuit();
         const backend = new UltraHonkBackend((circuit as any).bytecode);
         const noir = new Noir(circuit as any);
-
-        const toCircuitNote = (note: PrivateNote) => ({
-            kind:    "0x" + note.contract,
-            value:   "0x" + note.value,
-            address: "0x" + note.address,
-            psi:     "0x" + note.psi,
-        });
 
         try {
             const inputs = {
@@ -56,14 +58,27 @@ class SmtProofService {
                 blob: Array.from(params.smtBlobBytes),
                 tx_blob_count: params.blobCount,
                 success: true,
-                input_notes: [
-                    { note: toCircuitNote(params.inputNotes[0]), secret_key: "0x" + params.secretKeys[0] },
-                    { note: toCircuitNote(params.inputNotes[1]), secret_key: "0x" + params.secretKeys[1] },
-                ],
-                siblings_0: params.siblings0,
-                siblings_1: params.siblings1,
+                siblings_0: siblingsToFields(params.siblings0),
+                siblings_1: siblingsToFields(params.siblings1),
             };
 
+            // Debug: dump blob bytes and ALL non-zero siblings
+            const blobHex = Array.from(params.smtBlobBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+            console.log("SMT blob commit0:", blobHex.slice(0, 64));
+            console.log("SMT blob commit1:", blobHex.slice(64, 128));
+            console.log("SMT blob root:   ", blobHex.slice(128, 192));
+            for (let i = 0; i < 256; i++) {
+                if (params.siblings0[i].some((b: number) => b !== 0)) {
+                    const leHex = params.siblings0[i].map((b: number) => b.toString(16).padStart(2, "0")).join("");
+                    console.log(`SMT sib0[${i}] LE: ${leHex}, field: ${siblingsToFields([params.siblings0[i]])[0]}`);
+                }
+            }
+            for (let i = 0; i < 256; i++) {
+                if (params.siblings1[i].some((b: number) => b !== 0)) {
+                    const leHex = params.siblings1[i].map((b: number) => b.toString(16).padStart(2, "0")).join("");
+                    console.log(`SMT sib1[${i}] LE: ${leHex}, field: ${siblingsToFields([params.siblings1[i]])[0]}`);
+                }
+            }
             console.log("Generating SMT inclusion proof with inputs:", inputs);
             const { witness } = await noir.execute(inputs);
             console.log("Witness generated successfully, now generating proof...");

@@ -186,7 +186,7 @@ impl HyliUtxoNoirProver {
             .context("bb version output is empty")?
             .trim();
 
-        if !version_line.starts_with("2.0.3") {
+        if !version_line.trim_start_matches('v').starts_with("2.0.3") {
             bail!("bb version must be 2.0.3, found: {}", version_line);
         }
 

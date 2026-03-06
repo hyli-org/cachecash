@@ -217,6 +217,14 @@ impl HyliUtxoState {
         self.notes_tree.root()
     }
 
+    pub fn notes_tree_contains(&self, commitment: &BorshableH256) -> bool {
+        self.notes_tree.contains(commitment)
+    }
+
+    pub fn notes_tree_leaf_count(&self) -> usize {
+        self.notes_tree.leaf_count()
+    }
+
     pub fn build_smt_witnesses(
         &self,
         commitment0: BorshableH256,
