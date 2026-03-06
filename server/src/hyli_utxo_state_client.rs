@@ -308,7 +308,33 @@ async fn get_smt_witness(
     };
 
     let notes_root = executor.utxo_state().notes_root();
+    let tree_contains_c0 = executor.utxo_state().notes_tree_contains(&c0);
+    let tree_contains_c1 = executor.utxo_state().notes_tree_contains(&c1);
+    let tree_leaf_count = executor.utxo_state().notes_tree_leaf_count();
+
+    info!(
+        commitment0 = %hex_encode(c0.as_ref()),
+        commitment1 = %hex_encode(c1.as_ref()),
+        notes_root = %hex_encode(notes_root.as_ref()),
+        tree_contains_c0 = tree_contains_c0,
+        tree_contains_c1 = tree_contains_c1,
+        tree_leaf_count = tree_leaf_count,
+        "get_smt_witness called"
+    );
+
     let (s0, s1) = executor.utxo_state().build_smt_witnesses(c0, c1);
+
+    // Log non-zero siblings
+    for (i, s) in s0.iter().enumerate() {
+        if s.iter().any(|b| *b != 0) {
+            info!(index = i, sibling = %hex_encode(s), "s0 non-zero sibling");
+        }
+    }
+    for (i, s) in s1.iter().enumerate() {
+        if s.iter().any(|b| *b != 0) {
+            info!(index = i, sibling = %hex_encode(s), "s1 non-zero sibling");
+        }
+    }
 
     Ok(Json(SmtWitnessResponse {
         notes_root: hex::encode(notes_root.as_ref()),
