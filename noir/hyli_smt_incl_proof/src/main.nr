@@ -1,6 +1,15 @@
 use dep::poseidon::poseidon2::Poseidon2;
 use common::{compute_nullifier, get_note_commitment, InputNote};
+use hyli_noir_sdk::HyliOutput;
 use std::ops::WrappingAdd;
+
+global BLOB_SLOTS: u32 = 1;
+global INITIAL_STATE_MAX: u32 = 4;
+global NEXT_STATE_MAX: u32 = 4;
+global IDENTITY_MAX: u32 = 256;
+global BLOB_NAME_MAX: u32 = 256;
+global BLOB_DATA_MAX: u32 = 96;
+global PROGRAM_OUTPUT_MAX: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // SMT hash helpers (Poseidon2-based, ZK-native)
@@ -71,11 +80,7 @@ fn parent_path(key: [u8; 32], h: u8) -> [u8; 32] {
 // Single-leaf SMT inclusion proof
 // ---------------------------------------------------------------------------
 
-fn verify_inclusion(
-    commitment_field: Field,
-    notes_root: Field,
-    siblings: [Field; 256],
-) {
+fn verify_inclusion(commitment_field: Field, notes_root: Field, siblings: [Field; 256]) {
     // Handle padding note: if commitment is zero, skip verification.
     if commitment_field != 0 {
         // Get BE bytes matching the Rust SMT key storage: BorshableH256::from(field.to_be_bytes())
@@ -152,25 +157,7 @@ fn verify_inclusion(
 // ---------------------------------------------------------------------------
 
 fn main(
-    // Hyli-required public plumbing
-    version: pub u32,
-    initial_state_len: pub u32,
-    initial_state: pub [u8; 4],
-    next_state_len: pub u32,
-    next_state: pub [u8; 4],
-    identity_len: pub u8,
-    identity: pub str<256>,
-    tx_hash: pub str<64>,
-    index: pub u32,
-    blob_number: pub u32,
-    blob_index: pub u32,
-    blob_contract_name_len: pub u8,
-    blob_contract_name: pub str<256>,
-    blob_capacity: pub u32,
-    blob_len: pub u32,
-    blob: pub [u8; 96],
-    tx_blob_count: pub u32,
-    success: pub bool,
+    hyli_output: pub HyliOutput<INITIAL_STATE_MAX, NEXT_STATE_MAX, IDENTITY_MAX, BLOB_SLOTS, BLOB_NAME_MAX, BLOB_DATA_MAX, PROGRAM_OUTPUT_MAX>,
     // Private inputs: input notes (note data + secret key for nullifier computation)
     input_notes: [InputNote; 2],
     // Private SMT proof witnesses
@@ -180,27 +167,42 @@ fn main(
     // -------------------------------------------------------------------------
     // Hyli contract framing (same pattern as hyli_utxo)
     // -------------------------------------------------------------------------
-    assert(success, "contract execution must succeed");
-    assert(version == 1, "unsupported Hyli output version");
+    assert(hyli_output.success, "contract execution must succeed");
+    assert(hyli_output.version == 2, "unsupported Hyli output version");
 
-    assert(initial_state_len == 4, "initial_state must be 4 bytes");
-    assert(next_state_len == 4, "next_state must be 4 bytes");
+    assert(hyli_output.initial_state_len == 4, "initial_state must be 4 bytes");
+    assert(hyli_output.next_state_len == 4, "next_state must be 4 bytes");
+    assert(hyli_output.initial_state_max == INITIAL_STATE_MAX, "initial_state_max mismatch");
+    assert(hyli_output.next_state_max == NEXT_STATE_MAX, "next_state_max mismatch");
+    assert(hyli_output.identity_max == IDENTITY_MAX, "identity_max mismatch");
 
-    assert(blob_capacity == 96, "blob capacity must be 96 bytes");
-    assert(blob_len == 96, "blob length must be 96 bytes");
+    assert(hyli_output.blob_slots == BLOB_SLOTS, "blob_slots mismatch");
+    assert(hyli_output.blob_name_max == BLOB_NAME_MAX, "blob_name_max mismatch");
+    assert(hyli_output.blob_data_max == BLOB_DATA_MAX, "blob_data_max mismatch");
+    assert(hyli_output.blob_count == 1, "exactly one blob is expected");
+    assert(
+        hyli_output.blob_count <= hyli_output.tx_blob_count,
+        "transaction must provide enough blobs",
+    );
+    assert(hyli_output.program_outputs_max == PROGRAM_OUTPUT_MAX, "program outputs max mismatch");
+    assert(
+        hyli_output.program_outputs_len <= hyli_output.program_outputs_max,
+        "program outputs len overflow",
+    );
 
-    assert(identity_len as u32 <= 256, "identity length overflow");
-    assert(blob_contract_name_len == 19, "blob contract name must be 19 bytes");
+    assert(hyli_output.identity_len <= 256, "identity length overflow");
 
-    let _ = initial_state;
-    let _ = next_state;
-    let _ = identity;
-    let _ = tx_hash;
-    let _ = blob_number;
-    let _ = blob_index;
-    let _ = index;
-    let _ = tx_blob_count;
-    let _ = blob_contract_name;
+    let blob_input = hyli_output.blobs[0];
+    assert(blob_input.contract_name_len == 19, "blob contract name must be 19 bytes");
+    assert(blob_input.index == hyli_output.index, "blob index must align with invocation index");
+    assert(blob_input.data_len == 96, "blob length must be 96 bytes");
+
+    let _ = hyli_output.initial_state;
+    let _ = hyli_output.next_state;
+    let _ = hyli_output.identity;
+    let _ = hyli_output.tx_hash;
+    let _ = blob_input.contract_name;
+    let _ = hyli_output.program_outputs;
 
     // -------------------------------------------------------------------------
     // Parse blob: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
@@ -210,9 +212,9 @@ fn main(
     let mut notes_root_bytes: [u8; 32] = [0; 32];
 
     for i in 0..32 {
-        blob_nullifier_0[i] = blob[i];
-        blob_nullifier_1[i] = blob[32 + i];
-        notes_root_bytes[i] = blob[64 + i];
+        blob_nullifier_0[i] = blob_input.data[i];
+        blob_nullifier_1[i] = blob_input.data[32 + i];
+        notes_root_bytes[i] = blob_input.data[64 + i];
     }
 
     // Convert notes_root to Field (LE interpretation of stored bytes)

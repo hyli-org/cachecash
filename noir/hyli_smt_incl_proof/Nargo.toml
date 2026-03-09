@@ -7,3 +7,4 @@ compiler_version = ">=0.36.0"
 [dependencies]
 common = { path = "../common" }
 poseidon = { tag = "v0.2.6", git = "https://github.com/noir-lang/poseidon" }
+hyli_noir_sdk = { git = "https://github.com/hyli-org/hyli-noir", directory = "hyli-noir-sdk", tag = "parser_v2" }
