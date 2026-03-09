@@ -1,6 +1,6 @@
 use crate::{InputNote, ToBytes, UtxoProofBytes};
 use borsh::{BorshDeserialize, BorshSerialize};
-use element::Element;
+use element::{Base, Element};
 use serde::{Deserialize, Serialize};
 
 /// Number of public input fields emitted by the Hyli SMT inclusion proof circuit.
@@ -47,10 +47,10 @@ pub struct HyliSmtIncl {
     pub success: bool,
     /// Input notes (note data + secret key) whose commitments are proven to be in the SMT.
     pub input_notes: [InputNote; 2],
-    /// SMT siblings for input_notes[0] commitment (256 levels × 32 bytes).
-    pub siblings_0: Box<[[u8; 32]; 256]>,
-    /// SMT siblings for input_notes[1] commitment (256 levels × 32 bytes).
-    pub siblings_1: Box<[[u8; 32]; 256]>,
+    /// SMT siblings for input_notes[0] commitment (256 Field elements).
+    pub siblings_0: Box<[Base; 256]>,
+    /// SMT siblings for input_notes[1] commitment (256 Field elements).
+    pub siblings_1: Box<[Base; 256]>,
 }
 
 impl HyliSmtIncl {

@@ -1,3 +1,4 @@
+use acvm::AcirField;
 use anyhow::{bail, Context, Result};
 use client_sdk::rest_client::{NodeApiClient, NodeApiHttpClient};
 use element::Element;
@@ -9,7 +10,7 @@ use hyli_modules::{
     modules::{contract_state_indexer::CSIBusEvent, Module},
 };
 use hyli_utxo_state::{
-    state::{HyliUtxoBlob, HyliUtxoStateAction, HYLI_UTXO_STATE_ACTION},
+    state::HYLI_UTXO_STATE_ACTION,
     zk::BorshableH256,
 };
 use sdk::{
@@ -300,8 +301,8 @@ impl FaucetApp {
         payload.copy_from_slice(&blob.data.0[..HYLI_SMT_INCL_BLOB_LENGTH_BYTES]);
 
         // For zero commitments (mint/padding), siblings are unused by the circuit.
-        let siblings_0 = Box::new([[0u8; 32]; 256]);
-        let siblings_1 = Box::new([[0u8; 32]; 256]);
+        let siblings_0 = Box::new([element::Base::zero(); 256]);
+        let siblings_1 = Box::new([element::Base::zero(); 256]);
 
         let job = SmtInclProofJob {
             tx_hash: tx_hash.clone(),
@@ -484,18 +485,22 @@ mod tests {
         module_bus_client,
         modules::prover::{AutoProver, AutoProverCtx},
     };
-    use hyli_utxo_state::{state::HyliUtxoStateAction, zk::BorshableH256};
+    use hyli_utxo_state::{state::parse_hyli_utxo_blob, zk::BorshableH256};
     use sdk::hyli_model_utils::TimestampMs;
 
     module_bus_client! {
         struct TestBusClient {
-            sender(NodeStateEvent),
+            sender(ContractListenerEvent),
         }
     }
+    use hyli_modules::modules::contract_listener::{
+        ContractChangeData, ContractListenerEvent, ContractTx,
+    };
+    use sdk::api::ContractChangeType;
     use sdk::{
         AggregateSignature, Blob, BlobIndex, BlobTransaction, BlockHeight, BlockStakingData,
         Calldata, ConsensusProposal, ConsensusProposalHash, Contract, ContractName,
-        DataProposalHash, NodeStateBlock, NodeStateEvent, ProgramId, StatefulEvent, StatefulEvents,
+        DataProposalHash, NodeStateBlock, ProgramId, StatefulEvent, StatefulEvents,
         TimeoutWindow, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
         HYLI_TESTNET_CHAIN_ID,
     };
@@ -669,23 +674,29 @@ mod tests {
 
         let recipient_note = &utxo.output_notes[0];
 
-        let (state_index, state_blob) = blob_tx
+        let (state_index, _state_blob) = blob_tx
             .blobs
             .iter()
             .enumerate()
             .find(|(_, blob)| blob.contract_name.0 == TEST_UTXO_STATE_CONTRACT_NAME)
             .expect("state blob present");
 
-        let state_action: HyliUtxoStateAction =
-            borsh::from_slice(&state_blob.data.0).expect("decode state action");
+        // Parse commitments from the utxo blob (not the state action)
+        let (_, utxo_blob) = blob_tx
+            .blobs
+            .iter()
+            .enumerate()
+            .find(|(_, blob)| blob.contract_name.0 == TEST_UTXO_CONTRACT_NAME)
+            .expect("utxo blob present");
 
-        let (created, nullified) = state_action.split_at(2);
+        let (created, nullified) =
+            parse_hyli_utxo_blob(&utxo_blob.data.0).expect("parse utxo blob");
 
         let expected_created = BorshableH256::from(recipient_note.commitment().to_be_bytes());
-        assert_eq!(&created[0], &expected_created);
+        assert_eq!(created[0], expected_created);
         let expected_created_second =
             BorshableH256::from(utxo.output_notes[1].commitment().to_be_bytes());
-        assert_eq!(&created[1], &expected_created_second);
+        assert_eq!(created[1], expected_created_second);
 
         let expected_nullifiers: Vec<BorshableH256> = utxo
             .input_notes
@@ -695,12 +706,16 @@ mod tests {
             .map(|value: Element| BorshableH256::from(value.to_be_bytes()))
             .collect();
 
+        // The padding nullifier is poseidon2([0, 0], 2) — skip it along with zero.
+        let padding_nullifier = BorshableH256::from(
+            hash_merge([Element::ZERO, Element::ZERO]).to_be_bytes(),
+        );
         let actual_nullifiers: Vec<BorshableH256> = nullified
             .iter()
             .copied()
             .filter(|commitment| {
                 let bytes: [u8; 32] = commitment.0.into();
-                bytes != [0u8; 32]
+                bytes != [0u8; 32] && *commitment != padding_nullifier
             })
             .collect();
 
@@ -708,14 +723,6 @@ mod tests {
 
         // Ensure executor accepts the state blob without duplicate errors.
         let mut executor = HyliUtxoStateExecutor::new(get_config());
-        let metadata = executor
-            .build_commitment_metadata(state_blob)
-            .expect("build commitment metadata");
-        assert!(
-            !metadata.is_empty(),
-            "commitment metadata should not be empty"
-        );
-
         let calldata = Calldata {
             tx_hash: TxHash("test".into()),
             identity: blob_tx.identity.clone(),
@@ -725,6 +732,14 @@ mod tests {
             tx_ctx: None,
             private_input: Vec::new(),
         };
+
+        let metadata = executor
+            .build_commitment_metadata(&calldata)
+            .expect("build commitment metadata");
+        assert!(
+            !metadata.is_empty(),
+            "commitment metadata should not be empty"
+        );
 
         executor
             .handle(&calldata)
@@ -864,9 +879,61 @@ mod tests {
             });
         assert!(has_state_blob, "block must contain hyli_utxo_state blob");
         let mut test_bus = TestBusClient::new_from_bus(shared_bus.new_handle()).await;
+
+        // 1. Send a SettledTx with ContractChangeType::Registered to initialize base_state
+        let reg_change = ContractChangeData {
+            change_types: vec![ContractChangeType::Registered],
+            metadata: Some(borsh::to_vec(&get_config()).unwrap()),
+            verifier: verifier.0.clone(),
+            program_id: program_id.0.clone(),
+            state_commitment: initial_commitment.0.clone(),
+            soft_timeout: None,
+            hard_timeout: None,
+            deleted_at_height: None,
+        };
         test_bus
-            .send(NodeStateEvent::NewBlock(block))
-            .expect("send node state event");
+            .send(ContractListenerEvent::SettledTx(ContractTx {
+                tx_id: TxId(DataProposalHash(vec![0]), TxHash(vec![0])),
+                tx: BlobTransaction::new(sdk::Identity("registration".to_string()), vec![]),
+                tx_ctx: Arc::new(TxContext::default()),
+                status: sdk::api::TransactionStatusDb::Success,
+                contract_changes: std::collections::HashMap::from([(
+                    contract_name.clone(),
+                    reg_change,
+                )]),
+            }))
+            .expect("send registration settled tx");
+
+        sleep(Duration::from_millis(50)).await;
+
+        // 2. Send BackfillComplete to exit catching_up mode
+        test_bus
+            .send(ContractListenerEvent::BackfillComplete(contract_name.clone()))
+            .expect("send backfill complete");
+
+        sleep(Duration::from_millis(50)).await;
+
+        // 3. Extract the SequencedTx from the block and send as ContractListenerEvent
+        let (tx_id, sequenced_tx, tx_ctx) = block
+            .stateful_events
+            .events
+            .iter()
+            .find_map(|(tx_id, event)| match event {
+                StatefulEvent::SequencedTx(tx, ctx) => Some((tx_id.clone(), tx.clone(), ctx.clone())),
+                _ => None,
+            })
+            .expect("sequenced tx in block");
+
+        test_bus
+            .send(ContractListenerEvent::SequencedTx(ContractTx {
+                tx_id,
+                tx: sequenced_tx,
+                tx_ctx,
+                status: sdk::api::TransactionStatusDb::Sequenced,
+                contract_changes: std::collections::HashMap::new(),
+            }))
+            .expect("send sequenced tx event");
+
         let proof = timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(proof) = api_client

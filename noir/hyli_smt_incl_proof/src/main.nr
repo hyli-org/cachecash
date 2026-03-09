@@ -2,70 +2,38 @@ use dep::poseidon::poseidon2::Poseidon2;
 use common::{compute_nullifier, get_note_commitment, InputNote};
 use std::ops::WrappingAdd;
 
-/// Convert a commitment Field to its big-endian byte representation.
-fn commitment_to_bytes(commitment: Field) -> [u8; 32] {
-    if commitment == 0 {
-        [0u8; 32]
-    } else {
-        commitment.to_be_bytes()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // SMT hash helpers (Poseidon2-based, ZK-native)
 // ---------------------------------------------------------------------------
 
-// Split a 32-byte LE H256 into two 128-bit Field elements (lo, hi).
-// Byte 0 is LSB. lo = bytes[0..16], hi = bytes[16..32].
-fn h256_to_fields(input: [u8; 32]) -> (Field, Field) {
-    let mut lo: Field = 0;
-    let mut hi: Field = 0;
+// Convert a 32-byte LE H256 to a single Field element (LE interpretation).
+// Only needed for byte-level constructs (node_key, zero_bits), not hash outputs.
+fn h256_to_field(input: [u8; 32]) -> Field {
+    let mut result: Field = 0;
     let mut scale: Field = 1;
-    for i in 0..16 {
-        lo += (input[i] as Field) * scale;
-        hi += (input[16 + i] as Field) * scale;
+    for i in 0..32 {
+        result += (input[i] as Field) * scale;
         scale *= 256;
     }
-    (lo, hi)
+    result
 }
 
-// Convert a Field back to a 32-byte LE H256.
-// Field.to_be_bytes gives big-endian; reverse for little-endian.
-fn field_to_h256(f: Field) -> [u8; 32] {
-    let be: [u8; 32] = f.to_be_bytes();
-    let mut le: [u8; 32] = [0; 32];
-    for i in 0..32 {
-        le[i] = be[31 - i];
-    }
-    le
+// Poseidon2([height, nk, v], 3) -- nk is byte-pattern (needs conversion), v is Field
+fn hash_base_node(height: u8, node_key: [u8; 32], value: Field) -> Field {
+    let nk = h256_to_field(node_key);
+    Poseidon2::hash([height as Field, nk, value], 3)
 }
 
-// Poseidon2([height, nk_lo, nk_hi, v_lo, v_hi], 5)
-fn hash_base_node(height: u8, node_key: [u8; 32], value: [u8; 32]) -> [u8; 32] {
-    let (nk_lo, nk_hi) = h256_to_fields(node_key);
-    let (v_lo, v_hi) = h256_to_fields(value);
-    let h = Poseidon2::hash([height as Field, nk_lo, nk_hi, v_lo, v_hi], 5);
-    field_to_h256(h)
+// Poseidon2([2, bn, zb, zero_count], 4) -- bn is Field, zb is byte-pattern
+fn hash_mwz(base_node: Field, zero_bits: [u8; 32], zero_count: u8) -> Field {
+    let zb = h256_to_field(zero_bits);
+    Poseidon2::hash([2, base_node, zb, zero_count as Field], 4)
 }
 
-// Poseidon2([2, bn_lo, bn_hi, zb_lo, zb_hi, zero_count], 6)
-fn hash_mwz(base_node: [u8; 32], zero_bits: [u8; 32], zero_count: u8) -> [u8; 32] {
-    let (bn_lo, bn_hi) = h256_to_fields(base_node);
-    let (zb_lo, zb_hi) = h256_to_fields(zero_bits);
-    let h = Poseidon2::hash([2, bn_lo, bn_hi, zb_lo, zb_hi, zero_count as Field], 6);
-    field_to_h256(h)
-}
-
-// Poseidon2([1, height, nk_lo, nk_hi, l_lo, l_hi, r_lo, r_hi], 8)
-fn hash_merge_normal(height: u8, node_key: [u8; 32], lhs: [u8; 32], rhs: [u8; 32]) -> [u8; 32] {
-    let (nk_lo, nk_hi) = h256_to_fields(node_key);
-    let (l_lo, l_hi) = h256_to_fields(lhs);
-    let (r_lo, r_hi) = h256_to_fields(rhs);
-    let h = Poseidon2::hash(
-        [1, height as Field, nk_lo, nk_hi, l_lo, l_hi, r_lo, r_hi],
-        8,
-    );
-    field_to_h256(h)
+// Poseidon2([1, height, nk, l, r], 5) -- nk is byte-pattern, l/r are Fields
+fn hash_merge_normal(height: u8, node_key: [u8; 32], lhs: Field, rhs: Field) -> Field {
+    let nk = h256_to_field(node_key);
+    Poseidon2::hash([1, height as Field, nk, lhs, rhs], 5)
 }
 
 // Bit at position h (LSB-first within each byte, like H256::get_bit)
@@ -103,39 +71,37 @@ fn parent_path(key: [u8; 32], h: u8) -> [u8; 32] {
 // Single-leaf SMT inclusion proof
 // ---------------------------------------------------------------------------
 
-fn verify_inclusion(commitment: [u8; 32], notes_root: [u8; 32], siblings: [[u8; 32]; 256]) {
+fn verify_inclusion(
+    commitment_field: Field,
+    notes_root: Field,
+    siblings: [Field; 256],
+) {
     // Handle padding note: if commitment is zero, skip verification.
-    let mut commitment_is_zero = true;
-    for i in 0..32 {
-        if commitment[i] != 0 {
-            commitment_is_zero = false;
-        }
-    }
+    if commitment_field != 0 {
+        // Get BE bytes matching the Rust SMT key storage: BorshableH256::from(field.to_be_bytes())
+        let commitment_bytes: [u8; 32] = commitment_field.to_be_bytes();
 
-    if !commitment_is_zero {
-        // Accumulator state
+        // The SMT hasher sees these bytes via write_h256 which interprets them as LE integer.
+        let commitment_smt_value = h256_to_field(commitment_bytes);
+
+        // Accumulator state -- all hash values stay as Field
         let mut current_is_mwz: bool = false;
-        let mut current_value: [u8; 32] = commitment; // Value case
-        let mut mwz_base: [u8; 32] = [0; 32];
+        let mut current_value: Field = commitment_smt_value;
+        let mut mwz_base: Field = 0;
         let mut mwz_zero_bits: [u8; 32] = [0; 32];
         let mut mwz_zero_count: u8 = 0;
 
         for h in 0..256 {
             let h_u8 = h as u8;
-            let node_key = parent_path(commitment, h_u8);
-            let bit = get_bit(commitment, h_u8);
+            let node_key = parent_path(commitment_bytes, h_u8);
+            let bit = get_bit(commitment_bytes, h_u8);
             let sib = siblings[h];
 
             // Is sibling zero?
-            let mut sib_is_zero = true;
-            for i in 0..32 {
-                if sib[i] != 0 {
-                    sib_is_zero = false;
-                }
-            }
+            let sib_is_zero = (sib == 0);
 
             // Hash of current accumulator
-            let current_hash: [u8; 32] = if current_is_mwz {
+            let current_hash: Field = if current_is_mwz {
                 hash_mwz(mwz_base, mwz_zero_bits, mwz_zero_count)
             } else {
                 current_value
@@ -162,16 +128,16 @@ fn verify_inclusion(commitment: [u8; 32], notes_root: [u8; 32], siblings: [[u8; 
                     current_is_mwz = true;
                 }
             } else {
-                // Normal merge: both sides non-zero
-                let lhs: [u8; 32] = if bit == 0 { current_hash } else { sib };
-                let rhs: [u8; 32] = if bit == 0 { sib } else { current_hash };
+                // Normal merge: both sides non-zero -- lhs/rhs are already Fields
+                let lhs: Field = if bit == 0 { current_hash } else { sib };
+                let rhs: Field = if bit == 0 { sib } else { current_hash };
                 current_value = hash_merge_normal(h_u8, node_key, lhs, rhs);
                 current_is_mwz = false;
             }
         }
 
         // Final computed root
-        let computed_root: [u8; 32] = if current_is_mwz {
+        let computed_root: Field = if current_is_mwz {
             hash_mwz(mwz_base, mwz_zero_bits, mwz_zero_count)
         } else {
             current_value
@@ -208,8 +174,8 @@ fn main(
     // Private inputs: input notes (note data + secret key for nullifier computation)
     input_notes: [InputNote; 2],
     // Private SMT proof witnesses
-    siblings_0: [[u8; 32]; 256],
-    siblings_1: [[u8; 32]; 256],
+    siblings_0: [Field; 256],
+    siblings_1: [Field; 256],
 ) {
     // -------------------------------------------------------------------------
     // Hyli contract framing (same pattern as hyli_utxo)
@@ -241,19 +207,22 @@ fn main(
     // -------------------------------------------------------------------------
     let mut blob_nullifier_0: [u8; 32] = [0; 32];
     let mut blob_nullifier_1: [u8; 32] = [0; 32];
-    let mut notes_root: [u8; 32] = [0; 32];
+    let mut notes_root_bytes: [u8; 32] = [0; 32];
 
     for i in 0..32 {
         blob_nullifier_0[i] = blob[i];
         blob_nullifier_1[i] = blob[32 + i];
-        notes_root[i] = blob[64 + i];
+        notes_root_bytes[i] = blob[64 + i];
     }
 
+    // Convert notes_root to Field (LE interpretation of stored bytes)
+    let notes_root = h256_to_field(notes_root_bytes);
+
     // -------------------------------------------------------------------------
-    // Compute commitments (for SMT lookup) and nullifiers (for blob verification)
+    // Compute commitments and nullifiers from input notes
     // -------------------------------------------------------------------------
-    let commitment_0 = commitment_to_bytes(get_note_commitment(input_notes[0].note));
-    let commitment_1 = commitment_to_bytes(get_note_commitment(input_notes[1].note));
+    let commitment_0 = get_note_commitment(input_notes[0].note);
+    let commitment_1 = get_note_commitment(input_notes[1].note);
 
     let nullifier_0 =
         compute_nullifier(input_notes[0].note.psi, input_notes[0].secret_key).to_be_bytes();

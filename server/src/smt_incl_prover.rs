@@ -26,8 +26,8 @@ pub struct SmtInclProofJob {
     pub tx_blob_count: u32,
     pub blob_index: u32,
     pub input_notes: [InputNote; 2],
-    pub siblings_0: Box<[[u8; 32]; 256]>,
-    pub siblings_1: Box<[[u8; 32]; 256]>,
+    pub siblings_0: Box<[element::Base; 256]>,
+    pub siblings_1: Box<[element::Base; 256]>,
 }
 
 impl BusMessage for SmtInclProofJob {

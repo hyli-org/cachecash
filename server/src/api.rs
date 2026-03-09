@@ -30,10 +30,7 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
-use hyli_utxo_state::{
-    state::{HyliUtxoBlob, HYLI_UTXO_STATE_ACTION},
-    zk::BorshableH256,
-};
+use hyli_utxo_state::state::HYLI_UTXO_STATE_ACTION;
 use sdk::{
     Blob, BlobData, BlobTransaction, ContractName, Hashed, Identity, ProgramId, ProofData,
     ProofTransaction, Verifier,

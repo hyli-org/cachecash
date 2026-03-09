@@ -31,8 +31,8 @@ export interface CreateBlobResponse {
 
 export interface SmtWitnessResponse {
     notes_root: string;       // 64-char hex
-    siblings_0: number[][];   // 256 x 32 bytes
-    siblings_1: number[][];   // 256 x 32 bytes
+    siblings_0: string[];     // 256 "0x..." hex field elements
+    siblings_1: string[];     // 256 "0x..." hex field elements
 }
 
 class NodeService {

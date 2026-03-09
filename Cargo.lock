@@ -6513,6 +6513,7 @@ dependencies = [
 name = "server"
 version = "0.0.0"
 dependencies = [
+ "acvm",
  "anyhow",
  "axum 0.8.8",
  "barretenberg",

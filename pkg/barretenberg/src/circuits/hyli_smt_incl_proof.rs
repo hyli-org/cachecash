@@ -231,14 +231,7 @@ fn build_smt_incl_input_map(value: &HyliSmtIncl) -> InputMap {
             value
                 .siblings_0
                 .iter()
-                .map(|sibling| {
-                    InputValue::Vec(
-                        sibling
-                            .iter()
-                            .map(|b| InputValue::Field(Base::from(*b as u64)))
-                            .collect(),
-                    )
-                })
+                .map(|f| InputValue::Field(*f))
                 .collect(),
         ),
     );
@@ -248,14 +241,7 @@ fn build_smt_incl_input_map(value: &HyliSmtIncl) -> InputMap {
             value
                 .siblings_1
                 .iter()
-                .map(|sibling| {
-                    InputValue::Vec(
-                        sibling
-                            .iter()
-                            .map(|b| InputValue::Field(Base::from(*b as u64)))
-                            .collect(),
-                    )
-                })
+                .map(|f| InputValue::Field(*f))
                 .collect(),
         ),
     );

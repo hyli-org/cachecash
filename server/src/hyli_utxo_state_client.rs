@@ -1,3 +1,4 @@
+use acvm::AcirField;
 use anyhow::{anyhow, Context, Result};
 use axum::{
     extract::{Query, State},
@@ -12,7 +13,7 @@ use hex::encode as hex_encode;
 use hyli_modules::bus::BusMessage;
 use hyli_utxo_state::{
     state::{
-        parse_hyli_utxo_blob, ContractConfig, HyliUtxoBlob, HyliUtxoState, HyliUtxoStateAction,
+        parse_hyli_utxo_blob, ContractConfig, HyliUtxoState, HyliUtxoStateAction,
         SeparatedHyliUtxoBlob,
     },
     zk::BorshableH256,
@@ -21,7 +22,7 @@ use hyli_utxo_state::{
 use sdk::{
     caller::ExecutionContext,
     utils::{as_hyli_output, parse_raw_calldata},
-    Blob, BlobIndex, BlobTransaction, Calldata, Contract, ContractName, HyliOutput,
+    BlobIndex, BlobTransaction, Calldata, Contract, ContractName, HyliOutput,
     RegisterContractAction, RunResult, StateCommitment, TxContext,
 };
 use std::sync::Arc;
@@ -124,12 +125,6 @@ impl HyliUtxoStateExecutor {
         Ok((created, nullified))
     }
 
-    /// The padding nullifier is poseidon2([0, 0], 2) - used by padding notes
-    const PADDING_NULLIFIER: [u8; 32] = [
-        0x0b, 0x63, 0xa5, 0x37, 0x87, 0x02, 0x1a, 0x4a, 0x96, 0x2a, 0x45, 0x2c, 0x29, 0x21, 0xb3,
-        0x66, 0x3a, 0xff, 0x1f, 0xfd, 0x8d, 0x55, 0x10, 0x54, 0x0f, 0x8e, 0x65, 0x9e, 0x78, 0x29,
-        0x56, 0xf1,
-    ];
 }
 
 impl TxExecutorHandler for HyliUtxoStateExecutor {
@@ -265,8 +260,8 @@ struct SmtWitnessQuery {
 #[derive(serde::Serialize, utoipa::ToSchema)]
 struct SmtWitnessResponse {
     notes_root: String,
-    siblings_0: Vec<Vec<u8>>,
-    siblings_1: Vec<Vec<u8>>,
+    siblings_0: Vec<String>,
+    siblings_1: Vec<String>,
 }
 
 fn parse_hex32(hex_str: &str) -> Result<BorshableH256, String> {
@@ -312,8 +307,8 @@ async fn get_smt_witness(
 
     Ok(Json(SmtWitnessResponse {
         notes_root: hex::encode(notes_root.as_ref()),
-        siblings_0: s0.iter().map(|a| a.to_vec()).collect(),
-        siblings_1: s1.iter().map(|a| a.to_vec()).collect(),
+        siblings_0: s0.iter().map(|f| format!("0x{}", hex::encode(f.to_be_bytes()))).collect(),
+        siblings_1: s1.iter().map(|f| format!("0x{}", hex::encode(f.to_be_bytes()))).collect(),
     }))
 }
 
