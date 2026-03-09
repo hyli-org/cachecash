@@ -122,6 +122,24 @@ impl HyliUtxoState {
         0x56, 0xf1,
     ];
 
+    /// Filter out zero keys and padding nullifiers from a list of keys.
+    /// Used by both `to_zkvm_state` and `apply_action` to ensure consistency.
+    pub fn filter_keys(keys: &[BorshableH256], is_nullifier: bool) -> Vec<BorshableH256> {
+        keys.iter()
+            .filter(|k| {
+                if k.0 == H256::zero() {
+                    return false;
+                }
+                if is_nullifier {
+                    let bytes: [u8; 32] = k.0.into();
+                    return bytes != Self::PADDING_NULLIFIER;
+                }
+                true
+            })
+            .copied()
+            .collect()
+    }
+
     pub fn record_nullified(&mut self, commitments: &[BorshableH256]) -> Result<(), String> {
         for (i, commitment) in commitments.iter().enumerate() {
             if commitment.0 == H256::zero() {
@@ -158,21 +176,8 @@ impl HyliUtxoState {
         created_note_keys: &[BorshableH256],
         nullified_keys: &[BorshableH256],
     ) -> Result<HyliUtxoZkVmState, String> {
-        // Filter out zero keys and padding nullifiers — matches record_created/record_nullified.
-        // This avoids passing duplicate or zero keys into merkle_proof/compute_root.
-        let filtered_created: Vec<BorshableH256> = created_note_keys
-            .iter()
-            .filter(|k| k.0 != H256::zero())
-            .copied()
-            .collect();
-        let filtered_nullified: Vec<BorshableH256> = nullified_keys
-            .iter()
-            .filter(|k| {
-                let bytes: [u8; 32] = k.0.into();
-                k.0 != H256::zero() && bytes != Self::PADDING_NULLIFIER
-            })
-            .copied()
-            .collect();
+        let filtered_created = Self::filter_keys(created_note_keys, false);
+        let filtered_nullified = Self::filter_keys(nullified_keys, true);
         let created_notes = Self::build_witness(&self.notes_tree, &filtered_created)?;
         let nullified = Self::build_witness(&self.nullified_tree, &filtered_nullified)?;
         let mut roots_vec: Vec<[u8; 8]> = self.roots.iter().cloned().collect();
@@ -321,20 +326,8 @@ impl HyliUtxoZkVmState {
         let (created, nullified) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)
             .map_err(|e| format!("failed to parse hyli_utxo blob: {e}"))?;
 
-        // Filter out zero keys and padding nullifiers — matches to_zkvm_state filtering.
-        let filtered_created: Vec<BorshableH256> = created
-            .iter()
-            .filter(|c| c.0 != H256::zero())
-            .copied()
-            .collect();
-        let filtered_nullified: Vec<BorshableH256> = nullified
-            .iter()
-            .filter(|c| {
-                let bytes: [u8; 32] = c.0.into();
-                c.0 != H256::zero() && bytes != HyliUtxoState::PADDING_NULLIFIER
-            })
-            .copied()
-            .collect();
+        let filtered_created = HyliUtxoState::filter_keys(&created, false);
+        let filtered_nullified = HyliUtxoState::filter_keys(&nullified, true);
 
         if self.created_notes.values.len() != filtered_created.len() {
             return Err(format!(

@@ -485,7 +485,7 @@ mod tests {
         module_bus_client,
         modules::prover::{AutoProver, AutoProverCtx},
     };
-    use hyli_utxo_state::{state::parse_hyli_utxo_blob, zk::BorshableH256};
+    use hyli_utxo_state::{state::{parse_hyli_utxo_blob, HyliUtxoState}, zk::BorshableH256};
     use sdk::hyli_model_utils::TimestampMs;
 
     module_bus_client! {
@@ -706,18 +706,7 @@ mod tests {
             .map(|value: Element| BorshableH256::from(value.to_be_bytes()))
             .collect();
 
-        // The padding nullifier is poseidon2([0, 0], 2) — skip it along with zero.
-        let padding_nullifier = BorshableH256::from(
-            hash_merge([Element::ZERO, Element::ZERO]).to_be_bytes(),
-        );
-        let actual_nullifiers: Vec<BorshableH256> = nullified
-            .iter()
-            .copied()
-            .filter(|commitment| {
-                let bytes: [u8; 32] = commitment.0.into();
-                bytes != [0u8; 32] && *commitment != padding_nullifier
-            })
-            .collect();
+        let actual_nullifiers = HyliUtxoState::filter_keys(&nullified, true);
 
         assert_eq!(actual_nullifiers, expected_nullifiers);
 
