@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, ChangeEvent, FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import "./App.css";
-import { deriveFullIdentity, FullIdentity } from "./services/KeyService";
+import { deriveZkSecretKey, deriveUtxoAddress, FullIdentity } from "./services/KeyService";
+import SHA256 from "crypto-js/sha256";
 import { addressService } from "./services/AddressService";
-import { getNodeBaseUrl } from "./services/ConfigService";
+import { getNodeBaseUrl, getWalletServerBaseUrl, getApplicationWsUrl, getIndexerBaseUrl } from "./services/ConfigService";
 
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
@@ -16,6 +17,7 @@ import { useStoredNotes } from "./hooks/useStoredNotes";
 import { useDebugMode } from "./hooks/useDebugMode";
 import { useEncryptedNotes } from "./hooks/useEncryptedNotes";
 import { PrivateNote, StoredNote } from "./types/note";
+import { HyliWallet, WalletProvider, useWallet } from "hyli-wallet";
 declareCustomElement();
 
 interface TransactionEntry {
@@ -37,13 +39,14 @@ function parseValue(note: PrivateNote): number {
     return isNaN(n) ? 0 : n;
 }
 
-function App() {
+function AppContent() {
     const debugMode = useDebugMode();
-    const [playerName, setPlayerName] = useState(() => localStorage.getItem("playerName") || "");
+    const { wallet, logout, getEthereumProvider } = useWallet();
+    const playerName = wallet?.username ?? "";
+
     const { notes: storedNotes } = useStoredNotes(playerName);
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-    const [nameInput, setNameInput] = useState(() => localStorage.getItem("playerName") || "");
     const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
     const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
     const [addressCopied, setAddressCopied] = useState(false);
@@ -90,45 +93,135 @@ function App() {
         [storedNotes],
     );
 
+    // Derive zkSecretKey/utxoAddress only from the connected Ethereum wallet.
+    // The seed is cached in localStorage so the signing prompt only appears once per browser.
     useEffect(() => {
-        if (!playerName) {
-            localStorage.removeItem("playerName");
-            return;
-        }
-        localStorage.setItem("playerName", playerName);
-    }, [playerName]);
-
-    useEffect(() => {
-        if (!playerName) {
+        if (!wallet?.sessionKey) {
             setPlayerKeys(null);
             return;
         }
 
+        const sk = wallet.sessionKey;
         let cancelled = false;
-        deriveFullIdentity(playerName)
-            .then((identity) => {
-                if (!cancelled) setPlayerKeys(identity);
+        let retryTimeout: number | undefined;
+
+        const ZK_SEED_CACHE_PREFIX = "cachecash:zk-seed:";
+        const ETH_ACCOUNT_CACHE_PREFIX = "cachecash:eth-account:";
+
+        const getEthAccountCacheKey = () => {
+            const providerUuid = wallet.ethereumProviderUuid ?? "default";
+            return `${ETH_ACCOUNT_CACHE_PREFIX}${wallet.username}:${providerUuid}`;
+        };
+
+        const getSeedCacheKey = (ethAddress: string) => {
+            return ZK_SEED_CACHE_PREFIX + SHA256(ethAddress.toLowerCase()).toString();
+        };
+
+        const deriveZkFromEthSignature = async (account: string): Promise<{ zkSecretKey: string; utxoAddress: string }> => {
+            const ethAddress = account.toLowerCase();
+            const cacheKey = getSeedCacheKey(ethAddress);
+            const provider = getEthereumProvider();
+
+            if (!provider) {
+                throw new Error("ethereum provider unavailable");
+            }
+
+            let seed = localStorage.getItem(cacheKey);
+            if (!seed) {
+                const message =
+                    `CacheCash identity seed v1\n\nAccount: ${ethAddress}\n\n` +
+                    `This signature derives your private CacheCash identity key. ` +
+                    `It will never be broadcast to any network.`;
+                const signature = await (provider!.request({
+                    method: "personal_sign",
+                    params: [message, account],
+                }) as Promise<string>);
+                seed = SHA256(signature).toString();
+                localStorage.setItem(cacheKey, seed);
+            }
+
+            const zkSecretKey = await deriveZkSecretKey(seed);
+            const utxoAddress = await deriveUtxoAddress(zkSecretKey);
+            return { zkSecretKey, utxoAddress };
+        };
+
+        const deriveZkFromCachedSeed = async (account: string): Promise<{ zkSecretKey: string; utxoAddress: string }> => {
+            const ethAddress = account.toLowerCase();
+            const seed = localStorage.getItem(getSeedCacheKey(ethAddress));
+
+            if (!seed) {
+                throw new Error("cached ethereum seed unavailable");
+            }
+
+            const zkSecretKey = await deriveZkSecretKey(seed);
+            const utxoAddress = await deriveUtxoAddress(zkSecretKey);
+            return { zkSecretKey, utxoAddress };
+        };
+
+        const resolveIdentity = async () => {
+            const provider = getEthereumProvider();
+
+            if (!provider) {
+                const cachedAccount = localStorage.getItem(getEthAccountCacheKey());
+                if (cachedAccount) {
+                    try {
+                        const { zkSecretKey, utxoAddress } = await deriveZkFromCachedSeed(cachedAccount);
+                        if (cancelled) return;
+
+                        const identity: FullIdentity = {
+                            privateKey: sk.privateKey,
+                            publicKey: sk.publicKey,
+                            zkSecretKey,
+                            utxoAddress,
+                        };
+                        setPlayerKeys(identity);
+                        return;
+                    } catch {
+                        // Fall through and retry once the provider becomes available.
+                    }
+                }
+
+                retryTimeout = window.setTimeout(() => {
+                    if (!cancelled) {
+                        void resolveIdentity();
+                    }
+                }, 500);
+                return;
+            }
+
+            try {
+                const [account] = (await provider.request({ method: "eth_accounts" })) as string[];
+                if (!account) throw new Error("no eth account");
+                localStorage.setItem(getEthAccountCacheKey(), account.toLowerCase());
+
+                const { zkSecretKey, utxoAddress } = await deriveZkFromEthSignature(account);
+                if (cancelled) return;
+
+                const identity: FullIdentity = {
+                    privateKey: sk.privateKey,
+                    publicKey: sk.publicKey,
+                    zkSecretKey,
+                    utxoAddress,
+                };
+                setPlayerKeys(identity);
                 addressService
-                    .register(playerName, identity.utxoAddress, identity.publicKey)
+                    .register(wallet.username, utxoAddress, sk.publicKey)
                     .catch((error) => console.warn("Address registration failed:", error));
-            })
-            .catch((error) => {
-                console.error("Failed to derive full identity", error);
+            } catch (error) {
+                console.error("Failed to derive identity", error);
                 if (!cancelled) setPlayerKeys(null);
-            });
+            }
+        };
+
+        void resolveIdentity();
 
         return () => {
             cancelled = true;
+            if (retryTimeout !== undefined) {
+                window.clearTimeout(retryTimeout);
+            }
         };
-    }, [playerName]);
-
-    useEffect(() => {
-        if (!playerName) {
-            setNameInput("");
-        } else {
-            setNameInput(playerName);
-        }
-    }, [playerName]);
+    }, [getEthereumProvider, wallet?.sessionKey?.publicKey, wallet?.username, wallet?.ethereumProviderUuid]);
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -139,26 +232,9 @@ function App() {
         setTheme((t) => (t === "dark" ? "light" : "dark"));
     }, []);
 
-    const handleNameChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-        setNameInput(event.target.value);
-    }, []);
-
-    const handleNameSubmit = useCallback(
-        (event: FormEvent<HTMLFormElement>) => {
-            event.preventDefault();
-            const trimmed = nameInput.trim();
-            if (!trimmed) {
-                setPlayerName("");
-                return;
-            }
-            setPlayerName(trimmed);
-        },
-        [nameInput, setPlayerName],
-    );
-
     const handleLogout = useCallback(() => {
-        setPlayerName("");
-    }, [setPlayerName]);
+        logout();
+    }, [logout]);
 
     const handleOpenManageModal = useCallback(() => {
         if (!playerName) return;
@@ -221,7 +297,7 @@ function App() {
             />
             <maintenance-widget nodeUrl={getNodeBaseUrl()} />
 
-            {!playerName && (
+            {!wallet && (
                 <div className="login-screen">
                     <div className="login-card">
                         <div className="login-card-top">
@@ -264,25 +340,14 @@ function App() {
 
                         <div className="login-divider" />
 
-                        <form className="login-form" onSubmit={handleNameSubmit}>
-                            <input
-                                type="text"
-                                className="form-input"
-                                value={nameInput}
-                                onChange={handleNameChange}
-                                placeholder="Enter your username"
-                                maxLength={32}
-                                required
-                            />
-                            <button type="submit" className="btn btn-primary">
-                                Connect
-                            </button>
-                        </form>
+                        <div className="login-form">
+                            <HyliWallet providers={["ethereum"]} />
+                        </div>
                     </div>
                 </div>
             )}
 
-            {playerName && (
+            {wallet && (
                 <div className="wallet">
                     <header className="wallet-header">
                         <div className="wallet-logo">Cache Cash</div>
@@ -422,6 +487,25 @@ function App() {
                 <DebugNotesPanel notes={storedNotes} onClear={() => {}} />
             )}
         </div>
+    );
+}
+
+function App() {
+    return (
+        <WalletProvider
+            config={{
+                nodeBaseUrl: getNodeBaseUrl(),
+                walletServerBaseUrl: getWalletServerBaseUrl(),
+                applicationWsUrl: getApplicationWsUrl(),
+                indexerBaseUrl: getIndexerBaseUrl(),
+            }}
+            sessionKeyConfig={{
+                duration: 24 * 60 * 60 * 1000, // 24 hours
+            }}
+            forceSessionKey={true}
+        >
+            <AppContent />
+        </WalletProvider>
     );
 }
 

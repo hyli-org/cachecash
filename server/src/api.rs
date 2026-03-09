@@ -731,17 +731,11 @@ fn validate_utxo_address(address: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_encryption_pubkey(pubkey: &str) -> Result<(), ApiError> {
+fn normalize_encryption_pubkey(pubkey: &str) -> Result<String, ApiError> {
     let normalized = pubkey.strip_prefix("0x").unwrap_or(pubkey);
 
     if normalized.is_empty() {
         return Err(ApiError::bad_request("encryption_pubkey must not be empty"));
-    }
-
-    if normalized.len() != 64 {
-        return Err(ApiError::bad_request(
-            "encryption_pubkey must be 64 hex characters (32 bytes)",
-        ));
     }
 
     if hex::decode(normalized).is_err() {
@@ -750,7 +744,18 @@ fn validate_encryption_pubkey(pubkey: &str) -> Result<(), ApiError> {
         ));
     }
 
-    Ok(())
+    let lowered = normalized.to_lowercase();
+
+    match lowered.len() {
+        64 => Ok(lowered),
+        66 if lowered.starts_with("02") || lowered.starts_with("03") => {
+            Ok(lowered[2..].to_string())
+        }
+        130 if lowered.starts_with("04") => Ok(lowered[2..66].to_string()),
+        _ => Err(ApiError::bad_request(
+            "encryption_pubkey must be 64 hex chars, or a valid compressed/uncompressed secp256k1 public key",
+        )),
+    }
 }
 
 async fn register_address(
@@ -759,18 +764,12 @@ async fn register_address(
 ) -> Result<Json<RegisterAddressResponse>, ApiError> {
     validate_username(&request.username)?;
     validate_utxo_address(&request.utxo_address)?;
-    validate_encryption_pubkey(&request.encryption_pubkey)?;
+    let encryption_pubkey = normalize_encryption_pubkey(&request.encryption_pubkey)?;
 
     let utxo_address = request
         .utxo_address
         .strip_prefix("0x")
         .unwrap_or(&request.utxo_address)
-        .to_lowercase();
-
-    let encryption_pubkey = request
-        .encryption_pubkey
-        .strip_prefix("0x")
-        .unwrap_or(&request.encryption_pubkey)
         .to_lowercase();
 
     let previous = state.address_registry.register(
@@ -853,5 +852,53 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = Json(json!({ "error": self.message }));
         (self.status, body).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_encryption_pubkey;
+
+    #[test]
+    fn normalizes_x_coordinate_pubkey() {
+        let pubkey = "22b8805cd80e3a297591eb9c43c0ba07fe1165bfed5ace81602d7a9f97d2a830";
+        assert_eq!(normalize_encryption_pubkey(pubkey).unwrap(), pubkey);
+    }
+
+    #[test]
+    fn normalizes_compressed_pubkey() {
+        let compressed = "0322b8805cd80e3a297591eb9c43c0ba07fe1165bfed5ace81602d7a9f97d2a830";
+        assert_eq!(
+            normalize_encryption_pubkey(compressed).unwrap(),
+            "22b8805cd80e3a297591eb9c43c0ba07fe1165bfed5ace81602d7a9f97d2a830"
+        );
+    }
+
+    #[test]
+    fn normalizes_uncompressed_pubkey() {
+        let uncompressed = concat!(
+            "04",
+            "22b8805cd80e3a297591eb9c43c0ba07fe1165bfed5ace81602d7a9f97d2a830",
+            "5f0f0f2f3f4f5f6f7f8f9fafbfcfdfeff00112233445566778899aabbccddeeff"
+        );
+        assert_eq!(
+            normalize_encryption_pubkey(uncompressed).unwrap(),
+            "22b8805cd80e3a297591eb9c43c0ba07fe1165bfed5ace81602d7a9f97d2a830"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_compressed_prefix() {
+        let err = normalize_encryption_pubkey(
+            "0522b8805cd80e3a297591eb9c43c0ba07fe1165bfed5ace81602d7a9f97d2a830",
+        )
+        .unwrap_err();
+        assert!(err.message.contains("compressed/uncompressed"));
+    }
+
+    #[test]
+    fn rejects_invalid_hex() {
+        let err = normalize_encryption_pubkey("zz").unwrap_err();
+        assert_eq!(err.message, "encryption_pubkey must be valid hexadecimal");
     }
 }
