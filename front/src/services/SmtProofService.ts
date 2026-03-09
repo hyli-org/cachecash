@@ -22,8 +22,8 @@ class SmtProofService {
         blobCount: number; // 3
         inputNotes: [PrivateNote, PrivateNote]; // private: used to compute commitments for SMT lookup
         secretKeys: [string, string]; // private: used to compute nullifiers
-        siblings0: number[][]; // 256 x 32
-        siblings1: number[][]; // 256 x 32
+        siblings0: string[]; // 256 "0x..." hex field elements
+        siblings1: string[]; // 256 "0x..." hex field elements
     }): Promise<{ proof: string; publicInputs: string[] }> {
         const circuit = await this.loadCircuit();
         const backend = new UltraHonkBackend((circuit as any).bytecode);
@@ -64,7 +64,6 @@ class SmtProofService {
                 siblings_1: params.siblings1,
             };
 
-            console.log("Generating SMT inclusion proof with inputs:", inputs);
             const { witness } = await noir.execute(inputs);
             console.log("Witness generated successfully, now generating proof...");
             const { proof, publicInputs } = await backend.generateProof(witness);

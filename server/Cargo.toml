@@ -22,6 +22,7 @@ barretenberg = { workspace = true }
 zk-primitives = { workspace = true }
 hash = { workspace = true }
 element = { workspace = true }
+acvm = { workspace = true }
 
 # others
 anyhow = "1.0.93"

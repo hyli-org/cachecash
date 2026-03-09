@@ -23,11 +23,12 @@ impl sparse_merkle_tree::traits::Hasher for Poseidon2Hasher {
     }
 
     fn write_h256(&mut self, h: &H256) {
-        let bytes = h.as_slice();
-        let lo = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
-        let hi = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
-        self.buffer.push(FieldElement::from(lo));
-        self.buffer.push(FieldElement::from(hi));
+        let le = h.as_slice();
+        let mut be = [0u8; 32];
+        for i in 0..32 {
+            be[31 - i] = le[i];
+        }
+        self.buffer.push(FieldElement::from_be_bytes_reduce(&be));
     }
 
     fn finish(self) -> H256 {
@@ -269,20 +270,30 @@ impl BorshSerialize for SMT<BorshableH256> {
     }
 }
 
+/// Convert an H256 (LE bytes) to a native FieldElement (LE→BE→field).
+pub fn h256_to_field(h: &H256) -> FieldElement {
+    let le = h.as_slice();
+    let mut be = [0u8; 32];
+    for i in 0..32 {
+        be[31 - i] = le[i];
+    }
+    FieldElement::from_be_bytes_reduce(&be)
+}
+
 /// Build the flat 256-entry siblings array that the Noir circuit expects.
-/// Entry h is the hash of the sibling MergeValue at height h, or [0u8;32]
-/// if that level has no sibling (all-zero path).
-pub fn build_siblings(tree: &SMT<BorshableH256>, commitment: BorshableH256) -> [[u8; 32]; 256] {
+/// Each entry is the FieldElement representation of the sibling hash at that height,
+/// or FieldElement::zero() if that level has no sibling.
+pub fn build_siblings(tree: &SMT<BorshableH256>, commitment: BorshableH256) -> [FieldElement; 256] {
     let proof = tree.merkle_proof(std::iter::once(&commitment)).unwrap();
     let leaves_bitmap = proof.leaves_bitmap();
     let merkle_path = proof.merkle_path();
 
-    let mut siblings = [[0u8; 32]; 256];
+    let mut siblings = [FieldElement::zero(); 256];
     let mut path_idx = 0usize;
     for h in 0u32..256 {
         if leaves_bitmap[0].get_bit(h as u8) {
-            let hash: [u8; 32] = merkle_path[path_idx].hash::<Poseidon2Hasher>().into();
-            siblings[h as usize] = hash;
+            let hash: H256 = merkle_path[path_idx].hash::<Poseidon2Hasher>();
+            siblings[h as usize] = h256_to_field(&hash);
             path_idx += 1;
         }
     }
@@ -319,43 +330,71 @@ pub mod smt_fixture {
     pub use super::build_siblings;
 
     /// Print a Prover.toml for hyli_smt_incl_proof to stdout.
-    /// commitment_0 is the real note; commitment_1 is the zero padding note.
-    pub fn print_prover_toml(commitment_bytes: [u8; 32]) {
-        let commitment = BorshableH256::from(commitment_bytes);
+    /// Uses the new circuit format: blob has [nullifier0, nullifier1, notes_root],
+    /// and input_notes provides note fields + secret key for commitment/nullifier computation.
+    pub fn print_prover_toml() {
+        // Known note fields (Field elements as BE hex)
+        let kind     = FieldElement::from(1u128);  // non-zero = real note
+        let value    = FieldElement::from(100u128);
+        let psi      = FieldElement::from(42u128);
+        let secret_key = FieldElement::from(7u128);
+        let address  = bn254_blackbox_solver::poseidon_hash(&[secret_key, FieldElement::zero()]).unwrap();
+
+        // Commitment = poseidon2([0x2, kind, value, address, psi, 0, 0])
+        let commitment = bn254_blackbox_solver::poseidon_hash(&[
+            FieldElement::from(2u128), kind, value, address, psi,
+            FieldElement::zero(), FieldElement::zero(),
+        ]).unwrap();
+
+        // Nullifier = poseidon2([psi, secret_key])
+        let nullifier = bn254_blackbox_solver::poseidon_hash(&[psi, secret_key]).unwrap();
+
+        // Padding nullifier = poseidon2([0, 0])
+        let padding_nullifier = bn254_blackbox_solver::poseidon_hash(&[
+            FieldElement::zero(), FieldElement::zero(),
+        ]).unwrap();
+
+        // Store commitment as BE bytes in SMT (matching how app.rs stores them)
+        let commitment_be: [u8; 32] = commitment.to_be_bytes().try_into().unwrap();
+        let commitment_h256 = BorshableH256::from(commitment_be);
 
         let mut tree = SMT::<BorshableH256>::zero();
-        tree.update_leaf(commitment, commitment).unwrap();
+        tree.update_leaf(commitment_h256, commitment_h256).unwrap();
         let root: [u8; 32] = tree.root().into();
 
-        let siblings_0 = build_siblings(&tree, commitment);
-        let siblings_1 = [[0u8; 32]; 256]; // padding note — all-zero siblings
+        let siblings_0 = build_siblings(&tree, commitment_h256);
+        let siblings_1 = [FieldElement::zero(); 256];
 
-        // Build blob: [commitment_0 (32)] [commitment_1=0 (32)] [notes_root (32)]
+        // Build blob: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
+        let nullifier_be: [u8; 32] = nullifier.to_be_bytes().try_into().unwrap();
+        let padding_null_be: [u8; 32] = padding_nullifier.to_be_bytes().try_into().unwrap();
+
         let mut blob = [0u8; 96];
-        blob[..32].copy_from_slice(&commitment_bytes);
-        // blob[32..64] stays zero (padding commitment)
+        blob[..32].copy_from_slice(&nullifier_be);
+        blob[32..64].copy_from_slice(&padding_null_be);
         blob[64..].copy_from_slice(&root);
 
         // --- helpers ---
-        fn fmt_bytes32(b: &[u8; 32]) -> String {
-            let s: Vec<String> = b.iter().map(|x| x.to_string()).collect();
-            format!("[{}]", s.join(", "))
-        }
-        fn fmt_siblings(s: &[[u8; 32]; 256]) -> String {
-            let rows: Vec<String> = s.iter().map(fmt_bytes32).collect();
+        fn fmt_field_siblings(s: &[FieldElement; 256]) -> String {
+            let rows: Vec<String> = s
+                .iter()
+                .map(|f| format!("\"0x{}\"", hex::encode(f.to_be_bytes())))
+                .collect();
             format!("[{}]", rows.join(", "))
         }
         fn null_padded(s: &str, len: usize) -> String {
             let nulls: String = "\\u0000".repeat(len - s.len());
             format!("{}{}", s, nulls)
         }
+        fn field_hex(f: &FieldElement) -> String {
+            format!("\"0x{}\"", hex::encode(f.to_be_bytes()))
+        }
 
         let contract_name = "hyli_smt_incl_proof";
         let identity = "test@hyli_smt";
 
-        println!("# Auto-generated Prover.toml for hyli_smt_incl_proof");
-        println!("# commitment_0 = {}", hex::encode(commitment_bytes));
-        println!("# commitment_1 = 0000..00 (padding)");
+        println!("# Auto-generated Prover.toml for hyli_smt_incl_proof (new format)");
+        println!("# commitment_0 = {}", hex::encode(commitment_be));
         println!("# notes_root   = {}", hex::encode(root));
         println!();
         println!("version = 1");
@@ -387,13 +426,32 @@ pub mod smt_fixture {
         println!("tx_blob_count = 1");
         println!("success = true");
         println!();
-        println!("siblings_0 = {}", fmt_siblings(&siblings_0));
-        println!("siblings_1 = {}", fmt_siblings(&siblings_1));
+        // Siblings must come before [[input_notes]] array-of-tables in TOML
+        println!("siblings_0 = {}", fmt_field_siblings(&siblings_0));
+        println!("siblings_1 = {}", fmt_field_siblings(&siblings_1));
+        println!();
+        // Input note 0: real note
+        println!("[[input_notes]]");
+        println!("secret_key = {}", field_hex(&secret_key));
+        println!("[input_notes.note]");
+        println!("kind = {}", field_hex(&kind));
+        println!("value = {}", field_hex(&value));
+        println!("address = {}", field_hex(&address));
+        println!("psi = {}", field_hex(&psi));
+        println!();
+        // Input note 1: padding note
+        println!("[[input_notes]]");
+        println!("secret_key = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
+        println!("[input_notes.note]");
+        println!("kind = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
+        println!("value = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
+        println!("address = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
+        println!("psi = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
     }
 
     #[test]
     fn generate_smt_prover_toml() {
-        // commitment = [1u8; 32] — a simple non-zero value
-        print_prover_toml([1u8; 32]);
+        print_prover_toml();
     }
+
 }
