@@ -2,6 +2,22 @@ import { Noir } from "@noir-lang/noir_js";
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { PrivateNote } from "../types/note";
 
+function txHashToBytes32(txHash: string): number[] {
+    const normalized = txHash.startsWith("0x") ? txHash.slice(2) : txHash;
+    if (normalized.length !== 64) {
+        throw new Error(`tx_hash must be 64 hex chars, got ${normalized.length}`);
+    }
+    const bytes: number[] = [];
+    for (let i = 0; i < 64; i += 2) {
+        const byte = Number.parseInt(normalized.slice(i, i + 2), 16);
+        if (Number.isNaN(byte)) {
+            throw new Error("tx_hash contains non-hex characters");
+        }
+        bytes.push(byte);
+    }
+    return bytes;
+}
+
 class SmtProofService {
     // Cache only the circuit JSON; backend is created fresh for each proof
     // to avoid bb.js WASM singleton state corruption between sequential proofs.
@@ -37,25 +53,37 @@ class SmtProofService {
         });
 
         try {
+            const blob = Array.from(params.smtBlobBytes);
             const inputs = {
-                version: 1,
-                initial_state_len: 4,
-                initial_state: [0, 0, 0, 0],
-                next_state_len: 4,
-                next_state: [0, 0, 0, 0],
-                identity_len: params.identity.length,
-                identity: params.identity.padEnd(256, "\0"),
-                tx_hash: params.txHash,
-                index: 2,
-                blob_number: 1,
-                blob_index: 2,
-                blob_contract_name_len: params.contractName.length,
-                blob_contract_name: params.contractName.padEnd(256, "\0"),
-                blob_capacity: 96,
-                blob_len: 96,
-                blob: Array.from(params.smtBlobBytes),
-                tx_blob_count: params.blobCount,
-                success: true,
+                hyli_output: {
+                    version:             2,
+                    initial_state_len:   4,
+                    initial_state_max:   4,
+                    initial_state:       [0, 0, 0, 0],
+                    next_state_len:      4,
+                    next_state_max:      4,
+                    next_state:          [0, 0, 0, 0],
+                    identity_len:        params.identity.length,
+                    identity:            params.identity.padEnd(56, "\0"),
+                    index:               2,
+                    blob_count:          1,
+                    blob_slots:          1,
+                    blob_name_max:       256,
+                    blob_data_max:       96,
+                    blobs:               [{
+                        index:             2,
+                        contract_name_len: params.contractName.length,
+                        contract_name:     params.contractName.padEnd(256, "\0"),
+                        data_len:          blob.length,
+                        data:              blob,
+                    }],
+                    tx_blob_count:       params.blobCount,
+                    tx_hash:             txHashToBytes32(params.txHash),
+                    success:             true,
+                    program_outputs_max: 5,
+                    program_outputs_len: 0,
+                    program_outputs:     [0, 0, 0, 0, 0],
+                },
                 input_notes: [
                     { note: toCircuitNote(params.inputNotes[0]), secret_key: "0x" + params.secretKeys[0] },
                     { note: toCircuitNote(params.inputNotes[1]), secret_key: "0x" + params.secretKeys[1] },

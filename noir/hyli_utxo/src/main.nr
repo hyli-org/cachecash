@@ -1,30 +1,29 @@
-use common::{check_commitment, check_input_note_ownership, compute_nullifier, InputNote, Note};
+use common::{compute_nullifier, InputNote, Note};
+use hyli_noir_sdk::HyliOutput;
 use utxo_lib::utxo_main;
+
+global BLOB_SLOTS: u32 = 1;
+global INITIAL_STATE_MAX: u32 = 4;
+global NEXT_STATE_MAX: u32 = 4;
+global IDENTITY_MAX: u32 = 256;
+global BLOB_NAME_MAX: u32 = 256;
+global BLOB_DATA_MAX: u32 = 128;
+global PROGRAM_OUTPUT_MAX: u32 = 5;
 
 fn field_to_bytes(value: Field) -> [u8; 32] {
     value.to_be_bytes()
 }
 
 fn main(
-    // Hyli-required public plumbing
-    version: pub u32,
-    initial_state_len: pub u32,
-    initial_state: pub [u8; 4],
-    next_state_len: pub u32,
-    next_state: pub [u8; 4],
-    identity_len: pub u8,
-    identity: pub str<256>,
-    tx_hash: pub str<64>,
-    index: pub u32,
-    blob_number: pub u32,
-    blob_index: pub u32,
-    blob_contract_name_len: pub u8,
-    blob_contract_name: pub str<256>,
-    blob_capacity: pub u32,
-    blob_len: pub u32,
-    blob: pub [u8; 128],
-    tx_blob_count: pub u32,
-    success: pub bool,
+    hyli_output: pub HyliOutput<
+        INITIAL_STATE_MAX,
+        NEXT_STATE_MAX,
+        IDENTITY_MAX,
+        BLOB_SLOTS,
+        BLOB_NAME_MAX,
+        BLOB_DATA_MAX,
+        PROGRAM_OUTPUT_MAX,
+    >,
     // Wrapped UTXO inputs (mirrors noir/utxo)
     input_notes: [InputNote; 2],
     output_notes: [Note; 2],
@@ -35,30 +34,42 @@ fn main(
     // ---------------------------------------------------------------------
     // Hyli contract framing
     // ---------------------------------------------------------------------
-    assert(success, "contract execution must succeed");
-    assert(version == 1, "unsupported Hyli output version");
+    assert(hyli_output.success, "contract execution must succeed");
+    assert(hyli_output.version == 2, "unsupported Hyli output version");
 
-    assert(initial_state_len == 4, "initial_state must be 4 bytes");
-    assert(next_state_len == 4, "next_state must be 4 bytes");
+    assert(hyli_output.initial_state_len == 4, "initial_state must be 4 bytes");
+    assert(hyli_output.next_state_len == 4, "next_state must be 4 bytes");
+    assert(hyli_output.initial_state_max == INITIAL_STATE_MAX, "initial_state_max mismatch");
+    assert(hyli_output.next_state_max == NEXT_STATE_MAX, "next_state_max mismatch");
+    assert(hyli_output.identity_max == IDENTITY_MAX, "identity_max mismatch");
 
-    assert(blob_capacity == 128, "blob capacity must be 128 bytes");
-    assert(blob_len == 128, "blob length must be 128 bytes");
-    assert(blob_number == 1, "exactly one blob is expected");
-    assert(tx_blob_count >= blob_number, "transaction must provide enough blobs");
-    assert(blob_index == index, "blob index must align with invocation index");
+    assert(hyli_output.blob_slots == BLOB_SLOTS, "blob_slots mismatch");
+    assert(hyli_output.blob_name_max == BLOB_NAME_MAX, "blob_name_max mismatch");
+    assert(hyli_output.blob_data_max == BLOB_DATA_MAX, "blob_data_max mismatch");
+    assert(hyli_output.blob_count == 1, "exactly one blob is expected");
+    assert(
+        hyli_output.blob_count <= hyli_output.tx_blob_count,
+        "transaction must provide enough blobs",
+    );
+    assert(hyli_output.program_outputs_max == PROGRAM_OUTPUT_MAX, "program outputs max mismatch");
+    assert(
+        hyli_output.program_outputs_len <= hyli_output.program_outputs_max,
+        "program outputs len overflow",
+    );
 
-    // // Basic hygiene on the identity payload so the plumbing is exercised.
-    // let identity_bytes = identity.as_bytes();
-    // assert(identity_bytes.len() == identity_len as u32, "identity_len mismatch");
+    assert(hyli_output.identity_len <= 256, "identity length overflow");
 
-    // let tx_hash_bytes = tx_hash.as_bytes();
-    // assert(tx_hash_bytes.len() <= 64, "tx hash too long");
+    let blob_input = hyli_output.blobs[0];
+    assert(blob_input.contract_name_len == 9, "blob contract name must be 9 bytes");
+    assert(blob_input.index == hyli_output.index, "blob index must align with invocation index");
+    assert(blob_input.data_len == 128, "blob length must be 128 bytes");
 
-    assert(identity_len as u32 <= 256, "identity length overflow");
-    assert(blob_contract_name_len == 9, "blob contract name must be 9 bytes");
-
-    let _ = initial_state;
-    let _ = next_state;
+    let _ = hyli_output.initial_state;
+    let _ = hyli_output.next_state;
+    let _ = hyli_output.identity;
+    let _ = hyli_output.tx_hash;
+    let _ = blob_input.contract_name;
+    let _ = hyli_output.program_outputs;
 
     // ---------------------------------------------------------------------
     // Call through to the original UTXO circuit
@@ -75,7 +86,7 @@ fn main(
     }
 
     let expected_blob = build_blob_payload(commitments, nullifier_commitments);
-    assert(blob == expected_blob, "blob must match concatenated commitments");
+    assert(blob_input.data == expected_blob, "blob must match concatenated commitments");
 }
 
 fn build_blob_payload(commitments: [Field; 4], nullifier_commitments: [Field; 2]) -> [u8; 128] {

@@ -10,6 +10,7 @@ use client_sdk::{
 use hyli_modules::modules::{
     contract_listener::{ContractListener, ContractListenerConf},
     contract_state_indexer::{ContractStateIndexer, ContractStateIndexerCtx},
+    ModulesHandlerOptions,
 };
 use hyli_modules::{
     bus::SharedMessageBus,
@@ -126,7 +127,11 @@ async fn main() -> Result<()> {
     let data_directory = PathBuf::from(&config.data_directory);
 
     let shared_bus = SharedMessageBus::new();
-    let mut handler = match ModulesHandler::new(&shared_bus, data_directory.clone()) {
+    let mut handler = match ModulesHandler::new(
+        &shared_bus,
+        data_directory.clone(),
+        ModulesHandlerOptions::default(),
+    ) {
         Ok(h) => h,
         Err(e) => {
             error!("error: {:?}", e);
@@ -231,11 +236,13 @@ async fn main() -> Result<()> {
         .await?;
 
     handler
-        .build_module::<ContractStateIndexer<HyliUtxoStateExecutor, HyliUtxoStateEvent>>(ContractStateIndexerCtx {
-            data_directory: data_directory.clone(),
-            contract_name: ContractName(config.utxo_state_contract_name.clone()),
-            api: api_builder_ctx.clone(),
-        })
+        .build_module::<ContractStateIndexer<HyliUtxoStateExecutor, HyliUtxoStateEvent>>(
+            ContractStateIndexerCtx {
+                data_directory: data_directory.clone(),
+                contract_name: ContractName(config.utxo_state_contract_name.clone()),
+                api: api_builder_ctx.clone(),
+            },
+        )
         .await
         .context("building ContractStateIndexer for hyli-utxo-state")?;
 

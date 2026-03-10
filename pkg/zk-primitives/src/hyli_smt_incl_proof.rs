@@ -4,7 +4,7 @@ use element::{Base, Element};
 use serde::{Deserialize, Serialize};
 
 /// Number of public input fields emitted by the Hyli SMT inclusion proof circuit.
-pub const HYLI_SMT_INCL_PUBLIC_INPUTS_COUNT: usize = 692;
+pub const HYLI_SMT_INCL_PUBLIC_INPUTS_COUNT: usize = 691;
 
 /// Total length in bytes of the SMT inclusion proof blob.
 /// Layout: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]

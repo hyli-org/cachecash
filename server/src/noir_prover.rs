@@ -205,7 +205,7 @@ impl HyliUtxoNoirProver {
         let padded_contract_name = pad_right_with_null(contract_name, 256)?;
 
         Ok(HyliUtxo {
-            version: 1,
+            version: 2,
             initial_state: [0u8; 4],
             next_state: [0u8; 4],
             identity_len: identity_str.len() as u8,

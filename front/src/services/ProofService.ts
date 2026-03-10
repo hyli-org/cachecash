@@ -12,6 +12,22 @@ function noteToCircuit(note: PrivateNote) {
     };
 }
 
+function txHashToBytes32(txHash: string): number[] {
+    const normalized = txHash.startsWith("0x") ? txHash.slice(2) : txHash;
+    if (normalized.length !== 64) {
+        throw new Error(`tx_hash must be 64 hex chars, got ${normalized.length}`);
+    }
+    const bytes: number[] = [];
+    for (let i = 0; i < 64; i += 2) {
+        const byte = Number.parseInt(normalized.slice(i, i + 2), 16);
+        if (Number.isNaN(byte)) {
+            throw new Error("tx_hash contains non-hex characters");
+        }
+        bytes.push(byte);
+    }
+    return bytes;
+}
+
 class ProofService {
     // Cache only the circuit JSON; backend is created fresh for each proof
     // to avoid bb.js WASM singleton state corruption between sequential proofs.
@@ -37,26 +53,38 @@ class ProofService {
 
         try {
             const identity = blobData.identity; // "transfer@hyli_utxo" (18 chars)
+            const blob = Array.from(blobData.blob);
 
             const inputs = {
-                version:                1,
-                initial_state_len:      4,
-                initial_state:          [0, 0, 0, 0],
-                next_state_len:         4,
-                next_state:             [0, 0, 0, 0],
-                identity_len:           identity.length,
-                identity:               identity.padEnd(256, "\0"),
-                tx_hash:                blobData.txHash,
-                index:                  blobData.blobIndex,
-                blob_number:            1,
-                blob_index:             blobData.blobIndex,
-                blob_contract_name_len: blobData.contractName.length,
-                blob_contract_name:     blobData.contractName.padEnd(256, "\0"),
-                blob_capacity:          128,
-                blob_len:               128,
-                blob:                   Array.from(blobData.blob),
-                tx_blob_count:          blobData.blobCount,
-                success:                true,
+                hyli_output: {
+                    version:             2,
+                    initial_state_len:   4,
+                    initial_state_max:   4,
+                    initial_state:       [0, 0, 0, 0],
+                    next_state_len:      4,
+                    next_state_max:      4,
+                    next_state:          [0, 0, 0, 0],
+                    identity_len:        identity.length,
+                    identity:            identity.padEnd(56, "\0"),
+                    index:               blobData.blobIndex,
+                    blob_count:          1,
+                    blob_slots:          1,
+                    blob_name_max:       256,
+                    blob_data_max:       128,
+                    blobs:               [{
+                        index:             blobData.blobIndex,
+                        contract_name_len: blobData.contractName.length,
+                        contract_name:     blobData.contractName.padEnd(256, "\0"),
+                        data_len:          blob.length,
+                        data:              blob,
+                    }],
+                    tx_blob_count:       blobData.blobCount,
+                    tx_hash:             txHashToBytes32(blobData.txHash),
+                    success:             true,
+                    program_outputs_max: 5,
+                    program_outputs_len: 0,
+                    program_outputs:     [0, 0, 0, 0, 0],
+                },
                 input_notes: [
                     {
                         note:       noteToCircuit(inputNotes[0].note),
