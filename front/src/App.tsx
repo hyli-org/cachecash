@@ -10,6 +10,7 @@ import { DebugNotesPanel } from "./components/DebugNotesPanel";
 import { ManageNotesModal } from "./components/ManageNotesModal";
 import { TransferModal } from "./components/TransferModal";
 import { DepositModal } from "./components/DepositModal";
+import { WithdrawModal } from "./components/WithdrawModal";
 import { transferService, parseNoteValue } from "./services/TransferService";
 import { nodeService } from "./services/NodeService";
 import { addStoredNote } from "./services/noteStorage";
@@ -49,6 +50,7 @@ function AppContent() {
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+    const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
     const [playerKeys, setPlayerKeys] = useState<FullIdentity | null>(null);
     const [transactions, setTransactions] = useState<TransactionEntry[]>([]);
     const [addressCopied, setAddressCopied] = useState(false);
@@ -273,6 +275,15 @@ function AppContent() {
         setIsDepositModalOpen(false);
     }, []);
 
+    const handleOpenWithdrawModal = useCallback(() => {
+        if (!playerName) return;
+        setIsWithdrawModalOpen(true);
+    }, [playerName]);
+
+    const handleCloseWithdrawModal = useCallback(() => {
+        setIsWithdrawModalOpen(false);
+    }, []);
+
     const handleFaucet = useCallback(async () => {
         if (!playerKeys?.utxoAddress || !playerName || faucetStatus === "loading") return;
         setFaucetStatus("loading");
@@ -420,6 +431,14 @@ function AppContent() {
                                 </button>
                                 <button
                                     type="button"
+                                    className="btn btn-secondary"
+                                    onClick={handleOpenWithdrawModal}
+                                    disabled={faucetStatus === "loading" || !playerKeys}
+                                >
+                                    Withdraw
+                                </button>
+                                <button
+                                    type="button"
                                     className="btn btn-ghost"
                                     onClick={handleOpenManageModal}
                                 >
@@ -517,6 +536,15 @@ function AppContent() {
                     walletAddress={wallet?.address ?? ""}
                     identity={playerKeys}
                     onClose={handleCloseDepositModal}
+                />
+            )}
+            {isWithdrawModalOpen && (
+                <WithdrawModal
+                    playerName={playerName}
+                    walletAddress={wallet?.address ?? ""}
+                    identity={playerKeys}
+                    availableNotes={availableNotesForTransfer}
+                    onClose={handleCloseWithdrawModal}
                 />
             )}
             {debugMode && (

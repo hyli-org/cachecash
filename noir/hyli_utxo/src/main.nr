@@ -73,7 +73,7 @@ fn main(
         nullifier_commitments[i] = compute_nullifier(note.note.psi, note.secret_key);
     }
 
-    if hyli_output.tx_blob_count == 3 {
+    if (hyli_output.tx_blob_count == 3) | (hyli_output.tx_blob_count == 4) {
         let expected_blob = build_blob_payload(commitments, nullifier_commitments);
         assert(blob_input.data == expected_blob, "blob must match concatenated commitments");
     } else {

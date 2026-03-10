@@ -2,7 +2,7 @@ import { PrivateNote, StoredNote } from "../types/note";
 import { FullIdentity } from "./KeyService";
 import { poseidon2Service } from "./Poseidon2Service";
 import { encryptedNoteService } from "./EncryptedNoteService";
-import { nodeService } from "./NodeService";
+import { nodeService, TokenTransferRequest } from "./NodeService";
 import { proofService } from "./ProofService";
 import { smtProofService } from "./SmtProofService";
 import { markNotesPending, clearPendingNotes, getPendingNotePsis, setStoredNotes, getStoredNotes, addStoredNote } from "./noteStorage";
@@ -80,6 +80,23 @@ function toHex64(value: number): string {
 
 function normalizeHex64(value: string | undefined | null): string {
     return (value ?? "").replace(/^0x/i, "").toLowerCase().padStart(64, "0");
+}
+
+function encodeWalletAddressToField(value: string): string {
+    const normalized = value.trim();
+    if (!normalized) {
+        throw new Error("Wallet address must not be empty");
+    }
+
+    const bytes = new TextEncoder().encode(normalized);
+    if (bytes.length > 31) {
+        throw new Error("Wallet address is too long to encode in the withdraw proof");
+    }
+
+    return Array.from(bytes)
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("")
+        .padStart(64, "0");
 }
 
 function hexToBytes32(hexStr: string): Uint8Array {
@@ -362,6 +379,158 @@ class TransferService {
             }
 
             return { txHash, transferNote };
+        } catch (error) {
+            clearPendingNotes(playerName, spentPsis);
+            throw error;
+        }
+    }
+
+    async executeWithdraw(
+        walletAddress: string,
+        amount: number,
+        availableInputs: InputNoteData[],
+        senderIdentity: FullIdentity,
+        playerName: string,
+        onProgress?: (step: TransferStep) => void,
+    ): Promise<{ txHash: string; changeNote: PrivateNote | null }> {
+        const selection = this.selectNotesForTransfer(availableInputs, amount);
+        if (!selection) {
+            const total = availableInputs.reduce((sum, n) => sum + parseNoteValue(n.note), 0);
+            throw new Error(`Insufficient balance. You have ${total} but need ${amount}`);
+        }
+
+        const spentPsis = selection.selectedInputs.filter((n) => parseNoteValue(n.note) > 0).map((n) => n.note.psi);
+        markNotesPending(playerName, spentPsis);
+
+        try {
+            const contract = selection.selectedInputs[0].note.contract;
+            const burnAddress = encodeWalletAddressToField(walletAddress);
+            const changeNote =
+                selection.changeAmount > 0
+                    ? this.createOutputNote(senderIdentity.utxoAddress, selection.changeAmount, contract)
+                    : createPaddingNote();
+            const outputNotes: [PrivateNote, PrivateNote] = [createPaddingNote(), changeNote];
+
+            const [commit0, commit1] = await Promise.all([
+                computeCommitment(selection.selectedInputs[0].note),
+                computeCommitment(selection.selectedInputs[1].note),
+            ]);
+
+            const blobBytes = await this.buildRawBlobData(outputNotes, selection.selectedInputs);
+
+            onProgress?.("smt-witness");
+            const [contractName, utxoStateContractName, smtContractName] = await Promise.all([
+                fetchContractName(),
+                fetchUtxoStateContractName(),
+                fetchSmtContractName(),
+            ]);
+            const smtWitness = await nodeService.getSmtWitness(commit0, commit1, utxoStateContractName);
+
+            const smtBlobBytes = new Uint8Array(96);
+            smtBlobBytes.set(blobBytes.slice(64, 96), 0);
+            smtBlobBytes.set(blobBytes.slice(96, 128), 32);
+            smtBlobBytes.set(hexToBytes32(smtWitness.notes_root), 64);
+
+            const tokenTransfer: TokenTransferRequest = {
+                tokenContract: "oranj",
+                sender: utxoStateContractName,
+                recipient: walletAddress,
+                amount,
+            };
+
+            onProgress?.("creating-blob");
+            const { tx_hash: txHash } = await nodeService.hashBlob(
+                blobBytes,
+                smtBlobBytes,
+                outputNotes,
+                tokenTransfer,
+            );
+
+            const [commit2, commit3] = await Promise.all([
+                computeCommitment(outputNotes[0]),
+                computeCommitment(outputNotes[1]),
+            ]);
+            const commitments: [string, string, string, string] = [commit0, commit1, commit2, commit3];
+
+            const blobData: BlobData = {
+                blob: blobBytes,
+                contractName,
+                identity: `transfer@${contractName}`,
+                txHash,
+                blobCount: 4,
+                blobIndex: 1,
+            };
+
+            onProgress?.("proving-utxo");
+            const utxoResult = await proofService.generateProof(
+                selection.selectedInputs,
+                outputNotes,
+                blobData,
+                commitments,
+                3,
+                {
+                    pmessage4: "0x" + burnAddress,
+                    messages: [
+                        "0x3",
+                        "0x" + contract,
+                        "0x" + amount.toString(16),
+                        "0x" + commit0,
+                        "0x" + burnAddress,
+                    ],
+                },
+            );
+
+            onProgress?.("proving-smt");
+            const smtResult = await smtProofService.generateProof({
+                smtBlobBytes,
+                contractName: smtContractName,
+                identity: `transfer@${contractName}`,
+                txHash,
+                blobCount: 4,
+                inputNotes: selection.selectedInputs.map((n) => n.note) as [PrivateNote, PrivateNote],
+                secretKeys: selection.selectedInputs.map((n) => n.secretKey) as [string, string],
+                siblings0: smtWitness.siblings_0,
+                siblings1: smtWitness.siblings_1,
+            });
+
+            onProgress?.("submitting-proofs");
+            await nodeService.finalizeTransfer(
+                blobBytes,
+                smtBlobBytes,
+                outputNotes,
+                utxoResult.proof,
+                utxoResult.publicInputs,
+                smtResult.proof,
+                smtResult.publicInputs,
+                tokenTransfer,
+            );
+
+            const currentNotes = getStoredNotes(playerName);
+            const spentPsiSet = new Set(spentPsis);
+            let updatedNotes = currentNotes.filter((stored) => {
+                const note = stored.note as PrivateNote;
+                return !spentPsiSet.has(note?.psi ?? "");
+            });
+
+            if (selection.changeAmount > 0) {
+                updatedNotes = [
+                    {
+                        txHash: `change:${txHash}`,
+                        note: changeNote,
+                        storedAt: Date.now(),
+                        player: playerName,
+                    },
+                    ...updatedNotes,
+                ];
+            }
+
+            setStoredNotes(playerName, updatedNotes);
+            clearPendingNotes(playerName, spentPsis);
+
+            return {
+                txHash,
+                changeNote: selection.changeAmount > 0 ? changeNote : null,
+            };
         } catch (error) {
             clearPendingNotes(playerName, spentPsis);
             throw error;

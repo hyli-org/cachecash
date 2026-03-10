@@ -21,9 +21,10 @@ use hyli_utxo_state::{
 };
 use sdk::{
     caller::ExecutionContext,
-    utils::{as_hyli_output, parse_raw_calldata},
+    utils::as_hyli_output,
     BlobIndex, BlobTransaction, Calldata, Contract, ContractName, HyliOutput,
     RegisterContractAction, RunResult, StateCommitment, TxContext,
+    StructuredBlobData,
 };
 use std::sync::Arc;
 use tracing::info;
@@ -194,8 +195,16 @@ impl TxExecutorHandler for HyliUtxoStateExecutor {
     fn handle(&mut self, calldata: &Calldata) -> Result<HyliOutput> {
         let initial_commitment = self.get_state_commitment();
 
-        let Ok((_, execution_ctx)) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)
-            .map_err(|e| anyhow!("parsing calldata: {e}"))
+        let Some(state_blob) = calldata.blobs.get(&calldata.index) else {
+            return Err(anyhow!("state blob not found in calldata"));
+        };
+        let execution_ctx =
+            ExecutionContext::new(calldata.identity.clone(), state_blob.contract_name.clone());
+        let parsed_state_action: Result<StructuredBlobData<HyliUtxoStateAction>, _> =
+            state_blob.data.clone().try_into();
+
+        let Ok(_) =
+            parsed_state_action.map_err(|e| anyhow!("parsing structured state calldata: {e}"))
         else {
             let _blob0: RegisterContractAction = borsh::from_slice(
                 calldata

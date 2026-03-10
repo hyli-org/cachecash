@@ -4,11 +4,18 @@ use element::{Base, Element};
 use serde::{Deserialize, Serialize};
 
 /// Number of public input fields emitted by the Hyli SMT inclusion proof circuit.
-pub const HYLI_SMT_INCL_PUBLIC_INPUTS_COUNT: usize = 691;
+pub const HYLI_SMT_INCL_PUBLIC_INPUTS_COUNT: usize = 705;
 
-/// Total length in bytes of the SMT inclusion proof blob.
+/// Total length in bytes of the raw SMT inclusion proof payload.
 /// Layout: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
-pub const HYLI_SMT_INCL_BLOB_LENGTH_BYTES: usize = 96;
+pub const HYLI_SMT_INCL_PAYLOAD_LENGTH_BYTES: usize = 96;
+
+/// Total length in bytes of the structured SMT inclusion proof blob.
+/// Layout:
+/// - caller: Option<BlobIndex> = Some(BlobIndex(0)) => 1 + 8 bytes
+/// - callees: Option<Vec<BlobIndex>> = None => 1 byte
+/// - parameters: Vec<u8> => 4-byte length + 96-byte payload
+pub const HYLI_SMT_INCL_BLOB_LENGTH_BYTES: usize = 110;
 
 /// Hyli-specific metadata and witness values required to construct the SMT inclusion proof.
 #[derive(Debug, Clone)]
@@ -35,11 +42,11 @@ pub struct HyliSmtIncl {
     pub blob_contract_name_len: u8,
     /// Contract name attached to the blob (padded to 256 bytes).
     pub blob_contract_name: String,
-    /// Blob capacity advertised by the host (must be 96).
+    /// Blob capacity advertised by the host (must be 110).
     pub blob_capacity: u32,
-    /// Actual blob length (must be 96).
+    /// Actual blob length (must be 110).
     pub blob_len: u32,
-    /// 96-byte blob: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
+    /// 110-byte structured blob, containing the 96-byte SMT payload.
     pub blob: [u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES],
     /// Number of blobs included in the transaction.
     pub tx_blob_count: u32,

@@ -4,6 +4,7 @@ import { PrivateNote } from "../types/note";
 import { InputNoteData, BlobData } from "./TransferService";
 
 const HYLI_IDENTITY_MAX = 256;
+const ZERO_HEX_64 = "0x" + "0".repeat(64);
 
 function noteToCircuit(note: PrivateNote) {
     return {
@@ -47,7 +48,11 @@ class ProofService {
         outputNotes: [PrivateNote, PrivateNote],
         blobData:    BlobData,
         commitments: [string, string, string, string],
-        kind:        1 | 2 | 3
+        kind:        1 | 2 | 3,
+        options?: {
+            pmessage4?: string;
+            messages?: [string, string, string, string, string];
+        },
     ): Promise<{ proof: string; publicInputs: string[] }> {
         const circuit = await this.loadCircuit();
         const backend = new UltraHonkBackend((circuit as any).bytecode);
@@ -102,15 +107,9 @@ class ProofService {
                     noteToCircuit(outputNotes[0]),
                     noteToCircuit(outputNotes[1]),
                 ],
-                pmessage4:   "0x" + "0".repeat(64),
+                pmessage4:   options?.pmessage4 ?? ZERO_HEX_64,
                 commitments: commitments.map((h) => "0x" + h),
-                messages:    [
-                    "0x" + kind.toString(16),
-                    "0x0",
-                    "0x0",
-                    "0x0",
-                    "0x0",
-                ],
+                messages:    options?.messages ?? ["0x" + kind.toString(16), "0x0", "0x0", "0x0", "0x0"],
             };
 
             const { witness }             = await noir.execute(inputs);

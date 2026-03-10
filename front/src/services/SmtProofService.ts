@@ -3,6 +3,57 @@ import { UltraHonkBackend } from "@aztec/bb.js";
 import { PrivateNote } from "../types/note";
 
 const HYLI_IDENTITY_MAX = 256;
+const HYLI_SMT_INCL_PAYLOAD_LENGTH = 96;
+const HYLI_SMT_INCL_STRUCTURED_BLOB_LENGTH = 110;
+
+function encodeLeU64(value: number): number[] {
+    if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`u64 value must be a non-negative integer, got ${value}`);
+    }
+    const bytes = new Array<number>(8).fill(0);
+    let remaining = value;
+    for (let i = 0; i < 8; i++) {
+        bytes[i] = remaining & 0xff;
+        remaining = Math.floor(remaining / 256);
+    }
+    return bytes;
+}
+
+function encodeLeU32(value: number): number[] {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+        throw new Error(`u32 value out of range: ${value}`);
+    }
+    return [
+        value & 0xff,
+        (value >>> 8) & 0xff,
+        (value >>> 16) & 0xff,
+        (value >>> 24) & 0xff,
+    ];
+}
+
+function buildStructuredSmtBlob(payload: Uint8Array): number[] {
+    if (payload.length !== HYLI_SMT_INCL_PAYLOAD_LENGTH) {
+        throw new Error(
+            `SMT payload must be ${HYLI_SMT_INCL_PAYLOAD_LENGTH} bytes, got ${payload.length}`,
+        );
+    }
+
+    const blob = [
+        1, // caller = Some(...)
+        ...encodeLeU64(0), // BlobIndex(0)
+        0, // callees = None
+        ...encodeLeU32(payload.length),
+        ...Array.from(payload),
+    ];
+
+    if (blob.length !== HYLI_SMT_INCL_STRUCTURED_BLOB_LENGTH) {
+        throw new Error(
+            `Structured SMT blob must be ${HYLI_SMT_INCL_STRUCTURED_BLOB_LENGTH} bytes, got ${blob.length}`,
+        );
+    }
+
+    return blob;
+}
 
 function txHashToBytes32(txHash: string): number[] {
     const normalized = txHash.startsWith("0x") ? txHash.slice(2) : txHash;
@@ -55,7 +106,7 @@ class SmtProofService {
         });
 
         try {
-            const blob = Array.from(params.smtBlobBytes);
+            const blob = buildStructuredSmtBlob(params.smtBlobBytes);
             const inputs = {
                 hyli_output: {
                     version:             2,
@@ -72,7 +123,7 @@ class SmtProofService {
                     blob_count:          1,
                     blob_slots:          1,
                     blob_name_max:       256,
-                    blob_data_max:       96,
+                    blob_data_max:       HYLI_SMT_INCL_STRUCTURED_BLOB_LENGTH,
                     blobs:               [{
                         index:             2,
                         contract_name_len: params.contractName.length,

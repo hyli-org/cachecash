@@ -13,7 +13,7 @@ use crate::{
         EncryptedNoteRecord, FaucetRequest, FaucetResponse, FinalizeTransferRequest,
         FinalizeTransferResponse, GetNotesQuery, GetNotesResponse, RegisterAddressRequest,
         RegisterAddressResponse, ResolveAddressResponse, ServerConfigResponse, SubmitProofRequest,
-        TransferResponse, UploadNoteRequest, UploadNoteResponse,
+        TokenTransferRequest, TransferResponse, UploadNoteRequest, UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -30,10 +30,11 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::{BuildApiContextInner, Module},
 };
+use hyli_smt_token::SmtTokenAction;
 use hyli_utxo_state::state::HYLI_UTXO_STATE_ACTION;
 use sdk::{
-    Blob, BlobData, BlobTransaction, ContractName, Hashed, Identity, ProgramId, ProofData,
-    ProofTransaction, Verifier,
+    Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, Hashed, Identity,
+    ProgramId, ProofData, ProofTransaction, StructuredBlobData, Verifier,
 };
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
@@ -430,6 +431,24 @@ struct BuiltBlob {
     smt_hex: String,
 }
 
+fn withdraw_topology(
+    utxo_state_contract_name: &str,
+    token_transfer: Option<&TokenTransferRequest>,
+) -> (Vec<BlobIndex>, Option<BlobIndex>) {
+    let is_withdraw = token_transfer
+        .is_some_and(|token_transfer| token_transfer.sender == utxo_state_contract_name);
+
+    let mut state_callees = vec![BlobIndex(2)];
+    let token_caller = if is_withdraw {
+        state_callees.push(BlobIndex(3));
+        Some(BlobIndex(0))
+    } else {
+        None
+    };
+
+    (state_callees, token_caller)
+}
+
 fn build_blob_transaction(
     state: &RouterCtx,
     request: &CreateBlobRequest,
@@ -442,11 +461,20 @@ fn build_blob_transaction(
     let contract_name = state.utxo_contract_name.clone();
     let identity = Identity(format!("transfer@{}", contract_name));
     let hyli_utxo_data = BlobData(request.blob_data.clone());
-    let smt_blob_data = BlobData(request.smt_blob_data.clone());
-    let state_blob_data = BlobData(
-        borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
-            .map_err(|e| ApiError::internal(format!("serialization failed: {}", e)))?,
+    let (state_callees, token_caller) = withdraw_topology(
+        &state.utxo_state_contract_name,
+        request.token_transfer.as_ref(),
     );
+    let state_blob_data = BlobData::from(StructuredBlobData {
+        caller: None,
+        callees: Some(state_callees),
+        parameters: HYLI_UTXO_STATE_ACTION,
+    });
+    let smt_blob_data = BlobData::from(StructuredBlobData {
+        caller: Some(BlobIndex(0)),
+        callees: None,
+        parameters: request.smt_blob_data.clone(),
+    });
 
     let state_blob = Blob {
         contract_name: ContractName(state.utxo_state_contract_name.clone()),
@@ -461,10 +489,23 @@ fn build_blob_transaction(
         data: smt_blob_data.clone(),
     };
 
-    let transaction = BlobTransaction::new(
-        identity,
-        vec![state_blob, hyli_utxo_blob, smt_incl_proof_blob],
-    );
+    let mut blobs = vec![state_blob, hyli_utxo_blob, smt_incl_proof_blob];
+    if let Some(TokenTransferRequest {
+        token_contract,
+        sender,
+        recipient,
+        amount,
+    }) = &request.token_transfer
+    {
+        let token_action = SmtTokenAction::Transfer {
+            sender: sender.clone().into(),
+            recipient: recipient.clone().into(),
+            amount: *amount as u128,
+        };
+        blobs.push(token_action.as_blob(token_contract.clone().into(), token_caller, None));
+    }
+
+    let transaction = BlobTransaction::new(identity, blobs);
 
     Ok(BuiltBlob {
         transaction,
@@ -510,6 +551,7 @@ async fn finalize_transfer(
         blob_data,
         smt_blob_data,
         output_notes,
+        token_transfer,
         proof,
         public_inputs,
         smt_proof,
@@ -533,6 +575,7 @@ async fn finalize_transfer(
         blob_data,
         smt_blob_data,
         output_notes,
+        token_transfer,
     };
     let built = build_blob_transaction(&state, &blob_request)?;
     let tx_hash = built.transaction.hashed();
@@ -937,6 +980,10 @@ impl IntoResponse for ApiError {
 
 #[cfg(test)]
 mod tests {
+    use sdk::BlobIndex;
+
+    use crate::{api::withdraw_topology, types::TokenTransferRequest};
+
     use super::normalize_encryption_pubkey;
 
     #[test]
@@ -980,5 +1027,37 @@ mod tests {
     fn rejects_invalid_hex() {
         let err = normalize_encryption_pubkey("zz").unwrap_err();
         assert_eq!(err.message, "encryption_pubkey must be valid hexadecimal");
+    }
+
+    #[test]
+    fn withdraw_topology_adds_token_callee_and_state_caller() {
+        let token_transfer = TokenTransferRequest {
+            token_contract: "oranj".into(),
+            sender: "hyli-utxo-state".into(),
+            recipient: "0xwallet".into(),
+            amount: 42,
+        };
+
+        let (state_callees, token_caller) =
+            withdraw_topology("hyli-utxo-state", Some(&token_transfer));
+
+        assert_eq!(state_callees, vec![BlobIndex(2), BlobIndex(3)]);
+        assert_eq!(token_caller, Some(BlobIndex(0)));
+    }
+
+    #[test]
+    fn non_withdraw_topology_only_references_smt_blob() {
+        let token_transfer = TokenTransferRequest {
+            token_contract: "oranj".into(),
+            sender: "alice@wallet".into(),
+            recipient: "hyli-utxo-state".into(),
+            amount: 42,
+        };
+
+        let (state_callees, token_caller) =
+            withdraw_topology("hyli-utxo-state", Some(&token_transfer));
+
+        assert_eq!(state_callees, vec![BlobIndex(2)]);
+        assert_eq!(token_caller, None);
     }
 }

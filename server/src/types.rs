@@ -164,6 +164,9 @@ pub struct CreateBlobRequest {
     pub smt_blob_data: Vec<u8>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
+    /// Optional token transfer blob to include in the same transaction.
+    #[serde(default)]
+    pub token_transfer: Option<TokenTransferRequest>,
 }
 
 /// Response after creating a blob transaction
@@ -200,6 +203,9 @@ pub struct FinalizeTransferRequest {
     pub smt_blob_data: Vec<u8>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
+    /// Optional token transfer blob to include in the same transaction.
+    #[serde(default)]
+    pub token_transfer: Option<TokenTransferRequest>,
     /// Base64-encoded proof bytes for hyli_utxo
     pub proof: String,
     /// Public inputs as hex strings for hyli_utxo
@@ -254,6 +260,14 @@ pub struct DepositRequest {
     pub secp256k1_blob: Option<Vec<u8>>,
     #[serde(default)]
     pub wallet_blob: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TokenTransferRequest {
+    pub token_contract: String,
+    pub sender: String,
+    pub recipient: String,
+    pub amount: u64,
 }
 
 #[derive(Debug, Serialize)]

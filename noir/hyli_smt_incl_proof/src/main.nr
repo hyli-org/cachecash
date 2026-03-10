@@ -8,8 +8,14 @@ global INITIAL_STATE_MAX: u32 = 4;
 global NEXT_STATE_MAX: u32 = 4;
 global IDENTITY_MAX: u32 = 256;
 global BLOB_NAME_MAX: u32 = 256;
-global BLOB_DATA_MAX: u32 = 96;
+global BLOB_DATA_MAX: u32 = 110;
 global PROGRAM_OUTPUT_MAX: u32 = 5;
+global STRUCTURED_BLOB_LEN: u32 = 110;
+global SMT_PAYLOAD_LEN: u32 = 96;
+global STRUCTURED_CALLER_OFFSET: u32 = 1;
+global STRUCTURED_CALLEES_TAG_OFFSET: u32 = 9;
+global STRUCTURED_PARAMETERS_LEN_OFFSET: u32 = 10;
+global STRUCTURED_PARAMETERS_OFFSET: u32 = 14;
 
 // ---------------------------------------------------------------------------
 // SMT hash helpers (Poseidon2-based, ZK-native)
@@ -195,7 +201,7 @@ fn main(
     let blob_input = hyli_output.blobs[0];
     assert(blob_input.contract_name_len == 19, "blob contract name must be 19 bytes");
     assert(blob_input.index == hyli_output.index, "blob index must align with invocation index");
-    assert(blob_input.data_len == 96, "blob length must be 96 bytes");
+    assert(blob_input.data_len == STRUCTURED_BLOB_LEN, "blob length must be 110 bytes");
 
     let _ = hyli_output.initial_state;
     let _ = hyli_output.next_state;
@@ -205,16 +211,38 @@ fn main(
     let _ = hyli_output.program_outputs;
 
     // -------------------------------------------------------------------------
-    // Parse blob: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
+    // Parse structured blob:
+    // - caller = Some(BlobIndex(0))
+    // - callees = None
+    // - parameters = [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
     // -------------------------------------------------------------------------
+    assert(blob_input.data[0] == 1, "caller must be present");
+    for i in 0..8 {
+        assert(
+            blob_input.data[STRUCTURED_CALLER_OFFSET + i] == 0,
+            "caller blob index must be zero",
+        );
+    }
+    assert(blob_input.data[STRUCTURED_CALLEES_TAG_OFFSET] == 0, "callees must be absent");
+    assert(
+        blob_input.data[STRUCTURED_PARAMETERS_LEN_OFFSET] == SMT_PAYLOAD_LEN as u8,
+        "payload length prefix must be 96 bytes",
+    );
+    for i in 1..4 {
+        assert(
+            blob_input.data[STRUCTURED_PARAMETERS_LEN_OFFSET + i] == 0,
+            "payload length high bytes must be zero",
+        );
+    }
+
     let mut blob_nullifier_0: [u8; 32] = [0; 32];
     let mut blob_nullifier_1: [u8; 32] = [0; 32];
     let mut notes_root_bytes: [u8; 32] = [0; 32];
 
     for i in 0..32 {
-        blob_nullifier_0[i] = blob_input.data[i];
-        blob_nullifier_1[i] = blob_input.data[32 + i];
-        notes_root_bytes[i] = blob_input.data[64 + i];
+        blob_nullifier_0[i] = blob_input.data[STRUCTURED_PARAMETERS_OFFSET + i];
+        blob_nullifier_1[i] = blob_input.data[STRUCTURED_PARAMETERS_OFFSET + 32 + i];
+        notes_root_bytes[i] = blob_input.data[STRUCTURED_PARAMETERS_OFFSET + 64 + i];
     }
 
     // Convert notes_root to Field (LE interpretation of stored bytes)
