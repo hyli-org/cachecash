@@ -297,7 +297,7 @@ impl FaucetApp {
                 .unwrap_or_else(|| identity.0.clone());
             let token_action = SmtTokenAction::Transfer {
                 sender: sender.into(),
-                recipient: "bank@hyli-utxo-state".into(),
+                recipient: self.utxo_state_contract_name.clone().into(),
                 amount: amount as u128,
             };
             blobs.push(token_action.as_blob(token_contract.to_string().into(), None, None));
@@ -728,6 +728,51 @@ mod tests {
             let mut emitted = [0u8; 32];
             emitted.copy_from_slice(&blob_bytes[start..start + 32]);
             assert_eq!(commitment.to_be_bytes(), emitted);
+        }
+    }
+
+    #[tokio::test]
+    async fn deposit_token_transfer_targets_utxo_state_contract_directly() {
+        let bus = SharedMessageBus::new();
+        let context = FaucetAppContext {
+            client: NodeApiHttpClient::new("http://localhost:19999".to_string())
+                .expect("client init"),
+            utxo_contract_name: TEST_UTXO_CONTRACT_NAME.to_string(),
+            utxo_state_contract_name: TEST_UTXO_STATE_CONTRACT_NAME.to_string(),
+            incl_proof_contract_name: TEST_SMT_INCL_CONTRACT_NAME.to_string(),
+        };
+
+        let mut app = FaucetApp::build(bus, context)
+            .await
+            .expect("building faucet app");
+
+        let recipient_address = deterministic_address("deposit-recipient");
+        let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
+
+        let (blob_tx, _) = app
+            .build_transaction(&note, Some(("oranj", 42)), None, None, None)
+            .expect("build transaction");
+
+        let token_blob = blob_tx
+            .blobs
+            .iter()
+            .find(|blob| blob.contract_name.0 == "oranj")
+            .expect("token blob present");
+
+        let action: SmtTokenAction =
+            borsh::from_slice(&token_blob.data.0).expect("deserialize token action");
+
+        match action {
+            SmtTokenAction::Transfer {
+                sender,
+                recipient,
+                amount,
+            } => {
+                assert_eq!(sender.0, blob_tx.identity.0);
+                assert_eq!(recipient.0, TEST_UTXO_STATE_CONTRACT_NAME);
+                assert_eq!(amount, 42);
+            }
+            other => panic!("expected transfer action, got {other:?}"),
         }
     }
 

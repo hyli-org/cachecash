@@ -92,14 +92,14 @@ fn main(
         messages[2].assert_max_bit_size::<128>();
         assert(action.amount == (messages[2] as u128), "smt transfer amount must match message");
 
-        // 2) Recipient must be bank@hyli-utxo-state.
-        let expected_recipient: [u8; 20] = "bank@hyli-utxo-state".as_bytes();
+        // 2) Recipient must target the UTXO state contract directly.
+        let expected_recipient: [u8; 15] = "hyli-utxo-state".as_bytes();
         assert(action.variant == 0, "smt action must be Transfer");
-        assert(action.recipient.len == 20, "recipient length mismatch");
-        for i in 0..20 {
+        assert(action.recipient.len == 15, "recipient length mismatch");
+        for i in 0..15 {
             assert(
                 action.recipient.bytes[i] == expected_recipient[i],
-                "recipient must be bank@hyli-utxo-state",
+                "recipient must be hyli-utxo-state",
             );
         }
 
