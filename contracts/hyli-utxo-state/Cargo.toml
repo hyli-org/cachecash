@@ -1,12 +1,12 @@
 [package]
 name = "hyli-utxo-state"
 edition = { workspace = true }
-rust-version = "1.81"
+rust-version = "1.94"
 
 [[bin]]
 name = "hyli-utxo-state"
 path = "src/main.rs"
-required-features = ["sp1"]
+required-features = ["guest"]
 test = false
 
 [dependencies]
@@ -17,9 +17,12 @@ sparse-merkle-tree = { version = "0.6.1", default-features = false }
 acvm = { workspace = true }
 bn254_blackbox_solver = { workspace = true }
 
-sp1-zkvm = { workspace = true, default-features = false, optional = true }
+jolt-sdk = { workspace = true, features = ["guest-std"] }
+# jolt = { package = "jolt-sdk", git = "https://github.com/a16z/jolt", features = [
+#   "guest-std",
+# ] }
 
 [features]
 default = []
-sp1 = ["dep:sp1-zkvm", "sdk/sp1"]
+guest = []   # used by jolt provable macro & build script
 nobuild = []

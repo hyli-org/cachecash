@@ -1,17 +1,34 @@
 [workspace]
 resolver = "2"
-members = ["server", "contracts", "contracts/hyli-utxo-state"]
+members = [
+  "server",
+  "contracts",
+  "contracts/hyli-utxo-state",
+  "contracts/build-guest",
+  "pkg/barretenberg",
+  "pkg/constants",
+  "pkg/element",
+  "pkg/hash",
+  "pkg/primitives",
+  "pkg/utxo-mint-example",
+  "pkg/zk-primitives",
+]
+default-members = ["server"]
 
 [workspace.dependencies]
 # Hyli dependencies
-sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "main" }
-client-sdk = { git = "https://github.com/hyli-org/hyli.git", default-features = false, package = "hyli-client-sdk", branch = "main" }
-hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "main" }
-hyli-smt-token = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-smt-token", branch = "main" }
-hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "main" }
-hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
+sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "jolt" }
+client-sdk = { git = "https://github.com/hyli-org/hyli.git", default-features = false, package = "hyli-client-sdk", branch = "jolt" }
+hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "jolt" }
+hyli-smt-token = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-smt-token", branch = "jolt" }
+hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "jolt" }
+hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "jolt" }
 
-hyli-registry = "0.4.0"
+hyli-registry = "0.5.0"
+
+jolt-sdk = { git = "https://github.com/BertrandD/jolt", default-features = false, features = [
+  "host",
+] }
 
 # Local workspace packages
 barretenberg = { path = "./pkg/barretenberg" }
@@ -123,6 +140,12 @@ version = "0.4.1"
 edition = "2021"
 
 [patch.crates-io]
+ark-ff = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-ec = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+jolt-optimizations = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-serialize = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-bn254 = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+allocative = { git = "https://github.com/facebookexperimental/allocative", rev = "85b773d85d526d068ce94724ff7a7b81203fc95e" }
 
 [profile.dev]
 opt-level = 1

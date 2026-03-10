@@ -1,4 +1,10 @@
-use std::collections::VecDeque;
+use alloc::{
+    collections::VecDeque,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::mem;
 
 use acvm::FieldElement;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -56,7 +62,7 @@ impl HyliUtxoZkVmBatch {
         let mut merged = Vec::with_capacity(next.remaining.len() + 1 + self.remaining.len());
         merged.extend(next.remaining);
         merged.push(next.current);
-        merged.extend(std::mem::take(&mut self.remaining));
+        merged.extend(mem::take(&mut self.remaining));
         self.remaining = merged;
     }
 

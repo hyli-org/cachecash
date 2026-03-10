@@ -1,8 +1,13 @@
-use std::{io, marker::PhantomData};
+use alloc::{format, vec::Vec};
+use borsh::io::{self, Error, ErrorKind, Read, Write};
+use core::{fmt, hash, iter, marker::PhantomData, ops::Deref};
 
 use acvm::{AcirField, FieldElement};
 use borsh::{BorshDeserialize, BorshSerialize};
 use sparse_merkle_tree::{default_store::DefaultStore, traits::Value, SparseMerkleTree, H256};
+
+#[cfg(test)]
+use alloc::string::String;
 
 #[derive(Debug)]
 pub struct Poseidon2Hasher {
@@ -103,35 +108,35 @@ impl Value for WitnessLeaf {
     }
 }
 
-impl std::hash::Hash for BorshableH256 {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl hash::Hash for BorshableH256 {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
         let hash_value = u64::from_le_bytes(self.0.as_slice()[..8].try_into().unwrap());
         state.write_u64(hash_value);
     }
 }
 
-impl std::fmt::Debug for BorshableH256 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for BorshableH256 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BorshableH256({})", hex::encode(self.0.as_slice()))
     }
 }
 
 impl BorshSerialize for BorshableH256 {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         let bytes: [u8; 32] = self.0.into();
         writer.write_all(&bytes)
     }
 }
 
 impl BorshDeserialize for BorshableH256 {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 32];
         reader.read_exact(&mut bytes)?;
         Ok(BorshableH256(H256::from(bytes)))
     }
 }
 
-impl std::ops::Deref for BorshableH256 {
+impl Deref for BorshableH256 {
     type Target = H256;
 
     fn deref(&self) -> &Self::Target {
@@ -284,7 +289,7 @@ pub fn h256_to_field(h: &H256) -> FieldElement {
 /// Each entry is the FieldElement representation of the sibling hash at that height,
 /// or FieldElement::zero() if that level has no sibling.
 pub fn build_siblings(tree: &SMT<BorshableH256>, commitment: BorshableH256) -> [FieldElement; 256] {
-    let proof = tree.merkle_proof(std::iter::once(&commitment)).unwrap();
+    let proof = tree.merkle_proof(iter::once(&commitment)).unwrap();
     let leaves_bitmap = proof.leaves_bitmap();
     let merkle_path = proof.merkle_path();
 
@@ -301,7 +306,7 @@ pub fn build_siblings(tree: &SMT<BorshableH256>, commitment: BorshableH256) -> [
 }
 
 impl BorshDeserialize for SMT<BorshableH256> {
-    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
+    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
         let expected_root = BorshableH256::deserialize_reader(reader)?;
         let len: u32 = BorshDeserialize::deserialize_reader(reader)?;
         let mut tree = SMT::<BorshableH256>::zero();
@@ -312,8 +317,8 @@ impl BorshDeserialize for SMT<BorshableH256> {
                 .map_err(|e| io::Error::other(format!("rebuilding SMT: {e}")))?;
         }
         if tree.root() != expected_root {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
+            return Err(Error::new(
+                ErrorKind::InvalidData,
                 "SMT root mismatch during deserialization",
             ));
         }
