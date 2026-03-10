@@ -1,5 +1,5 @@
 {
-    "name": "blackjack-win95",
+    "name": "cachecash",
     "private": true,
     "version": "0.0.0",
     "type": "module",
@@ -17,7 +17,7 @@
         "crypto-js": "^4.2.0",
         "elliptic": "^6.6.1",
         "hyli-noir": "^0.4.1",
-        "hyli-wallet": "file:/home/maximilien/wallet/hyli-wallet",
+        "hyli-wallet": "0.5.23",
         "jszip": "^3.10.1",
         "react": "^19.1.0",
         "react-dom": "^19.1.0",

@@ -33,6 +33,10 @@ export function getDebugMode(): boolean {
     return flag === "true" || flag === "1";
 }
 
+export function getOranjIndexerUrl(): string {
+    return import.meta.env.VITE_ORANJ_STATE_INDEXER_URL || "http://localhost:4322";
+}
+
 export function getNodeBaseUrl(): string {
     const runtime = getRuntimeEnv();
     return isValidUrl(runtime.NODE_BASE_URL)

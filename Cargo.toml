@@ -7,6 +7,7 @@ members = ["server", "contracts", "contracts/hyli-utxo-state"]
 sdk = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-contract-sdk", branch = "main" }
 client-sdk = { git = "https://github.com/hyli-org/hyli.git", default-features = false, package = "hyli-client-sdk", branch = "main" }
 hyli-modules = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-modules", branch = "main" }
+hyli-smt-token = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-smt-token", branch = "main" }
 hyli-turmoil-shims = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-turmoil-shims", branch = "main" }
 hyli-verifiers = { git = "https://github.com/hyli-org/hyli.git", package = "hyli-verifiers", branch = "main" }
 

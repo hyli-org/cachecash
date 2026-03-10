@@ -9,12 +9,10 @@ use hyli_modules::{
     module_bus_client, module_handle_messages,
     modules::{contract_state_indexer::CSIBusEvent, Module},
 };
-use hyli_utxo_state::{
-    state::HYLI_UTXO_STATE_ACTION,
-    zk::BorshableH256,
-};
+use hyli_smt_token::SmtTokenAction;
+use hyli_utxo_state::{state::HYLI_UTXO_STATE_ACTION, zk::BorshableH256};
 use sdk::{
-    Blob, BlobData, BlobTransaction, ContractName, Identity, ProgramId, ProofData,
+    Blob, BlobData, BlobTransaction, ContractAction, ContractName, Identity, ProgramId, ProofData,
     ProofTransaction, TxHash, Verifier,
 };
 use tracing::{info, warn};
@@ -38,6 +36,19 @@ pub struct FaucetMintCommand {
 }
 
 impl BusMessage for FaucetMintCommand {}
+
+#[derive(Clone, Debug)]
+pub struct FaucetDepositCommand {
+    pub recipient_pubkey: Vec<u8>,
+    pub amount: u64,
+    pub note: Note,
+    pub token_contract: String,
+    pub wallet_account: Option<String>,
+    pub secp256k1_blob: Option<Vec<u8>>,
+    pub wallet_blob: Option<Vec<u8>>,
+}
+
+impl BusMessage for FaucetDepositCommand {}
 
 #[derive(Clone, Debug)]
 pub struct TransferCommand {
@@ -72,6 +83,7 @@ pub struct FaucetBusClient {
     sender(HyliUtxoProofJob),
     sender(SmtInclProofJob),
     receiver(FaucetMintCommand),
+    receiver(FaucetDepositCommand),
     receiver(TransferCommand),
     receiver(TransferWithProofCommand),
     receiver(CSIBusEvent<HyliUtxoStateEvent>),
@@ -121,6 +133,9 @@ impl Module for FaucetApp {
             listen<FaucetMintCommand> cmd => {
                 self.process_request(cmd).await?;
             }
+            listen<FaucetDepositCommand> cmd => {
+                self.process_deposit_request(cmd).await?;
+            }
             listen<TransferCommand> cmd => {
                 self.process_transfer_request(cmd).await?;
             }
@@ -139,7 +154,8 @@ impl Module for FaucetApp {
 
 impl FaucetApp {
     async fn process_request(&mut self, request: FaucetMintCommand) -> Result<()> {
-        let (blob_transaction, utxo) = self.build_transaction(&request.note)?;
+        let (blob_transaction, utxo) =
+            self.build_transaction(&request.note, None, None, None, None)?;
 
         let tx_hash = self
             .client
@@ -160,7 +176,42 @@ impl FaucetApp {
         Ok(())
     }
 
-    fn build_transaction(&mut self, note: &Note) -> Result<(BlobTransaction, Utxo)> {
+    async fn process_deposit_request(&mut self, request: FaucetDepositCommand) -> Result<()> {
+        let (blob_transaction, utxo) = self.build_transaction(
+            &request.note,
+            Some((&request.token_contract, request.amount)),
+            request.wallet_account.as_deref(),
+            request.secp256k1_blob.as_deref(),
+            request.wallet_blob.as_deref(),
+        )?;
+
+        let tx_hash = self
+            .client
+            .send_tx_blob(blob_transaction.clone())
+            .await
+            .context("dispatching blob transaction")?;
+
+        info!(%tx_hash, "Submitted hyli_utxo deposit transaction");
+
+        if let Err(err) = self.enqueue_proof_job(&blob_transaction, &tx_hash, utxo) {
+            warn!(error = %err, "failed to enqueue Noir proof job");
+        }
+
+        if let Err(err) = self.enqueue_smt_incl_proof_job(&blob_transaction, &tx_hash) {
+            warn!(error = %err, "failed to enqueue SMT incl proof job");
+        }
+
+        Ok(())
+    }
+
+    fn build_transaction(
+        &mut self,
+        note: &Note,
+        token_deposit: Option<(&str, u64)>,
+        wallet_account: Option<&str>,
+        secp256k1_blob: Option<&[u8]>,
+        wallet_blob: Option<&[u8]>,
+    ) -> Result<(BlobTransaction, Utxo)> {
         let utxo = Utxo::new_mint([note.clone(), Note::padding_note()]);
 
         let leaf_elements = utxo.leaf_elements();
@@ -206,7 +257,9 @@ impl FaucetApp {
         incl_proof_bytes[64..96].copy_from_slice(&self.notes_root.to_be_bytes());
 
         let contract_name = self.utxo_contract_name.clone();
-        let identity = Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name));
+        let identity = wallet_account
+            .map(|a| Identity(format!("{}@wallet", a)))
+            .unwrap_or_else(|| Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name)));
         let hyli_utxo_data = BlobData(blob_bytes);
         let hyli_smt_incl_data = BlobData(incl_proof_bytes);
         let state_blob_data = BlobData(
@@ -225,10 +278,32 @@ impl FaucetApp {
             contract_name: ContractName(self.utxo_state_contract_name.clone()),
             data: state_blob_data,
         };
-        let blob_transaction = BlobTransaction::new(
-            identity,
-            vec![state_blob, hyli_utxo_blob, hyli_smt_incl_blob],
-        );
+        let mut blobs = vec![state_blob, hyli_utxo_blob, hyli_smt_incl_blob];
+        if let Some(data) = secp256k1_blob {
+            blobs.push(Blob {
+                contract_name: ContractName("secp256k1".to_string()),
+                data: BlobData(data.to_vec()),
+            });
+        }
+        if let Some(data) = wallet_blob {
+            blobs.push(Blob {
+                contract_name: ContractName("wallet".to_string()),
+                data: BlobData(data.to_vec()),
+            });
+        }
+        if let Some((token_contract, amount)) = token_deposit {
+            let sender = wallet_account
+                .map(|a| format!("{}@wallet", a))
+                .unwrap_or_else(|| identity.0.clone());
+            let token_action = SmtTokenAction::Transfer {
+                sender: sender.into(),
+                recipient: "bank@hyli-utxo-state".into(),
+                amount: amount as u128,
+            };
+            blobs.push(token_action.as_blob(token_contract.to_string().into(), None, None));
+        }
+
+        let blob_transaction = BlobTransaction::new(identity, blobs);
 
         Ok((blob_transaction, utxo))
     }
@@ -485,7 +560,10 @@ mod tests {
         module_bus_client,
         modules::prover::{AutoProver, AutoProverCtx},
     };
-    use hyli_utxo_state::{state::{parse_hyli_utxo_blob, HyliUtxoState}, zk::BorshableH256};
+    use hyli_utxo_state::{
+        state::{parse_hyli_utxo_blob, HyliUtxoState},
+        zk::BorshableH256,
+    };
     use sdk::hyli_model_utils::TimestampMs;
 
     module_bus_client! {
@@ -500,9 +578,8 @@ mod tests {
     use sdk::{
         AggregateSignature, Blob, BlobIndex, BlobTransaction, BlockHeight, BlockStakingData,
         Calldata, ConsensusProposal, ConsensusProposalHash, Contract, ContractName,
-        DataProposalHash, NodeStateBlock, ProgramId, StatefulEvent, StatefulEvents,
-        TimeoutWindow, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
-        HYLI_TESTNET_CHAIN_ID,
+        DataProposalHash, NodeStateBlock, ProgramId, StatefulEvent, StatefulEvents, TimeoutWindow,
+        TxContext, TxHash, TxId, ValidatorPublicKey, Verifier, HYLI_TESTNET_CHAIN_ID,
     };
     use sdk::{Hashed, LaneId, SignedBlock};
     use sha3::{Digest, Sha3_256};
@@ -608,7 +685,9 @@ mod tests {
 
         let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
 
-        let (blob_tx, utxo) = app.build_transaction(&note).expect("build transaction");
+        let (blob_tx, utxo) = app
+            .build_transaction(&note, None, None, None, None)
+            .expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);
 
@@ -670,7 +749,9 @@ mod tests {
         let recipient_address = deterministic_address("state-order-test");
         let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
 
-        let (blob_tx, utxo) = app.build_transaction(&note).expect("build transaction");
+        let (blob_tx, utxo) = app
+            .build_transaction(&note, None, None, None, None)
+            .expect("build transaction");
 
         let recipient_note = &utxo.output_notes[0];
 
@@ -710,8 +791,6 @@ mod tests {
 
         assert_eq!(actual_nullifiers, expected_nullifiers);
 
-        // Ensure executor accepts the state blob without duplicate errors.
-        let mut executor = HyliUtxoStateExecutor::new(get_config());
         let calldata = Calldata {
             tx_hash: TxHash("test".into()),
             identity: blob_tx.identity.clone(),
@@ -722,6 +801,8 @@ mod tests {
             private_input: Vec::new(),
         };
 
+        // Ensure executor accepts the state blob without duplicate errors.
+        let mut executor = HyliUtxoStateExecutor::new(get_config());
         let metadata = executor
             .build_commitment_metadata(&calldata)
             .expect("build commitment metadata");
@@ -764,7 +845,9 @@ mod tests {
         let recipient_address = deterministic_address("noir-proof-test");
         let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
 
-        let (blob_tx, utxo) = app.build_transaction(&note).expect("build transaction");
+        let (blob_tx, utxo) = app
+            .build_transaction(&note, None, None, None, None)
+            .expect("build transaction");
 
         let (blob_index, payload) = find_hyli_blob(&blob_tx.blobs);
 
@@ -852,7 +935,9 @@ mod tests {
             .expect("build faucet app");
         let recipient_address = deterministic_address("autoprover-test");
         let note = build_note(recipient_address, FAUCET_MINT_AMOUNT);
-        let (blob_tx, _) = faucet.build_transaction(&note).expect("build transaction");
+        let (blob_tx, _) = faucet
+            .build_transaction(&note, None, None, None, None)
+            .expect("build transaction");
         api_client.set_block_height(BlockHeight(0));
         let block = build_node_state_block(blob_tx.clone(), contract.clone(), 0);
         let has_state_blob = block
@@ -897,7 +982,9 @@ mod tests {
 
         // 2. Send BackfillComplete to exit catching_up mode
         test_bus
-            .send(ContractListenerEvent::BackfillComplete(contract_name.clone()))
+            .send(ContractListenerEvent::BackfillComplete(
+                contract_name.clone(),
+            ))
             .expect("send backfill complete");
 
         sleep(Duration::from_millis(50)).await;
@@ -908,7 +995,9 @@ mod tests {
             .events
             .iter()
             .find_map(|(tx_id, event)| match event {
-                StatefulEvent::SequencedTx(tx, ctx) => Some((tx_id.clone(), tx.clone(), ctx.clone())),
+                StatefulEvent::SequencedTx(tx, ctx) => {
+                    Some((tx_id.clone(), tx.clone(), ctx.clone()))
+                }
                 _ => None,
             })
             .expect("sequenced tx in block");

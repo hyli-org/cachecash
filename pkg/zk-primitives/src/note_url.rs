@@ -100,9 +100,10 @@ impl NoteURLPayload {
 
         // Encode psi if version is 0
         if let Some(psi) = &self.psi
-            && self.version == 0 {
-                bytes.extend_from_slice(&psi.to_be_bytes());
-            }
+            && self.version == 0
+        {
+            bytes.extend_from_slice(&psi.to_be_bytes());
+        }
 
         // Encode value with leading zeros
         let value_bytes = self.value.to_be_bytes();

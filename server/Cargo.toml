@@ -16,6 +16,7 @@ utoipa = { version = "5.4.0", features = ["axum_extras"] }
 utoipa-axum = { version = "0.2.0" }
 sdk = { workspace = true, features = ["tracing", "full-model"] }
 hyli-turmoil-shims = { workspace = true }
+hyli-smt-token = { workspace = true, features = ["client"] }
 
 # pkg/
 barretenberg = { workspace = true }

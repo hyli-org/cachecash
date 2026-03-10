@@ -124,7 +124,6 @@ impl HyliUtxoStateExecutor {
         self.apply_commitments(&nullified, &created)?;
         Ok((created, nullified))
     }
-
 }
 
 impl TxExecutorHandler for HyliUtxoStateExecutor {
@@ -307,8 +306,14 @@ async fn get_smt_witness(
 
     Ok(Json(SmtWitnessResponse {
         notes_root: hex::encode(notes_root.as_ref()),
-        siblings_0: s0.iter().map(|f| format!("0x{}", hex::encode(f.to_be_bytes()))).collect(),
-        siblings_1: s1.iter().map(|f| format!("0x{}", hex::encode(f.to_be_bytes()))).collect(),
+        siblings_0: s0
+            .iter()
+            .map(|f| format!("0x{}", hex::encode(f.to_be_bytes())))
+            .collect(),
+        siblings_1: s1
+            .iter()
+            .map(|f| format!("0x{}", hex::encode(f.to_be_bytes())))
+            .collect(),
     }))
 }
 

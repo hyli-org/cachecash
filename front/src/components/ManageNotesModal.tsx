@@ -131,12 +131,22 @@ export function ManageNotesModal({ playerName, notes, identity, onClose }: Manag
 
     const spendableCount = useMemo(() => {
         if (!identity) return 0;
-        return transferService.getSpendableNotes(notes, identity.zkSecretKey, playerName).length;
+        return transferService.getSpendableNotes(
+            notes,
+            identity.zkSecretKey,
+            identity.utxoAddress,
+            playerName,
+        ).length;
     }, [notes, identity, playerName]);
 
     const handleConsolidate = useCallback(async () => {
         if (!identity || isConsolidating) return;
-        const inputs = transferService.getSpendableNotes(notes, identity.zkSecretKey, playerName);
+        const inputs = transferService.getSpendableNotes(
+            notes,
+            identity.zkSecretKey,
+            identity.utxoAddress,
+            playerName,
+        );
         if (inputs.length < 2) return;
 
         setConsolidateError(null);

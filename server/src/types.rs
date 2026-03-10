@@ -241,6 +241,21 @@ pub struct FaucetRequest {
     pub amount: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DepositRequest {
+    pub pubkey_hex: String,
+    #[serde(default)]
+    pub amount: Option<u64>,
+    #[serde(default)]
+    pub token_contract: Option<String>,
+    #[serde(default)]
+    pub wallet_account: Option<String>,
+    #[serde(default)]
+    pub secp256k1_blob: Option<Vec<u8>>,
+    #[serde(default)]
+    pub wallet_blob: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct FaucetResponse {
     pub note: Note,

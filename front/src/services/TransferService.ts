@@ -78,8 +78,12 @@ function toHex64(value: number): string {
     return value.toString(16).padStart(64, "0");
 }
 
+function normalizeHex64(value: string | undefined | null): string {
+    return (value ?? "").replace(/^0x/i, "").toLowerCase().padStart(64, "0");
+}
+
 function hexToBytes32(hexStr: string): Uint8Array {
-    const normalized = hexStr.replace(/^0x/i, "").padStart(64, "0");
+    const normalized = normalizeHex64(hexStr);
     const bytes = new Uint8Array(32);
     for (let i = 0; i < 32; i++) {
         bytes[i] = parseInt(normalized.slice(i * 2, i * 2 + 2), 16);
@@ -446,6 +450,7 @@ class TransferService {
             currentInputs = this.getSpendableNotes(
                 getStoredNotes(playerName),
                 senderIdentity.zkSecretKey,
+                senderIdentity.utxoAddress,
                 playerName,
             );
         }
@@ -489,6 +494,7 @@ class TransferService {
             currentInputs = this.getSpendableNotes(
                 getStoredNotes(playerName),
                 senderIdentity.zkSecretKey,
+                senderIdentity.utxoAddress,
                 playerName,
             );
         }
@@ -499,8 +505,14 @@ class TransferService {
     /**
      * Get all spendable input notes for a player (excluding pending and zero-value)
      */
-    getSpendableNotes(storedNotes: StoredNote[], zkSecretKey: string, playerName: string): InputNoteData[] {
+    getSpendableNotes(
+        storedNotes: StoredNote[],
+        zkSecretKey: string,
+        ownerUtxoAddress: string,
+        playerName: string,
+    ): InputNoteData[] {
         const pendingPsis = getPendingNotePsis(playerName);
+        const normalizedOwnerAddress = normalizeHex64(ownerUtxoAddress);
 
         return storedNotes
             .filter((stored) => {
@@ -510,6 +522,9 @@ class TransferService {
                 // Exclude pending notes by psi
                 const psi = note?.psi;
                 if (psi && pendingPsis.has(psi)) return false;
+                // Exclude notes owned by a different identity; otherwise the proof fails
+                // when we bind the current zkSecretKey to someone else's note.
+                if (normalizeHex64(note?.address) !== normalizedOwnerAddress) return false;
                 return true;
             })
             .map((stored) => {
