@@ -1,6 +1,8 @@
 interface RuntimeEnv {
     SERVER_BASE_URL?: string;
     NODE_BASE_URL?: string;
+    WALLET_SERVER_BASE_URL?: string;
+    INDEXER_BASE_URL?: string;
     DEBUG_MODE?: string;
 }
 
@@ -36,6 +38,24 @@ export function getNodeBaseUrl(): string {
     return isValidUrl(runtime.NODE_BASE_URL)
         ? runtime.NODE_BASE_URL!
         : import.meta.env.VITE_NODE_BASE_URL || "http://localhost:4321";
+}
+
+export function getWalletServerBaseUrl(): string {
+    const runtime = getRuntimeEnv();
+    return isValidUrl(runtime.WALLET_SERVER_BASE_URL)
+        ? runtime.WALLET_SERVER_BASE_URL!
+        : import.meta.env.VITE_WALLET_SERVER_BASE_URL || "http://localhost:4000";
+}
+
+export function getApplicationWsUrl(): string {
+    return import.meta.env.VITE_APPLICATION_WS_URL || "ws://localhost:4000";
+}
+
+export function getIndexerBaseUrl(): string {
+    const runtime = getRuntimeEnv();
+    return isValidUrl(runtime.INDEXER_BASE_URL)
+        ? runtime.INDEXER_BASE_URL!
+        : import.meta.env.VITE_INDEXER_BASE_URL || getNodeBaseUrl();
 }
 
 interface ServerConfig {

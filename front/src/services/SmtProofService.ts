@@ -2,6 +2,8 @@ import { Noir } from "@noir-lang/noir_js";
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { PrivateNote } from "../types/note";
 
+const HYLI_IDENTITY_MAX = 256;
+
 function txHashToBytes32(txHash: string): number[] {
     const normalized = txHash.startsWith("0x") ? txHash.slice(2) : txHash;
     if (normalized.length !== 64) {
@@ -64,7 +66,8 @@ class SmtProofService {
                     next_state_max:      4,
                     next_state:          [0, 0, 0, 0],
                     identity_len:        params.identity.length,
-                    identity:            params.identity.padEnd(56, "\0"),
+                    identity_max:        HYLI_IDENTITY_MAX,
+                    identity:            params.identity.padEnd(HYLI_IDENTITY_MAX, "\0"),
                     index:               2,
                     blob_count:          1,
                     blob_slots:          1,

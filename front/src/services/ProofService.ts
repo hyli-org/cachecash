@@ -3,6 +3,8 @@ import { UltraHonkBackend } from "@aztec/bb.js";
 import { PrivateNote } from "../types/note";
 import { InputNoteData, BlobData } from "./TransferService";
 
+const HYLI_IDENTITY_MAX = 256;
+
 function noteToCircuit(note: PrivateNote) {
     return {
         kind:    "0x" + note.contract,
@@ -65,7 +67,8 @@ class ProofService {
                     next_state_max:      4,
                     next_state:          [0, 0, 0, 0],
                     identity_len:        identity.length,
-                    identity:            identity.padEnd(56, "\0"),
+                    identity_max:        HYLI_IDENTITY_MAX,
+                    identity:            identity.padEnd(HYLI_IDENTITY_MAX, "\0"),
                     index:               blobData.blobIndex,
                     blob_count:          1,
                     blob_slots:          1,

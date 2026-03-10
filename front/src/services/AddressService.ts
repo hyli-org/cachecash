@@ -7,6 +7,24 @@ interface ResolveAddressResponse {
     registered_at: number;
 }
 
+function normalizeEncryptionPubkey(encryptionPubkey: string): string {
+    const normalized = encryptionPubkey.replace(/^0x/i, "").toLowerCase();
+
+    if (normalized.length === 64) {
+        return normalized;
+    }
+
+    if (normalized.length === 66 && (normalized.startsWith("02") || normalized.startsWith("03"))) {
+        return normalized.slice(2);
+    }
+
+    if (normalized.length === 130 && normalized.startsWith("04")) {
+        return normalized.slice(2, 66);
+    }
+
+    return normalized;
+}
+
 class AddressService {
     private buildUrl(path: string): string {
         const base = getServerBaseUrl().replace(/\/$/, "");
@@ -20,7 +38,7 @@ class AddressService {
             body: JSON.stringify({
                 username,
                 utxo_address: utxoAddress,
-                encryption_pubkey: encryptionPubkey,
+                encryption_pubkey: normalizeEncryptionPubkey(encryptionPubkey),
             }),
         });
 
