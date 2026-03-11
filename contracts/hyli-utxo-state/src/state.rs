@@ -4,8 +4,8 @@ use acvm::FieldElement;
 use borsh::{BorshDeserialize, BorshSerialize};
 use hex;
 use sdk::{
-    merkle_utils::BorshableMerkleProof, utils::parse_raw_calldata, Calldata, ContractName,
-    RunResult, StateCommitment,
+    caller::ExecutionContext, merkle_utils::BorshableMerkleProof, utils::parse_calldata, Calldata,
+    ContractName, RunResult, StateCommitment, StructuredBlobData,
 };
 use sparse_merkle_tree::H256;
 
@@ -20,6 +20,7 @@ const MAX_ROOTS: usize = 1000;
 pub struct ContractConfig {
     pub utxo_contract_name: ContractName,
     pub smt_incl_proof_contract_name: ContractName,
+    pub smt_contract_name: ContractName,
 }
 
 #[derive(Debug, Default, BorshSerialize, BorshDeserialize)]
@@ -273,7 +274,19 @@ impl HyliUtxoZkVmState {
         }
     }
 
-    fn check_noir_blobs(&self, calldata: &Calldata) -> Result<(), String> {
+    fn parse_smt_incl_blob_payload(blob: &sdk::Blob) -> Result<Vec<u8>, String> {
+        let structured: StructuredBlobData<Vec<u8>> =
+            blob.data.clone().try_into().map_err(|_| {
+                "failed to parse hyli_smt_incl_proof blob as structured blob".to_string()
+            })?;
+        Ok(structured.parameters)
+    }
+
+    fn check_noir_blobs(
+        &self,
+        calldata: &Calldata,
+        ctx: &mut ExecutionContext,
+    ) -> Result<(), String> {
         let Some((_, hyli_utxo_blob)) = calldata
             .blobs
             .iter()
@@ -282,23 +295,27 @@ impl HyliUtxoZkVmState {
             return Err("hyli_utxo_noir blob not provided in calldata".to_string());
         };
 
-        let Some((_, smt_blob)) = calldata
-            .blobs
+        let Some(smt_incl_blob_index) = ctx
+            .callees_blobs
             .iter()
-            .find(|(_, blob)| blob.contract_name == self.config.smt_incl_proof_contract_name)
+            .position(|blob| blob.contract_name == self.config.smt_incl_proof_contract_name)
         else {
-            return Err("hyli_smt_incl_proof_noir blob not provided in calldata".to_string());
+            return Err(
+                "hyli_smt_incl_proof_noir callee blob not provided in calldata".to_string(),
+            );
         };
+        let smt_incl_blob = ctx.callees_blobs.remove(smt_incl_blob_index);
 
-        // Step 1: Check that the smt_blob's notes root matches the computed notes root from the witness.
+        // Step 1: Check that the smt_incl_blob's notes root matches the computed notes root from the witness.
+        let smt_blob_payload = Self::parse_smt_incl_blob_payload(&smt_incl_blob)?;
         let (smt_nullifier0, smt_nullifier1, smt_blob_notes_root) =
-            parse_hyli_smt_incl_blob(&smt_blob.data.0)?;
+            parse_hyli_smt_incl_blob(&smt_blob_payload)?;
 
         if !self.roots.contains(smt_blob_notes_root) {
             return Err("smt inclusion proof blob does not match notes root".to_string());
         }
 
-        // Step 2: Check that the nullifiers in the smt blob match those in the utxo blob.
+        // Step 2: Check that the nullifiers in the smt_incl_blob match those in the utxo blob.
         let (_, utxo_nullifiers) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)?;
 
         if utxo_nullifiers[0] != smt_nullifier0 {
@@ -314,13 +331,35 @@ impl HyliUtxoZkVmState {
             );
         }
 
+        // Optional step 3: Check that the blob callee topology matches the expected topology for a withdraw transaction:
+        let withdraw_callees = ctx
+            .callees_blobs
+            .iter()
+            .enumerate()
+            .filter(|(_, blob)| blob.contract_name == self.config.smt_contract_name)
+            .collect::<Vec<_>>();
+
+        if withdraw_callees.len() > 1 {
+            return Err("multiple withdraw callees found for hyli-utxo-state blob".to_string());
+        }
+        if let Some((token_blob_index, _)) = withdraw_callees.first() {
+            ctx.callees_blobs.remove(*token_blob_index);
+        }
+        if !ctx.callees_blobs.is_empty() {
+            return Err(format!(
+                "hyli-utxo-state callee set mismatch: unexpected remaining callees {:?}",
+                ctx.callees_blobs
+            ));
+        }
+
         Ok(())
     }
 
     fn apply_action(&mut self, calldata: &Calldata) -> Result<(), String> {
-        let hyli_utxo_blob = calldata
+        let (_, hyli_utxo_blob) = calldata
             .blobs
-            .get(&sdk::BlobIndex(1))
+            .iter()
+            .find(|(_, blob)| blob.contract_name == self.config.utxo_contract_name)
             .ok_or_else(|| "hyli_utxo blob not found in calldata".to_string())?;
 
         let (created, nullified) = parse_hyli_utxo_blob(&hyli_utxo_blob.data.0)
@@ -368,12 +407,12 @@ impl HyliUtxoZkVmState {
 
 impl sdk::ZkContract for HyliUtxoZkVmState {
     fn execute(&mut self, calldata: &Calldata) -> RunResult {
-        let (_, ctx) = parse_raw_calldata::<HyliUtxoStateAction>(calldata)?;
+        let (_, mut ctx) = parse_calldata::<HyliUtxoStateAction>(calldata)?;
 
         self.created_notes.ensure_all_zero()?;
         self.nullified_notes.ensure_all_zero()?;
 
-        self.check_noir_blobs(calldata)?;
+        self.check_noir_blobs(calldata, &mut ctx)?;
 
         self.apply_action(calldata)?;
 
@@ -484,11 +523,13 @@ pub fn parse_hyli_smt_incl_blob(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdk::{Blob, BlobData, BlobIndex, ContractName, StructuredBlobData, TxHash};
 
     fn state_with_root(byte: u8) -> HyliUtxoZkVmState {
         let mut state = HyliUtxoZkVmState::new(ContractConfig {
             utxo_contract_name: "dummy_utxo".into(),
             smt_incl_proof_contract_name: "dummy_smt_incl".into(),
+            smt_contract_name: "oranj".into(),
         });
         let root = BorshableH256::from([byte; 32]);
         state.created_notes.proof = Proof::CurrentRootHash(root);
@@ -527,5 +568,105 @@ mod tests {
         let _ = <HyliUtxoZkVmBatch as sdk::TransactionalZkContract>::on_success(&mut batch);
         assert_root(&batch, 3);
         assert_eq!(batch.remaining.len(), 0);
+    }
+
+    fn make_state_blob(callees: Vec<BlobIndex>) -> Blob {
+        Blob {
+            contract_name: ContractName("hyli-utxo-state".into()),
+            data: BlobData::from(StructuredBlobData {
+                caller: None,
+                callees: Some(callees),
+                parameters: HYLI_UTXO_STATE_ACTION,
+            }),
+        }
+    }
+
+    fn make_utxo_blob(nullifier_byte: u8) -> Blob {
+        let mut bytes = vec![0u8; 128];
+        bytes[64..96].copy_from_slice(&[nullifier_byte; 32]);
+        bytes[96..128].copy_from_slice(&[nullifier_byte.wrapping_add(1); 32]);
+        Blob {
+            contract_name: ContractName("dummy_utxo".into()),
+            data: BlobData(bytes),
+        }
+    }
+
+    fn make_smt_blob(root_byte: u8, nullifier_byte: u8) -> Blob {
+        let mut bytes = vec![0u8; 96];
+        bytes[0..32].copy_from_slice(&[nullifier_byte; 32]);
+        bytes[32..64].copy_from_slice(&[nullifier_byte.wrapping_add(1); 32]);
+        bytes[64..96].copy_from_slice(&[root_byte; 32]);
+        Blob {
+            contract_name: ContractName("dummy_smt_incl".into()),
+            data: BlobData::from(StructuredBlobData {
+                caller: Some(BlobIndex(0)),
+                callees: None,
+                parameters: bytes,
+            }),
+        }
+    }
+
+    fn make_token_blob(caller: Option<BlobIndex>) -> Blob {
+        Blob {
+            contract_name: ContractName("oranj".into()),
+            data: BlobData::from(StructuredBlobData {
+                caller,
+                callees: None,
+                parameters: vec![1u8, 2, 3],
+            }),
+        }
+    }
+
+    #[test]
+    fn check_noir_blobs_accepts_withdraw_topology() {
+        let mut state = state_with_root(7);
+        state.roots[0] = [7u8; 8];
+
+        let calldata = sdk::Calldata {
+            tx_hash: TxHash(vec![0u8; 32]),
+            identity: "alice".into(),
+            blobs: vec![
+                make_state_blob(vec![BlobIndex(2), BlobIndex(3)]),
+                make_utxo_blob(9),
+                make_smt_blob(7, 9),
+                make_token_blob(Some(BlobIndex(0))),
+            ]
+            .into(),
+            tx_blob_count: 4,
+            index: BlobIndex(0),
+            tx_ctx: None,
+            private_input: Vec::new(),
+        };
+        let (_, mut ctx) =
+            parse_calldata::<HyliUtxoStateAction>(&calldata).expect("parse state calldata");
+
+        state
+            .check_noir_blobs(&calldata, &mut ctx)
+            .expect("withdraw topology should be accepted");
+    }
+
+    #[test]
+    fn check_noir_blobs_rejects_missing_withdraw_token_callee() {
+        let mut state = state_with_root(7);
+        state.roots[0] = [7u8; 8];
+
+        let calldata = sdk::Calldata {
+            tx_hash: TxHash(vec![0u8; 32]),
+            identity: "alice".into(),
+            blobs: vec![
+                make_state_blob(vec![BlobIndex(2)]),
+                make_utxo_blob(9),
+                make_smt_blob(7, 9),
+                make_token_blob(Some(BlobIndex(0))),
+            ]
+            .into(),
+            tx_blob_count: 4,
+            index: BlobIndex(0),
+            tx_ctx: None,
+            private_input: Vec::new(),
+        };
+        let err = parse_calldata::<HyliUtxoStateAction>(&calldata)
+            .expect_err("withdraw topology should fail during calldata parsing");
+        assert!(err.contains("Blob callees do not match actual callees"));
     }
 }

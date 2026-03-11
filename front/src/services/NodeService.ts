@@ -35,6 +35,13 @@ export interface SmtWitnessResponse {
     siblings_1: string[];     // 256 "0x..." hex field elements
 }
 
+export interface TokenTransferRequest {
+    tokenContract: string;
+    sender: string;
+    recipient: string;
+    amount: number;
+}
+
 class NodeService {
     private readonly baseUrl: string;
 
@@ -175,7 +182,8 @@ class NodeService {
     async createBlob(
         blobBytes: Uint8Array,
         smtBlobBytes: Uint8Array,
-        outputNotes: [PrivateNote, PrivateNote]
+        outputNotes: [PrivateNote, PrivateNote],
+        tokenTransfer?: TokenTransferRequest,
     ): Promise<CreateBlobResponse> {
         const data = await this.request<CreateBlobResponse>("/api/blob/create", {
             method: "POST",
@@ -183,6 +191,14 @@ class NodeService {
                 blob_data:     Array.from(blobBytes),
                 smt_blob_data: Array.from(smtBlobBytes),
                 output_notes:  outputNotes,
+                token_transfer: tokenTransfer
+                    ? {
+                          token_contract: tokenTransfer.tokenContract,
+                          sender: tokenTransfer.sender,
+                          recipient: tokenTransfer.recipient,
+                          amount: tokenTransfer.amount,
+                      }
+                    : undefined,
             }),
         });
 
@@ -202,6 +218,7 @@ class NodeService {
         blobBytes: Uint8Array,
         smtBlobBytes: Uint8Array,
         outputNotes: [PrivateNote, PrivateNote],
+        tokenTransfer?: TokenTransferRequest,
     ): Promise<{ tx_hash: string }> {
         const data = await this.request<{ tx_hash: string }>("/api/blob/hash", {
             method: "POST",
@@ -209,6 +226,14 @@ class NodeService {
                 blob_data:     Array.from(blobBytes),
                 smt_blob_data: Array.from(smtBlobBytes),
                 output_notes:  outputNotes,
+                token_transfer: tokenTransfer
+                    ? {
+                          token_contract: tokenTransfer.tokenContract,
+                          sender: tokenTransfer.sender,
+                          recipient: tokenTransfer.recipient,
+                          amount: tokenTransfer.amount,
+                      }
+                    : undefined,
             }),
         });
         if (!data) {
@@ -230,6 +255,7 @@ class NodeService {
         publicInputs: string[],
         smtProof: string,
         smtPublicInputs: string[],
+        tokenTransfer?: TokenTransferRequest,
     ): Promise<{ tx_hash: string }> {
         const data = await this.request<{ tx_hash: string }>("/api/transfer/finalize", {
             method: "POST",
@@ -237,6 +263,14 @@ class NodeService {
                 blob_data:         Array.from(blobBytes),
                 smt_blob_data:     Array.from(smtBlobBytes),
                 output_notes:      outputNotes,
+                token_transfer:    tokenTransfer
+                    ? {
+                          token_contract: tokenTransfer.tokenContract,
+                          sender: tokenTransfer.sender,
+                          recipient: tokenTransfer.recipient,
+                          amount: tokenTransfer.amount,
+                      }
+                    : undefined,
                 proof,
                 public_inputs:     publicInputs,
                 smt_proof:         smtProof,

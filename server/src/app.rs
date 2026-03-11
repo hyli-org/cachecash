@@ -12,13 +12,13 @@ use hyli_modules::{
 use hyli_smt_token::SmtTokenAction;
 use hyli_utxo_state::{state::HYLI_UTXO_STATE_ACTION, zk::BorshableH256};
 use sdk::{
-    Blob, BlobData, BlobTransaction, ContractAction, ContractName, Identity, ProgramId, ProofData,
-    ProofTransaction, TxHash, Verifier,
+    Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, Identity,
+    ProgramId, ProofData, ProofTransaction, StructuredBlobData, TxHash, Verifier,
 };
 use tracing::{info, warn};
 use zk_primitives::{
     InputNote, Note, Utxo, HYLI_BLOB_HASH_BYTE_LENGTH, HYLI_BLOB_LENGTH_BYTES,
-    HYLI_SMT_INCL_BLOB_LENGTH_BYTES,
+    HYLI_SMT_INCL_BLOB_LENGTH_BYTES, HYLI_SMT_INCL_PAYLOAD_LENGTH_BYTES,
 };
 
 use crate::{
@@ -252,20 +252,26 @@ impl FaucetApp {
 
         // Blob #2 (hyli_smt_incl_proof): [nullifier0 (32B)][nullifier1 (32B)][notes_root (32B)]
         // Nullifiers are at bytes 64-127 of the UTXO blob.
-        let mut incl_proof_bytes = vec![0u8; 3 * 32];
+        let mut incl_proof_bytes = vec![0u8; HYLI_SMT_INCL_PAYLOAD_LENGTH_BYTES];
         incl_proof_bytes[..64].copy_from_slice(&blob_bytes[64..128]);
-        incl_proof_bytes[64..96].copy_from_slice(&self.notes_root.to_be_bytes());
+        incl_proof_bytes[64..HYLI_SMT_INCL_PAYLOAD_LENGTH_BYTES]
+            .copy_from_slice(&self.notes_root.to_be_bytes());
 
         let contract_name = self.utxo_contract_name.clone();
         let identity = wallet_account
             .map(|a| Identity(format!("{}@wallet", a)))
             .unwrap_or_else(|| Identity(format!("{}@{}", FAUCET_IDENTITY_PREFIX, contract_name)));
         let hyli_utxo_data = BlobData(blob_bytes);
-        let hyli_smt_incl_data = BlobData(incl_proof_bytes);
-        let state_blob_data = BlobData(
-            borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
-                .expect("HyliUtxoStateAction serialization failed"),
-        );
+        let hyli_smt_incl_data = BlobData::from(StructuredBlobData {
+            caller: Some(BlobIndex(0)),
+            callees: None,
+            parameters: incl_proof_bytes,
+        });
+        let state_blob_data = BlobData::from(StructuredBlobData {
+            caller: None,
+            callees: Some(vec![BlobIndex(2)]),
+            parameters: HYLI_UTXO_STATE_ACTION,
+        });
         let hyli_smt_incl_blob = Blob {
             contract_name: ContractName(self.incl_proof_contract_name.clone()),
             data: hyli_smt_incl_data,
@@ -364,16 +370,16 @@ impl FaucetApp {
             bail!("hyli_smt_incl_proof blob not found in transaction payload");
         };
 
-        if blob.data.0.len() < HYLI_SMT_INCL_BLOB_LENGTH_BYTES {
+        if blob.data.0.len() != HYLI_SMT_INCL_BLOB_LENGTH_BYTES {
             bail!(
-                "hyli_smt_incl_proof blob payload is {} bytes, expected {}",
+                "hyli_smt_incl_proof blob is {} bytes, expected {}",
                 blob.data.0.len(),
                 HYLI_SMT_INCL_BLOB_LENGTH_BYTES
             );
         }
 
         let mut payload = [0u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES];
-        payload.copy_from_slice(&blob.data.0[..HYLI_SMT_INCL_BLOB_LENGTH_BYTES]);
+        payload.copy_from_slice(&blob.data.0);
 
         // For zero commitments (mint/padding), siblings are unused by the circuit.
         let siblings_0 = Box::new([element::Base::zero(); 256]);
@@ -479,10 +485,11 @@ impl FaucetApp {
         let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("transfer@{}", contract_name));
         let hyli_utxo_data = BlobData(cmd.blob.to_vec());
-        let state_blob_data = BlobData(
-            borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
-                .expect("HyliUtxoStateAction serialization failed"),
-        );
+        let state_blob_data = BlobData::from(StructuredBlobData {
+            caller: None,
+            callees: None,
+            parameters: HYLI_UTXO_STATE_ACTION,
+        });
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),
             data: hyli_utxo_data,
@@ -527,10 +534,11 @@ impl FaucetApp {
         let contract_name = self.utxo_contract_name.clone();
         let identity = Identity(format!("transfer@{}", contract_name));
         let hyli_utxo_data = BlobData(blob_bytes);
-        let state_blob_data = BlobData(
-            borsh::to_vec(&HYLI_UTXO_STATE_ACTION)
-                .expect("HyliUtxoStateAction serialization failed"),
-        );
+        let state_blob_data = BlobData::from(StructuredBlobData {
+            caller: None,
+            callees: None,
+            parameters: HYLI_UTXO_STATE_ACTION,
+        });
         let hyli_utxo_blob = Blob {
             contract_name: contract_name.clone().into(),
             data: hyli_utxo_data,
@@ -578,8 +586,9 @@ mod tests {
     use sdk::{
         AggregateSignature, Blob, BlobIndex, BlobTransaction, BlockHeight, BlockStakingData,
         Calldata, ConsensusProposal, ConsensusProposalHash, Contract, ContractName,
-        DataProposalHash, NodeStateBlock, ProgramId, StatefulEvent, StatefulEvents, TimeoutWindow,
-        TxContext, TxHash, TxId, ValidatorPublicKey, Verifier, HYLI_TESTNET_CHAIN_ID,
+        DataProposalHash, NodeStateBlock, ProgramId, StatefulEvent, StatefulEvents,
+        StructuredBlobData, TimeoutWindow, TxContext, TxHash, TxId, ValidatorPublicKey, Verifier,
+        HYLI_TESTNET_CHAIN_ID,
     };
     use sdk::{Hashed, LaneId, SignedBlock};
     use sha3::{Digest, Sha3_256};
@@ -595,6 +604,7 @@ mod tests {
         hyli_utxo_state::state::ContractConfig {
             utxo_contract_name: TEST_UTXO_CONTRACT_NAME.into(),
             smt_incl_proof_contract_name: TEST_SMT_INCL_CONTRACT_NAME.into(),
+            smt_contract_name: "oranj".into(),
         }
     }
 
@@ -758,11 +768,38 @@ mod tests {
             .iter()
             .find(|blob| blob.contract_name.0 == "oranj")
             .expect("token blob present");
+        let smt_blob = blob_tx
+            .blobs
+            .iter()
+            .find(|blob| blob.contract_name.0 == TEST_SMT_INCL_CONTRACT_NAME)
+            .expect("smt blob present");
+        let state_blob = blob_tx
+            .blobs
+            .iter()
+            .find(|blob| blob.contract_name.0 == TEST_UTXO_STATE_CONTRACT_NAME)
+            .expect("state blob present");
+        let state_data: StructuredBlobData<[u8; 1]> = state_blob
+            .data
+            .clone()
+            .try_into()
+            .expect("state blob must be structured");
+        assert_eq!(state_data.callees, Some(vec![BlobIndex(2)]));
+        let smt_data: StructuredBlobData<Vec<u8>> = smt_blob
+            .data
+            .clone()
+            .try_into()
+            .expect("smt blob must be structured");
+        assert_eq!(smt_data.caller, Some(BlobIndex(0)));
+        assert!(smt_data.callees.is_none());
+        assert_eq!(smt_blob.data.0.len(), HYLI_SMT_INCL_BLOB_LENGTH_BYTES);
 
-        let action: SmtTokenAction =
-            borsh::from_slice(&token_blob.data.0).expect("deserialize token action");
+        let action: StructuredBlobData<SmtTokenAction> = token_blob
+            .data
+            .clone()
+            .try_into()
+            .expect("deserialize token action");
 
-        match action {
+        match action.parameters {
             SmtTokenAction::Transfer {
                 sender,
                 recipient,

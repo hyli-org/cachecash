@@ -13,6 +13,7 @@ tx_working_window_size = 128
 utxo_contract_name = "hyli_utxo"
 utxo_state_contract_name = "hyli-utxo-state"
 smt_incl_proof_contract_name = "hyli_smt_incl_proof"
+smt_contract_name = "oranj"
 persist_encrypted_notes = true
 
 indexer_database_url = "postgresql://postgres:postgres@localhost:5432/hyli_indexer"

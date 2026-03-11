@@ -100,6 +100,7 @@ async fn main() -> Result<()> {
     let contract_config = ContractConfig {
         utxo_contract_name: ContractName(config.utxo_contract_name.clone()),
         smt_incl_proof_contract_name: ContractName(config.smt_incl_proof_contract_name.clone()),
+        smt_contract_name: ContractName(config.smt_contract_name.clone()),
     };
     let hyli_utxo_contract = hyli_utxo_noir_deployment(&config.utxo_contract_name);
     let hyli_smt_incl_proof_contract =

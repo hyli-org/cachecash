@@ -18,6 +18,7 @@ pub struct Conf {
     pub tx_working_window_size: usize,
     pub utxo_contract_name: String,
     pub smt_incl_proof_contract_name: String,
+    pub smt_contract_name: String,
     pub utxo_state_contract_name: String,
 
     pub indexer_database_url: String,
