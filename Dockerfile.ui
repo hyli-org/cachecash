@@ -8,7 +8,16 @@ COPY front/package.json front/bun.lock ./
 
 RUN bun install --frozen-lockfile
 
-COPY front .
+COPY front/index.html ./index.html
+COPY front/public ./public
+COPY fixtures/programs/hyli_utxo.json ./public/hyli_utxo.json
+COPY fixtures/programs/hyli_smt_incl_proof.json ./public/hyli_smt_incl_proof.json
+COPY front/src ./src
+COPY front/*.json ./
+COPY front/*.js ./
+COPY front/*.ts ./
+COPY front/*.tsx ./
+COPY front/*.css ./
 
 RUN bun run build --mode production
 

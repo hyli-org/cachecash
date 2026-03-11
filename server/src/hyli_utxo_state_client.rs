@@ -20,11 +20,9 @@ use hyli_utxo_state::{
     HyliUtxoZkVmBatch, HyliUtxoZkVmState,
 };
 use sdk::{
-    caller::ExecutionContext,
-    utils::as_hyli_output,
-    BlobIndex, BlobTransaction, Calldata, Contract, ContractName, HyliOutput,
-    RegisterContractAction, RunResult, StateCommitment, TxContext,
-    StructuredBlobData,
+    caller::ExecutionContext, utils::as_hyli_output, BlobIndex, BlobTransaction, Calldata,
+    Contract, ContractName, HyliOutput, RegisterContractAction, RunResult, StateCommitment,
+    StructuredBlobData, TxContext,
 };
 use std::sync::Arc;
 use tracing::info;

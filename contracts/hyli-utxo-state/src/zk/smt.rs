@@ -333,25 +333,32 @@ pub mod smt_fixture {
     /// and input_notes provides note fields + secret key for commitment/nullifier computation.
     pub fn print_prover_toml() {
         // Known note fields (Field elements as BE hex)
-        let kind     = FieldElement::from(1u128);  // non-zero = real note
-        let value    = FieldElement::from(100u128);
-        let psi      = FieldElement::from(42u128);
+        let kind = FieldElement::from(1u128); // non-zero = real note
+        let value = FieldElement::from(100u128);
+        let psi = FieldElement::from(42u128);
         let secret_key = FieldElement::from(7u128);
-        let address  = bn254_blackbox_solver::poseidon_hash(&[secret_key, FieldElement::zero()]).unwrap();
+        let address =
+            bn254_blackbox_solver::poseidon_hash(&[secret_key, FieldElement::zero()]).unwrap();
 
         // Commitment = poseidon2([0x2, kind, value, address, psi, 0, 0])
         let commitment = bn254_blackbox_solver::poseidon_hash(&[
-            FieldElement::from(2u128), kind, value, address, psi,
-            FieldElement::zero(), FieldElement::zero(),
-        ]).unwrap();
+            FieldElement::from(2u128),
+            kind,
+            value,
+            address,
+            psi,
+            FieldElement::zero(),
+            FieldElement::zero(),
+        ])
+        .unwrap();
 
         // Nullifier = poseidon2([psi, secret_key])
         let nullifier = bn254_blackbox_solver::poseidon_hash(&[psi, secret_key]).unwrap();
 
         // Padding nullifier = poseidon2([0, 0])
-        let padding_nullifier = bn254_blackbox_solver::poseidon_hash(&[
-            FieldElement::zero(), FieldElement::zero(),
-        ]).unwrap();
+        let padding_nullifier =
+            bn254_blackbox_solver::poseidon_hash(&[FieldElement::zero(), FieldElement::zero()])
+                .unwrap();
 
         // Store commitment as BE bytes in SMT (matching how app.rs stores them)
         let commitment_be: [u8; 32] = commitment.to_be_bytes().try_into().unwrap();
@@ -440,11 +447,15 @@ pub mod smt_fixture {
         println!();
         // Input note 1: padding note
         println!("[[input_notes]]");
-        println!("secret_key = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
+        println!(
+            "secret_key = \"0x0000000000000000000000000000000000000000000000000000000000000000\""
+        );
         println!("[input_notes.note]");
         println!("kind = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
         println!("value = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
-        println!("address = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
+        println!(
+            "address = \"0x0000000000000000000000000000000000000000000000000000000000000000\""
+        );
         println!("psi = \"0x0000000000000000000000000000000000000000000000000000000000000000\"");
     }
 
@@ -452,5 +463,4 @@ pub mod smt_fixture {
     fn generate_smt_prover_toml() {
         print_prover_toml();
     }
-
 }
