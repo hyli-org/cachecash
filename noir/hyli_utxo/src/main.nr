@@ -22,35 +22,10 @@ fn main(
     // ---------------------------------------------------------------------
     // Hyli contract framing
     // ---------------------------------------------------------------------
-    assert(hyli_output.success, "contract execution must succeed");
-    assert(hyli_output.version == 2, "unsupported Hyli output version");
-
-    assert(hyli_output.initial_state_len == 4, "initial_state must be 4 bytes");
-    assert(hyli_output.next_state_len == 4, "next_state must be 4 bytes");
-    assert(hyli_output.initial_state_max == INITIAL_STATE_MAX, "initial_state_max mismatch");
-    assert(hyli_output.next_state_max == NEXT_STATE_MAX, "next_state_max mismatch");
-    assert(hyli_output.identity_max == IDENTITY_MAX, "identity_max mismatch");
-
-    assert(hyli_output.blob_slots == BLOB_SLOTS, "blob_slots mismatch");
-    assert(hyli_output.blob_name_max == BLOB_NAME_MAX, "blob_name_max mismatch");
-    assert(hyli_output.blob_data_max == BLOB_DATA_MAX, "blob_data_max mismatch");
-    assert(hyli_output.blob_count == 1, "hyli_utxo expects a single invocation blob");
-    assert(
-        hyli_output.blob_count <= hyli_output.tx_blob_count,
-        "transaction must provide enough blobs",
-    );
-    assert(hyli_output.program_outputs_max == PROGRAM_OUTPUT_MAX, "program outputs max mismatch");
-    assert(
-        hyli_output.program_outputs_len <= hyli_output.program_outputs_max,
-        "program outputs len overflow",
-    );
-
-    assert(hyli_output.identity_len <= 256, "identity length overflow");
+    hyli_output.verify(1, 4, 4);
 
     let blob_input = hyli_output.blobs[0];
-    assert(blob_input.contract_name_len == 9, "blob contract name must be 9 bytes");
-    assert(blob_input.index == hyli_output.index, "blob index must align with invocation index");
-    assert(blob_input.data_len == 128, "blob length must be 128 bytes");
+    blob_input.verify(9, 128, hyli_output.index);
 
     let _ = hyli_output.initial_state;
     let _ = hyli_output.next_state;
