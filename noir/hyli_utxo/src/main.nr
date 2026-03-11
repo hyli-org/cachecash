@@ -34,10 +34,7 @@ fn main(
     assert(hyli_output.blob_slots == BLOB_SLOTS, "blob_slots mismatch");
     assert(hyli_output.blob_name_max == BLOB_NAME_MAX, "blob_name_max mismatch");
     assert(hyli_output.blob_data_max == BLOB_DATA_MAX, "blob_data_max mismatch");
-    assert(
-        (hyli_output.blob_count == 1) | (hyli_output.blob_count == 2),
-        "blob_count must be 1 or 2",
-    );
+    assert(hyli_output.blob_count == 1, "hyli_utxo expects a single invocation blob");
     assert(
         hyli_output.blob_count <= hyli_output.tx_blob_count,
         "transaction must provide enough blobs",
@@ -53,11 +50,7 @@ fn main(
     let blob_input = hyli_output.blobs[0];
     assert(blob_input.contract_name_len == 9, "blob contract name must be 9 bytes");
     assert(blob_input.index == hyli_output.index, "blob index must align with invocation index");
-    if hyli_output.blob_count == 1 {
-        assert(blob_input.data_len == 128, "blob length must be 128 bytes");
-    } else {
-        assert(blob_input.data_len <= 128, "blob length overflow");
-    }
+    assert(blob_input.data_len == 128, "blob length must be 128 bytes");
 
     let _ = hyli_output.initial_state;
     let _ = hyli_output.next_state;
@@ -80,43 +73,11 @@ fn main(
         nullifier_commitments[i] = compute_nullifier(note.note.psi, note.secret_key);
     }
 
-    if hyli_output.blob_count == 3 {
+    if hyli_output.tx_blob_count == 3 {
         let expected_blob = build_blob_payload(commitments, nullifier_commitments);
         assert(blob_input.data == expected_blob, "blob must match concatenated commitments");
-    } else if hyli_output.blob_count == 4 {
-        // Blob is Borsh-serialized smt-token action.
-        let transfer_blob = hyli_output.blobs[3];
-        let action = parse_smt_token_action(transfer_blob.data, transfer_blob.data_len);
-
-        // 1) Transfer amount must match UTXO message amount.
-        messages[2].assert_max_bit_size::<128>();
-        assert(action.amount == (messages[2] as u128), "smt transfer amount must match message");
-
-        // 2) Recipient must target the UTXO state contract directly.
-        let expected_recipient: [u8; 15] = "hyli-utxo-state".as_bytes();
-        assert(action.variant == 0, "smt action must be Transfer");
-        assert(action.recipient.len == 15, "recipient length mismatch");
-        for i in 0..15 {
-            assert(
-                action.recipient.bytes[i] == expected_recipient[i],
-                "recipient must be hyli-utxo-state",
-            );
-        }
-
-        // 3) Sender must match Hyli transaction identity.
-        let identity_bytes = hyli_output.identity.as_bytes();
-        assert(
-            hyli_output.identity_len <= identity_bytes.len(),
-            "identity length exceeds identity bytes",
-        );
-        assert(action.sender.len == hyli_output.identity_len, "sender length mismatch");
-        for i in 0..identity_bytes.len() {
-            if i < hyli_output.identity_len {
-                assert(action.sender.bytes[i] == identity_bytes[i], "sender must match identity");
-            }
-        }
     } else {
-        assert(false, "unsupported blob count");
+        assert(false, "unsupported transaction blob count");
     }
 }
 
@@ -147,148 +108,8 @@ fn build_blob_payload(commitments: [Field; 4], nullifier_commitments: [Field; 2]
     bytes
 }
 
-struct ParsedIdentity {
-    len: u32,
-    bytes: [u8; IDENTITY_MAX],
-}
-
-struct ParsedU32 {
-    value: u32,
-    offset: u32,
-}
-
-struct ParsedU128 {
-    value: u128,
-    offset: u32,
-}
-
-struct ParsedIdentityWithOffset {
-    identity: ParsedIdentity,
-    offset: u32,
-}
-
-// Mirrors Rust enum order in smt-token:
-// 0 = Transfer, 1 = TransferFrom, 2 = Approve
-struct SmtTokenAction {
-    variant: u8,
-    sender: ParsedIdentity,
-    owner: ParsedIdentity,
-    spender: ParsedIdentity,
-    recipient: ParsedIdentity,
-    amount: u128,
-}
-
 fn field_to_bytes(value: Field) -> [u8; 32] {
     value.to_be_bytes()
-}
-
-fn parse_u32_le(bytes: [u8; BLOB_DATA_MAX], offset: u32, data_len: u32) -> ParsedU32 {
-    assert(offset + 4 <= data_len, "borsh u32 out of bounds");
-    let mut value: u32 = 0;
-    let mut scale: u32 = 1;
-    for i in 0..4 {
-        value += (bytes[offset + i] as u32) * scale;
-        scale *= 256;
-    }
-    ParsedU32 { value, offset: offset + 4 }
-}
-
-fn parse_u128_le(bytes: [u8; BLOB_DATA_MAX], offset: u32, data_len: u32) -> ParsedU128 {
-    assert(offset + 16 <= data_len, "borsh u128 out of bounds");
-    let mut value: u128 = 0;
-    let mut scale: u128 = 1;
-    for i in 0..16 {
-        value += (bytes[offset + i] as u128) * scale;
-        scale *= 256;
-    }
-    ParsedU128 { value, offset: offset + 16 }
-}
-
-fn parse_identity(
-    bytes: [u8; BLOB_DATA_MAX],
-    offset: u32,
-    data_len: u32,
-) -> ParsedIdentityWithOffset {
-    let parsed_len = parse_u32_le(bytes, offset, data_len);
-    let len = parsed_len.value;
-    let mut cursor = parsed_len.offset;
-    assert(len <= IDENTITY_MAX, "identity too long");
-    assert(cursor + len <= data_len, "identity bytes out of bounds");
-
-    let mut identity_bytes: [u8; IDENTITY_MAX] = [0; IDENTITY_MAX];
-    for i in 0..IDENTITY_MAX {
-        if i < len {
-            identity_bytes[i] = bytes[cursor + i];
-        }
-    }
-    cursor += len;
-
-    ParsedIdentityWithOffset {
-        identity: ParsedIdentity { len, bytes: identity_bytes },
-        offset: cursor,
-    }
-}
-
-fn parse_smt_token_action(blob: [u8; BLOB_DATA_MAX], data_len: u32) -> SmtTokenAction {
-    assert(data_len >= 1, "empty smt-token action");
-
-    let variant = blob[0];
-    let mut cursor: u32 = 1;
-    let empty_identity = ParsedIdentity { len: 0, bytes: [0; IDENTITY_MAX] };
-
-    let mut sender = empty_identity;
-    let mut owner = empty_identity;
-    let mut spender = empty_identity;
-    let mut recipient = empty_identity;
-    let mut amount: u128 = 0;
-
-    if variant == 0 {
-        let parsed_sender = parse_identity(blob, cursor, data_len);
-        sender = parsed_sender.identity;
-        cursor = parsed_sender.offset;
-
-        let parsed_recipient = parse_identity(blob, cursor, data_len);
-        recipient = parsed_recipient.identity;
-        cursor = parsed_recipient.offset;
-
-        let parsed_amount = parse_u128_le(blob, cursor, data_len);
-        amount = parsed_amount.value;
-        cursor = parsed_amount.offset;
-    } else if variant == 1 {
-        let parsed_owner = parse_identity(blob, cursor, data_len);
-        owner = parsed_owner.identity;
-        cursor = parsed_owner.offset;
-
-        let parsed_spender = parse_identity(blob, cursor, data_len);
-        spender = parsed_spender.identity;
-        cursor = parsed_spender.offset;
-
-        let parsed_recipient = parse_identity(blob, cursor, data_len);
-        recipient = parsed_recipient.identity;
-        cursor = parsed_recipient.offset;
-
-        let parsed_amount = parse_u128_le(blob, cursor, data_len);
-        amount = parsed_amount.value;
-        cursor = parsed_amount.offset;
-    } else if variant == 2 {
-        let parsed_owner = parse_identity(blob, cursor, data_len);
-        owner = parsed_owner.identity;
-        cursor = parsed_owner.offset;
-
-        let parsed_spender = parse_identity(blob, cursor, data_len);
-        spender = parsed_spender.identity;
-        cursor = parsed_spender.offset;
-
-        let parsed_amount = parse_u128_le(blob, cursor, data_len);
-        amount = parsed_amount.value;
-        cursor = parsed_amount.offset;
-    } else {
-        assert(false, "unsupported smt-token action variant");
-    }
-
-    assert(cursor == data_len, "borsh action trailing bytes");
-
-    SmtTokenAction { variant, sender, owner, spender, recipient, amount }
 }
 
 #[test]
