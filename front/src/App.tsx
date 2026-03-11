@@ -112,7 +112,7 @@ function AppContent() {
         let cancelled = false;
         let retryTimeout: number | undefined;
 
-        const ZK_SEED_CACHE_PREFIX = "cachecash:zk-seed:";
+        const ZK_SEED_CACHE_PREFIX = "cachecash:zk-seed:v2:";
         const ETH_ACCOUNT_CACHE_PREFIX = "cachecash:eth-account:";
 
         const getEthAccountCacheKey = () => {
@@ -124,7 +124,10 @@ function AppContent() {
             return ZK_SEED_CACHE_PREFIX + SHA256(ethAddress.toLowerCase()).toString();
         };
 
-        const deriveZkFromEthSignature = async (account: string): Promise<{ zkSecretKey: string; utxoAddress: string }> => {
+        const deriveZkFromEthSignature = async (
+            account: string,
+            walletAddress: string,
+        ): Promise<{ zkSecretKey: string; utxoAddress: string }> => {
             const ethAddress = account.toLowerCase();
             const cacheKey = getSeedCacheKey(ethAddress);
             const provider = getEthereumProvider();
@@ -136,7 +139,7 @@ function AppContent() {
             let seed = localStorage.getItem(cacheKey);
             if (!seed) {
                 const message =
-                    `CacheCash identity seed v1\n\nAccount: ${ethAddress}\n\n` +
+                    `CacheCash identity seed v2\n\nWallet: ${walletAddress}\nAccount: ${ethAddress}\n\n` +
                     `This signature derives your private CacheCash identity key. ` +
                     `It will never be broadcast to any network.`;
                 const signature = await (provider!.request({
@@ -201,7 +204,7 @@ function AppContent() {
                 if (!account) throw new Error("no eth account");
                 localStorage.setItem(getEthAccountCacheKey(), account.toLowerCase());
 
-                const { zkSecretKey, utxoAddress } = await deriveZkFromEthSignature(account);
+                const { zkSecretKey, utxoAddress } = await deriveZkFromEthSignature(account, wallet.address ?? account);
                 if (cancelled) return;
 
                 const identity: FullIdentity = {
