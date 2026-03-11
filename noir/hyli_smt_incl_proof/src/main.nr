@@ -1,6 +1,6 @@
 use dep::poseidon::poseidon2::Poseidon2;
 use common::{compute_nullifier, get_note_commitment, InputNote};
-use hyli_noir_sdk::HyliOutput;
+use hyli_noir_sdk::{HyliOutput, le_bytes_to_field, parse_structured_blob};
 use std::ops::WrappingAdd;
 
 global BLOB_SLOTS: u32 = 1;
@@ -10,44 +10,27 @@ global IDENTITY_MAX: u32 = 256;
 global BLOB_NAME_MAX: u32 = 256;
 global BLOB_DATA_MAX: u32 = 110;
 global PROGRAM_OUTPUT_MAX: u32 = 5;
-global STRUCTURED_BLOB_LEN: u32 = 110;
 global SMT_PAYLOAD_LEN: u32 = 96;
-global STRUCTURED_CALLER_OFFSET: u32 = 1;
-global STRUCTURED_CALLEES_TAG_OFFSET: u32 = 9;
-global STRUCTURED_PARAMETERS_LEN_OFFSET: u32 = 10;
-global STRUCTURED_PARAMETERS_OFFSET: u32 = 14;
 
 // ---------------------------------------------------------------------------
 // SMT hash helpers (Poseidon2-based, ZK-native)
 // ---------------------------------------------------------------------------
 
-// Convert a 32-byte LE H256 to a single Field element (LE interpretation).
-// Only needed for byte-level constructs (node_key, zero_bits), not hash outputs.
-fn h256_to_field(input: [u8; 32]) -> Field {
-    let mut result: Field = 0;
-    let mut scale: Field = 1;
-    for i in 0..32 {
-        result += (input[i] as Field) * scale;
-        scale *= 256;
-    }
-    result
-}
-
 // Poseidon2([height, nk, v], 3) -- nk is byte-pattern (needs conversion), v is Field
 fn hash_base_node(height: u8, node_key: [u8; 32], value: Field) -> Field {
-    let nk = h256_to_field(node_key);
+    let nk = le_bytes_to_field(node_key);
     Poseidon2::hash([height as Field, nk, value], 3)
 }
 
 // Poseidon2([2, bn, zb, zero_count], 4) -- bn is Field, zb is byte-pattern
 fn hash_mwz(base_node: Field, zero_bits: [u8; 32], zero_count: u8) -> Field {
-    let zb = h256_to_field(zero_bits);
+    let zb = le_bytes_to_field(zero_bits);
     Poseidon2::hash([2, base_node, zb, zero_count as Field], 4)
 }
 
 // Poseidon2([1, height, nk, l, r], 5) -- nk is byte-pattern, l/r are Fields
 fn hash_merge_normal(height: u8, node_key: [u8; 32], lhs: Field, rhs: Field) -> Field {
-    let nk = h256_to_field(node_key);
+    let nk = le_bytes_to_field(node_key);
     Poseidon2::hash([1, height as Field, nk, lhs, rhs], 5)
 }
 
@@ -93,7 +76,7 @@ fn verify_inclusion(commitment_field: Field, notes_root: Field, siblings: [Field
         let commitment_bytes: [u8; 32] = commitment_field.to_be_bytes();
 
         // The SMT hasher sees these bytes via write_h256 which interprets them as LE integer.
-        let commitment_smt_value = h256_to_field(commitment_bytes);
+        let commitment_smt_value = le_bytes_to_field(commitment_bytes);
 
         // Accumulator state -- all hash values stay as Field
         let mut current_is_mwz: bool = false;
@@ -171,37 +154,12 @@ fn main(
     siblings_1: [Field; 256],
 ) {
     // -------------------------------------------------------------------------
-    // Hyli contract framing (same pattern as hyli_utxo)
+    // Hyli contract framing
     // -------------------------------------------------------------------------
-    assert(hyli_output.success, "contract execution must succeed");
-    assert(hyli_output.version == 2, "unsupported Hyli output version");
-
-    assert(hyli_output.initial_state_len == 4, "initial_state must be 4 bytes");
-    assert(hyli_output.next_state_len == 4, "next_state must be 4 bytes");
-    assert(hyli_output.initial_state_max == INITIAL_STATE_MAX, "initial_state_max mismatch");
-    assert(hyli_output.next_state_max == NEXT_STATE_MAX, "next_state_max mismatch");
-    assert(hyli_output.identity_max == IDENTITY_MAX, "identity_max mismatch");
-
-    assert(hyli_output.blob_slots == BLOB_SLOTS, "blob_slots mismatch");
-    assert(hyli_output.blob_name_max == BLOB_NAME_MAX, "blob_name_max mismatch");
-    assert(hyli_output.blob_data_max == BLOB_DATA_MAX, "blob_data_max mismatch");
-    assert(hyli_output.blob_count == 1, "exactly one blob is expected");
-    assert(
-        hyli_output.blob_count <= hyli_output.tx_blob_count,
-        "transaction must provide enough blobs",
-    );
-    assert(hyli_output.program_outputs_max == PROGRAM_OUTPUT_MAX, "program outputs max mismatch");
-    assert(
-        hyli_output.program_outputs_len <= hyli_output.program_outputs_max,
-        "program outputs len overflow",
-    );
-
-    assert(hyli_output.identity_len <= 256, "identity length overflow");
+    hyli_output.verify(1, 4, 4);
 
     let blob_input = hyli_output.blobs[0];
-    assert(blob_input.contract_name_len == 19, "blob contract name must be 19 bytes");
-    assert(blob_input.index == hyli_output.index, "blob index must align with invocation index");
-    assert(blob_input.data_len == STRUCTURED_BLOB_LEN, "blob length must be 110 bytes");
+    blob_input.verify(19, BLOB_DATA_MAX, hyli_output.index);
 
     let _ = hyli_output.initial_state;
     let _ = hyli_output.next_state;
@@ -216,37 +174,15 @@ fn main(
     // - callees = None
     // - parameters = [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
     // -------------------------------------------------------------------------
-    assert(blob_input.data[0] == 1, "caller must be present");
-    for i in 0..8 {
-        assert(
-            blob_input.data[STRUCTURED_CALLER_OFFSET + i] == 0,
-            "caller blob index must be zero",
-        );
-    }
-    assert(blob_input.data[STRUCTURED_CALLEES_TAG_OFFSET] == 0, "callees must be absent");
-    assert(
-        blob_input.data[STRUCTURED_PARAMETERS_LEN_OFFSET] == SMT_PAYLOAD_LEN as u8,
-        "payload length prefix must be 96 bytes",
-    );
-    for i in 1..4 {
-        assert(
-            blob_input.data[STRUCTURED_PARAMETERS_LEN_OFFSET + i] == 0,
-            "payload length high bytes must be zero",
-        );
-    }
+    let blob = parse_structured_blob(blob_input.data);
+    assert(blob.caller_present, "caller must be present");
+    assert(blob.caller_index == 0, "caller blob index must be zero");
+    assert(!blob.callees_present, "callees must be absent");
+    assert(blob.parameters_len == SMT_PAYLOAD_LEN, "payload length must be 96 bytes");
 
-    let mut blob_nullifier_0: [u8; 32] = [0; 32];
-    let mut blob_nullifier_1: [u8; 32] = [0; 32];
-    let mut notes_root_bytes: [u8; 32] = [0; 32];
-
-    for i in 0..32 {
-        blob_nullifier_0[i] = blob_input.data[STRUCTURED_PARAMETERS_OFFSET + i];
-        blob_nullifier_1[i] = blob_input.data[STRUCTURED_PARAMETERS_OFFSET + 32 + i];
-        notes_root_bytes[i] = blob_input.data[STRUCTURED_PARAMETERS_OFFSET + 64 + i];
-    }
-
-    // Convert notes_root to Field (LE interpretation of stored bytes)
-    let notes_root = h256_to_field(notes_root_bytes);
+    let blob_nullifier_0 = blob.read_bytes32(0);
+    let blob_nullifier_1 = blob.read_bytes32(32);
+    let notes_root = blob.read_field_le(64);
 
     // -------------------------------------------------------------------------
     // Compute commitments and nullifiers from input notes
