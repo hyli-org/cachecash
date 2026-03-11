@@ -12,8 +12,8 @@ use hyli_modules::{
 use hyli_smt_token::SmtTokenAction;
 use hyli_utxo_state::{state::HYLI_UTXO_STATE_ACTION, zk::BorshableH256};
 use sdk::{
-    Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, Identity,
-    ProgramId, ProofData, ProofTransaction, StructuredBlobData, TxHash, Verifier,
+    Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, Identity, ProgramId,
+    ProofData, ProofTransaction, StructuredBlobData, TxHash, Verifier,
 };
 use tracing::{info, warn};
 use zk_primitives::{
