@@ -8,12 +8,14 @@ use crate::{
     init::{HYLI_SMT_INCL_PROOF_VK, HYLI_UTXO_NOIR_VK},
     metrics::FaucetMetrics,
     note_store::{AddressRegistry, NoteStore},
+    smt_incl_prover::HyliSmtInclNoirProver,
     types::{
         BlobHashResponse, BlobInfo, CreateBlobRequest, CreateBlobResponse, DepositRequest,
         EncryptedNoteRecord, FaucetRequest, FaucetResponse, FinalizeTransferRequest,
-        FinalizeTransferResponse, GetNotesQuery, GetNotesResponse, RegisterAddressRequest,
-        RegisterAddressResponse, ResolveAddressResponse, ServerConfigResponse, SubmitProofRequest,
-        TokenTransferRequest, TransferResponse, UploadNoteRequest, UploadNoteResponse,
+        FinalizeTransferResponse, GetNotesQuery, GetNotesResponse, InputNoteData,
+        RegisterAddressRequest, RegisterAddressResponse, ResolveAddressResponse,
+        ServerConfigResponse, SubmitProofRequest, TokenTransferRequest, TransferResponse,
+        UploadNoteRequest, UploadNoteResponse,
     },
 };
 use anyhow::Result;
@@ -34,10 +36,11 @@ use hyli_smt_token::SmtTokenAction;
 use hyli_utxo_state::state::HYLI_UTXO_STATE_ACTION;
 use sdk::{
     Blob, BlobData, BlobIndex, BlobTransaction, ContractAction, ContractName, Hashed, Identity,
-    ProgramId, ProofData, ProofTransaction, StructuredBlobData, Verifier,
+    ProgramId, ProofData, ProofTransaction, StructuredBlobData, TxHash, Verifier,
 };
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
+use zk_primitives::{InputNote, ToBytes, HYLI_SMT_INCL_BLOB_LENGTH_BYTES};
 
 pub struct ApiModule {
     bus: ApiModuleBusClient,
@@ -308,12 +311,6 @@ async fn create_blob(
             request.blob_data.len()
         )));
     }
-    if request.smt_blob_data.len() != 96 {
-        return Err(ApiError::bad_request(format!(
-            "smt_blob_data must be exactly 96 bytes, got {}",
-            request.smt_blob_data.len()
-        )));
-    }
 
     let built = build_blob_transaction(&state, &request)?;
 
@@ -458,6 +455,32 @@ fn build_blob_transaction(
     nullifier_0.copy_from_slice(&request.blob_data[64..96]);
     nullifier_1.copy_from_slice(&request.blob_data[96..128]);
 
+    // Resolve smt_blob_data: client-provided or computed from input_notes + notes_root
+    let raw_smt_blob_data = match &request.smt_blob_data {
+        Some(data) => {
+            if data.len() != 96 {
+                return Err(ApiError::bad_request(format!(
+                    "smt_blob_data must be exactly 96 bytes, got {}",
+                    data.len()
+                )));
+            }
+            data.clone()
+        }
+        None => {
+            let notes = request.input_notes.as_ref().ok_or_else(|| {
+                ApiError::bad_request(
+                    "input_notes is required when smt_blob_data is not provided".to_string(),
+                )
+            })?;
+            let root_hex = request.notes_root.as_ref().ok_or_else(|| {
+                ApiError::bad_request(
+                    "notes_root is required when smt_blob_data is not provided".to_string(),
+                )
+            })?;
+            compute_smt_blob_data(notes, root_hex)?
+        }
+    };
+
     let contract_name = state.utxo_contract_name.clone();
     let identity = Identity(format!("transfer@{}", contract_name));
     let hyli_utxo_data = BlobData(request.blob_data.clone());
@@ -473,7 +496,7 @@ fn build_blob_transaction(
     let smt_blob_data = BlobData::from(StructuredBlobData {
         caller: Some(BlobIndex(0)),
         callees: None,
-        parameters: request.smt_blob_data.clone(),
+        parameters: raw_smt_blob_data,
     });
 
     let state_blob = Blob {
@@ -527,12 +550,6 @@ async fn hash_blob(
             request.blob_data.len()
         )));
     }
-    if request.smt_blob_data.len() != 96 {
-        return Err(ApiError::bad_request(format!(
-            "smt_blob_data must be exactly 96 bytes, got {}",
-            request.smt_blob_data.len()
-        )));
-    }
 
     let built = build_blob_transaction(&state, &request)?;
     let tx_hash = built.transaction.hashed();
@@ -542,6 +559,11 @@ async fn hash_blob(
 
 /// Submit blob transaction + both proofs atomically.
 /// Client must have called /api/blob/hash first to get tx_hash for proof generation.
+///
+/// The SMT inclusion proof can either be supplied by the client (`smt_proof` +
+/// `smt_public_inputs`) or generated server-side when those fields are omitted.
+/// For server-side generation the client must provide `input_notes`, `siblings_0`,
+/// and `siblings_1`.
 async fn finalize_transfer(
     State(state): State<RouterCtx>,
     Json(request): Json<FinalizeTransferRequest>,
@@ -556,6 +578,10 @@ async fn finalize_transfer(
         public_inputs,
         smt_proof,
         smt_public_inputs,
+        input_notes,
+        siblings_0,
+        siblings_1,
+        notes_root,
     } = request;
 
     if blob_data.len() != 128 {
@@ -564,21 +590,50 @@ async fn finalize_transfer(
             blob_data.len()
         )));
     }
-    if smt_blob_data.len() != 96 {
-        return Err(ApiError::bad_request(format!(
-            "smt_blob_data must be exactly 96 bytes, got {}",
-            smt_blob_data.len()
-        )));
-    }
 
     let blob_request = CreateBlobRequest {
         blob_data,
         smt_blob_data,
         output_notes,
         token_transfer,
+        input_notes: input_notes.clone(),
+        notes_root: notes_root.clone(),
     };
     let built = build_blob_transaction(&state, &blob_request)?;
     let tx_hash = built.transaction.hashed();
+
+    // Extract SMT blob data before the transaction is moved (BlobTransaction is not Clone)
+    let smt_blob_info = if smt_proof.is_none() {
+        let (smt_blob_index, smt_blob) = built
+            .transaction
+            .blobs
+            .iter()
+            .enumerate()
+            .find(|(_, blob)| blob.contract_name.0 == state.smt_incl_proof_contract_name)
+            .ok_or_else(|| {
+                ApiError::internal("hyli_smt_incl_proof blob not found in transaction".to_string())
+            })?;
+
+        if smt_blob.data.0.len() != HYLI_SMT_INCL_BLOB_LENGTH_BYTES {
+            return Err(ApiError::internal(format!(
+                "hyli_smt_incl_proof blob is {} bytes, expected {}",
+                smt_blob.data.0.len(),
+                HYLI_SMT_INCL_BLOB_LENGTH_BYTES
+            )));
+        }
+
+        let mut blob_payload = [0u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES];
+        blob_payload.copy_from_slice(&smt_blob.data.0);
+
+        Some((
+            blob_payload,
+            built.transaction.identity.clone(),
+            built.transaction.blobs.len() as u32,
+            smt_blob_index as u32,
+        ))
+    } else {
+        None
+    };
 
     // Submit blob transaction
     state
@@ -616,19 +671,45 @@ async fn finalize_transfer(
         .map_err(|e| ApiError::internal(format!("failed to send utxo proof tx: {}", e)))?;
 
     // ---- hyli_smt_incl_proof proof ----
-    let smt_proof_bytes = base64_decode(&smt_proof)
-        .map_err(|e| ApiError::bad_request(format!("invalid base64 smt_proof: {}", e)))?;
-
-    let smt_public_inputs_bytes: Vec<u8> = smt_public_inputs
-        .iter()
-        .flat_map(|hex_str| {
-            let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-            hex::decode(normalized).unwrap_or_else(|_| vec![0u8; 32])
-        })
-        .collect();
-
-    let mut smt_proof_with_inputs = smt_public_inputs_bytes;
-    smt_proof_with_inputs.extend_from_slice(&smt_proof_bytes);
+    let smt_proof_with_inputs = match smt_proof {
+        Some(client_proof) => {
+            // Client-provided proof
+            let smt_proof_bytes = base64_decode(&client_proof)
+                .map_err(|e| ApiError::bad_request(format!("invalid base64 smt_proof: {}", e)))?;
+            let smt_pubs = smt_public_inputs.ok_or_else(|| {
+                ApiError::bad_request(
+                    "smt_public_inputs is required when smt_proof is provided".to_string(),
+                )
+            })?;
+            let smt_public_inputs_bytes: Vec<u8> = smt_pubs
+                .iter()
+                .flat_map(|hex_str| {
+                    let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+                    hex::decode(normalized).unwrap_or_else(|_| vec![0u8; 32])
+                })
+                .collect();
+            let mut combined = smt_public_inputs_bytes;
+            combined.extend_from_slice(&smt_proof_bytes);
+            combined
+        }
+        None => {
+            // Server-side proof generation
+            let (blob_payload, identity, tx_blob_count, smt_blob_index) =
+                smt_blob_info.expect("smt_blob_info must be Some when smt_proof is None");
+            generate_smt_proof(
+                &state,
+                &tx_hash,
+                blob_payload,
+                identity,
+                tx_blob_count,
+                smt_blob_index,
+                input_notes,
+                siblings_0,
+                siblings_1,
+            )
+            .await?
+        }
+    };
 
     state
         .client
@@ -644,6 +725,150 @@ async fn finalize_transfer(
     tracing::info!(%tx_hash, "Submitted proof transactions (finalize_transfer)");
 
     Ok(Json(FinalizeTransferResponse { tx_hash }))
+}
+
+/// Compute the 96-byte `smt_blob_data` from input notes and notes root.
+///
+/// Layout: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)]
+/// Nullifiers are computed as `hash_merge([psi, secret_key])`.
+fn compute_smt_blob_data(
+    input_notes: &[InputNoteData; 2],
+    notes_root_hex: &str,
+) -> Result<Vec<u8>, ApiError> {
+    use std::str::FromStr;
+
+    let sk0 = element::Element::from_str(&input_notes[0].secret_key)
+        .map_err(|e| ApiError::bad_request(format!("invalid secret_key[0]: {e}")))?;
+    let sk1 = element::Element::from_str(&input_notes[1].secret_key)
+        .map_err(|e| ApiError::bad_request(format!("invalid secret_key[1]: {e}")))?;
+
+    let nullifier_0 = hash::hash_merge([input_notes[0].note.psi, sk0]);
+    let nullifier_1 = hash::hash_merge([input_notes[1].note.psi, sk1]);
+
+    let root_normalized = notes_root_hex
+        .strip_prefix("0x")
+        .unwrap_or(notes_root_hex);
+    let root_bytes = hex::decode(root_normalized)
+        .map_err(|e| ApiError::bad_request(format!("invalid notes_root hex: {e}")))?;
+    if root_bytes.len() != 32 {
+        return Err(ApiError::bad_request(format!(
+            "notes_root must be 32 bytes, got {}",
+            root_bytes.len()
+        )));
+    }
+
+    let mut smt_blob = Vec::with_capacity(96);
+    smt_blob.extend_from_slice(&nullifier_0.to_be_bytes());
+    smt_blob.extend_from_slice(&nullifier_1.to_be_bytes());
+    smt_blob.extend_from_slice(&root_bytes);
+
+    Ok(smt_blob)
+}
+
+/// Generate the SMT inclusion proof server-side from input notes and siblings.
+///
+/// Builds a [`HyliSmtIncl`] witness and calls the Barretenberg prover.
+/// Returns the proof bytes (public_inputs ++ raw_proof) ready for `ProofData`.
+async fn generate_smt_proof(
+    state: &RouterCtx,
+    tx_hash: &TxHash,
+    blob_payload: [u8; HYLI_SMT_INCL_BLOB_LENGTH_BYTES],
+    identity: Identity,
+    tx_blob_count: u32,
+    smt_blob_index: u32,
+    input_notes: Option<[InputNoteData; 2]>,
+    siblings_0: Option<Vec<String>>,
+    siblings_1: Option<Vec<String>>,
+) -> Result<Vec<u8>, ApiError> {
+    use acvm::AcirField;
+    use barretenberg::Prove;
+    use std::str::FromStr;
+
+    let input_notes = input_notes.ok_or_else(|| {
+        ApiError::bad_request(
+            "input_notes is required when smt_proof is not provided".to_string(),
+        )
+    })?;
+    let siblings_0_hex = siblings_0.ok_or_else(|| {
+        ApiError::bad_request(
+            "siblings_0 is required when smt_proof is not provided".to_string(),
+        )
+    })?;
+    let siblings_1_hex = siblings_1.ok_or_else(|| {
+        ApiError::bad_request(
+            "siblings_1 is required when smt_proof is not provided".to_string(),
+        )
+    })?;
+
+    if siblings_0_hex.len() != 256 {
+        return Err(ApiError::bad_request(format!(
+            "siblings_0 must contain exactly 256 elements, got {}",
+            siblings_0_hex.len()
+        )));
+    }
+    if siblings_1_hex.len() != 256 {
+        return Err(ApiError::bad_request(format!(
+            "siblings_1 must contain exactly 256 elements, got {}",
+            siblings_1_hex.len()
+        )));
+    }
+
+    // Convert InputNoteData to zk_primitives::InputNote
+    let zk_input_notes: [InputNote; 2] = [
+        InputNote::new(
+            input_notes[0].note.clone(),
+            element::Element::from_str(&input_notes[0].secret_key)
+                .map_err(|e| ApiError::bad_request(format!("invalid secret_key[0]: {e}")))?,
+        ),
+        InputNote::new(
+            input_notes[1].note.clone(),
+            element::Element::from_str(&input_notes[1].secret_key)
+                .map_err(|e| ApiError::bad_request(format!("invalid secret_key[1]: {e}")))?,
+        ),
+    ];
+
+    // Convert hex sibling strings to element::Base arrays
+    let parse_siblings = |hex_strs: &[String]| -> Result<Box<[element::Base; 256]>, ApiError> {
+        let mut arr = Box::new([element::Base::zero(); 256]);
+        for (i, hex_str) in hex_strs.iter().enumerate() {
+            let normalized = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+            let bytes = hex::decode(normalized)
+                .map_err(|e| ApiError::bad_request(format!("invalid sibling hex [{i}]: {e}")))?;
+            arr[i] = element::Base::from_be_bytes_reduce(&bytes);
+        }
+        Ok(arr)
+    };
+    let sib_0 = parse_siblings(&siblings_0_hex)?;
+    let sib_1 = parse_siblings(&siblings_1_hex)?;
+
+    let job = crate::smt_incl_prover::SmtInclProofJob {
+        tx_hash: tx_hash.clone(),
+        identity,
+        blob: blob_payload,
+        tx_blob_count,
+        blob_index: smt_blob_index,
+        input_notes: zk_input_notes,
+        siblings_0: sib_0,
+        siblings_1: sib_1,
+    };
+
+    let contract_name = state.smt_incl_proof_contract_name.clone();
+    let hyli_smt_incl = HyliSmtInclNoirProver::build_hyli_smt_incl(&contract_name, &job)
+        .map_err(|e| ApiError::internal(format!("building HyliSmtIncl witness: {e}")))?;
+
+    // Proof generation is CPU-intensive; run in a blocking thread
+    let proof = tokio::task::spawn_blocking(move || {
+        hyli_smt_incl
+            .prove()
+            .map_err(|err| format!("generating hyli_smt_incl_proof: {err}"))
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("proof task panicked: {e}")))?
+    .map_err(ApiError::internal)?;
+
+    tracing::info!(%tx_hash, "Server-generated hyli_smt_incl_proof");
+
+    Ok(proof.to_bytes())
 }
 
 /// Decode base64 string to bytes
