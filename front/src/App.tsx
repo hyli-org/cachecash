@@ -105,12 +105,11 @@ function AppContent() {
     // Prefer an Ethereum-backed identity when available, but fall back to the
     // deterministic username-based identity for password-only sessions.
     useEffect(() => {
-        if (!wallet?.sessionKey) {
+        if (!wallet?.username) {
             setPlayerKeys(null);
             return;
         }
 
-        const sk = wallet.sessionKey;
         let cancelled = false;
 
         const ZK_SEED_CACHE_PREFIX = "cachecash:zk-seed:v2:";
@@ -192,10 +191,14 @@ function AppContent() {
                     try {
                         const { zkSecretKey, utxoAddress } = await deriveZkFromCachedSeed(cachedAccount);
                         if (cancelled) return;
+                        if (!wallet.sessionKey) {
+                            await useNameDerivedIdentity();
+                            return;
+                        }
 
                         const identity: FullIdentity = {
-                            privateKey: sk.privateKey,
-                            publicKey: sk.publicKey,
+                            privateKey: wallet.sessionKey.privateKey,
+                            publicKey: wallet.sessionKey.publicKey,
                             zkSecretKey,
                             utxoAddress,
                         };
@@ -223,13 +226,17 @@ function AppContent() {
                     return;
                 }
                 localStorage.setItem(getEthAccountCacheKey(), account.toLowerCase());
+                if (!wallet.sessionKey) {
+                    await useNameDerivedIdentity();
+                    return;
+                }
 
                 const { zkSecretKey, utxoAddress } = await deriveZkFromEthSignature(account, wallet.address ?? account);
                 if (cancelled) return;
 
                 const identity: FullIdentity = {
-                    privateKey: sk.privateKey,
-                    publicKey: sk.publicKey,
+                    privateKey: wallet.sessionKey.privateKey,
+                    publicKey: wallet.sessionKey.publicKey,
                     zkSecretKey,
                     utxoAddress,
                 };
@@ -251,7 +258,7 @@ function AppContent() {
         return () => {
             cancelled = true;
         };
-    }, [getEthereumProvider, wallet?.sessionKey?.publicKey, wallet?.username, wallet?.ethereumProviderUuid]);
+    }, [getEthereumProvider, wallet?.address, wallet?.sessionKey?.privateKey, wallet?.sessionKey?.publicKey, wallet?.username, wallet?.ethereumProviderUuid]);
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
