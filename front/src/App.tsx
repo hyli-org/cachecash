@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import "./App.css";
-import { deriveZkSecretKey, deriveUtxoAddress, FullIdentity } from "./services/KeyService";
+import { deriveFullIdentity, deriveZkSecretKey, deriveUtxoAddress, FullIdentity } from "./services/KeyService";
 import SHA256 from "crypto-js/sha256";
 import { addressService } from "./services/AddressService";
 import { getNodeBaseUrl, getWalletServerBaseUrl, getWalletWebsocketUrl, getIndexerBaseUrl } from "./services/ConfigService";
@@ -102,8 +102,8 @@ function AppContent() {
         [storedNotes],
     );
 
-    // Derive zkSecretKey/utxoAddress only from the connected Ethereum wallet.
-    // The seed is cached in localStorage so the signing prompt only appears once per browser.
+    // Prefer an Ethereum-backed identity when available, but fall back to the
+    // deterministic username-based identity for password-only sessions.
     useEffect(() => {
         if (!wallet?.sessionKey) {
             setPlayerKeys(null);
@@ -112,7 +112,6 @@ function AppContent() {
 
         const sk = wallet.sessionKey;
         let cancelled = false;
-        let retryTimeout: number | undefined;
 
         const ZK_SEED_CACHE_PREFIX = "cachecash:zk-seed:v2:";
         const ETH_ACCOUNT_CACHE_PREFIX = "cachecash:eth-account:";
@@ -170,6 +169,20 @@ function AppContent() {
             return { zkSecretKey, utxoAddress };
         };
 
+        const registerIdentity = (identity: FullIdentity) => {
+            addressService
+                .register(wallet.username, identity.utxoAddress, identity.publicKey)
+                .catch((error) => console.warn("Address registration failed:", error));
+        };
+
+        const useNameDerivedIdentity = async () => {
+            const identity = await deriveFullIdentity(wallet.username);
+            if (cancelled) return;
+
+            setPlayerKeys(identity);
+            registerIdentity(identity);
+        };
+
         const resolveIdentity = async () => {
             const provider = getEthereumProvider();
 
@@ -187,23 +200,28 @@ function AppContent() {
                             utxoAddress,
                         };
                         setPlayerKeys(identity);
+                        registerIdentity(identity);
                         return;
                     } catch {
-                        // Fall through and retry once the provider becomes available.
+                        // Fall back to deterministic username-based identity.
                     }
                 }
 
-                retryTimeout = window.setTimeout(() => {
-                    if (!cancelled) {
-                        void resolveIdentity();
-                    }
-                }, 500);
+                try {
+                    await useNameDerivedIdentity();
+                } catch (error) {
+                    console.error("Failed to derive fallback identity", error);
+                    if (!cancelled) setPlayerKeys(null);
+                }
                 return;
             }
 
             try {
                 const [account] = (await provider.request({ method: "eth_accounts" })) as string[];
-                if (!account) throw new Error("no eth account");
+                if (!account) {
+                    await useNameDerivedIdentity();
+                    return;
+                }
                 localStorage.setItem(getEthAccountCacheKey(), account.toLowerCase());
 
                 const { zkSecretKey, utxoAddress } = await deriveZkFromEthSignature(account, wallet.address ?? account);
@@ -216,12 +234,15 @@ function AppContent() {
                     utxoAddress,
                 };
                 setPlayerKeys(identity);
-                addressService
-                    .register(wallet.username, utxoAddress, sk.publicKey)
-                    .catch((error) => console.warn("Address registration failed:", error));
+                registerIdentity(identity);
             } catch (error) {
-                console.error("Failed to derive identity", error);
-                if (!cancelled) setPlayerKeys(null);
+                console.error("Failed to derive Ethereum-backed identity", error);
+                try {
+                    await useNameDerivedIdentity();
+                } catch (fallbackError) {
+                    console.error("Failed to derive fallback identity", fallbackError);
+                    if (!cancelled) setPlayerKeys(null);
+                }
             }
         };
 
@@ -229,9 +250,6 @@ function AppContent() {
 
         return () => {
             cancelled = true;
-            if (retryTimeout !== undefined) {
-                window.clearTimeout(retryTimeout);
-            }
         };
     }, [getEthereumProvider, wallet?.sessionKey?.publicKey, wallet?.username, wallet?.ethereumProviderUuid]);
 

@@ -11,10 +11,6 @@ on:
 
 env:
   IMAGE_NAME: "cachecash"
-  AR_REPO_LOCATION: "europe-west1-docker.pkg.dev"
-  AR_URL: "hyli-shared-all/apps"
-  SERVICE_ACCOUNT: "github-actions-service-account@hyle-413414.iam.gserviceaccount.com"
-  WORKLOAD_IDENTITY_PROVIDER: ""
 
 jobs:
   rust:
@@ -67,7 +63,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
       packages: write
     strategy:
       matrix:
@@ -83,7 +78,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.AR_REPO_LOCATION }}/${{ env.AR_URL }}/${{ env.IMAGE_NAME }}-${{ matrix.suffix }}
+            ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }}-${{ matrix.suffix }}
           tags: |
             type=sha
             type=semver,pattern={{version}}
@@ -93,21 +88,18 @@ jobs:
             type=ref,event=pr
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Google Auth
-        uses: google-github-actions/auth@v2
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
-          workload_identity_provider: "projects/493106494045/locations/global/workloadIdentityPools/hyli-all-pool/providers/hyli-github-provider"
-          service_account: "ci-builder-sa@hyli-shared-all.iam.gserviceaccount.com"
-
-      - name: Docker Auth (Google Artifact Registry)
-        id: docker-auth
-        run: |
-          gcloud auth configure-docker ${{ env.AR_REPO_LOCATION }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.suffix }} image
         uses: docker/build-push-action@v6
         with:
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           context: .
           file: Dockerfile.${{ matrix.suffix }}
           tags: ${{ steps.meta.outputs.tags }}
