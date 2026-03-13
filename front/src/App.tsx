@@ -372,7 +372,7 @@ function AppContent() {
                         <div className="login-divider" />
 
                         <div className="login-form">
-                            <HyliWallet providers={["ethereum"]} />
+                            <HyliWallet providers={["password", "ethereum"]} />
                         </div>
                     </div>
                 </div>
