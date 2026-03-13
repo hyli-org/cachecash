@@ -2967,7 +2967,7 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 [[package]]
 name = "hyli-bus"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "anymap",
@@ -2991,7 +2991,7 @@ dependencies = [
 [[package]]
 name = "hyli-client-sdk"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -3014,7 +3014,7 @@ dependencies = [
 [[package]]
 name = "hyli-contract-sdk"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "borsh",
  "hyli-model",
@@ -3028,7 +3028,7 @@ dependencies = [
 [[package]]
 name = "hyli-crypto"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "blst",
@@ -3041,7 +3041,7 @@ dependencies = [
 [[package]]
 name = "hyli-model"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "base64",
@@ -3067,7 +3067,7 @@ dependencies = [
 [[package]]
 name = "hyli-modules"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "assertables",
@@ -3106,7 +3106,7 @@ dependencies = [
 [[package]]
 name = "hyli-net"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -3136,7 +3136,7 @@ dependencies = [
 [[package]]
 name = "hyli-net-macros"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -3147,7 +3147,7 @@ dependencies = [
 [[package]]
 name = "hyli-net-traits"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "hyli-net-macros",
 ]
@@ -3170,7 +3170,7 @@ dependencies = [
 [[package]]
 name = "hyli-smt-token"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "borsh",
@@ -3184,7 +3184,7 @@ dependencies = [
 [[package]]
 name = "hyli-turmoil-shims"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "borsh",
  "opentelemetry",
@@ -3209,7 +3209,7 @@ dependencies = [
 [[package]]
 name = "hyli-verifiers"
 version = "0.14.0"
-source = "git+https://github.com/hyli-org/hyli.git?branch=main#50f3a258d74cb7caf5103e839e4fa3418568c703"
+source = "git+https://github.com/hyli-org/hyli.git?branch=main#b6413e1b0f65487b21f0d2105a7d900aee5538ba"
 dependencies = [
  "anyhow",
  "borsh",
@@ -4458,9 +4458,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.3"
+version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "once_cell_polyfill"
@@ -4470,9 +4470,9 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openssl"
-version = "0.10.75"
+version = "0.10.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08838db121398ad17ab8531ce9de97b244589089e290a384c900cb9ff7434328"
+checksum = "951c002c75e16ea2c65b8c7e4d3d51d5530d8dfa7d060b4776828c88cfb18ecf"
 dependencies = [
  "bitflags",
  "cfg-if 1.0.4",
@@ -4502,9 +4502,9 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.111"
+version = "0.9.112"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82cab2d520aa75e3c58898289429321eb788c3106963d0dc886ec7a5f4adc321"
+checksum = "57d55af3b3e226502be1526dfdba67ab0e9c96fc293004e79576b2b9edb0dbdb"
 dependencies = [
  "cc",
  "libc",
@@ -6212,9 +6212,9 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.28"
+version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891d81b926048e76efe18581bf793546b4c0eaf8448d72be8de2bbee5fd166e1"
+checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -7856,9 +7856,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
-version = "3.26.0"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
  "getrandom 0.4.2",

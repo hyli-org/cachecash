@@ -2,18 +2,13 @@
 
 set -xeuo pipefail
 
-# Compile the program
 NARGO=${NARGO:-nargo}
-$NARGO compile --workspace
-
 REPO_ROOT=$(git rev-parse --show-toplevel)
 BACKEND=${BACKEND:-bb}
 
-# Clean target
-rm -r $REPO_ROOT/noir/target
-
-# Compile the program
-nargo compile --workspace
+# Clean target and recompile
+rm -rf $REPO_ROOT/noir/target
+$NARGO compile --workspace
 
 # Create the fixtures directory if it doesn't exist
 mkdir -p $REPO_ROOT/fixtures/programs
@@ -58,7 +53,7 @@ for NAME in "${PROGRAMS[@]}"; do
   echo "Generating verification key for $NAME with standalone verifier type"
   # Note: New barretenberg (v2.0+) no longer supports --output_format bytes_and_fields
   # It only generates binary 'vk' and 'vk_hash' files
-  $BACKEND write_vk ${oracle_hash_args[@]} --scheme ultra_honk --verifier_type standalone -b $REPO_ROOT/fixtures/programs/${NAME}.json -o $REPO_ROOT/fixtures/keys/ \
+  $BACKEND write_vk ${oracle_hash_args[@]+"${oracle_hash_args[@]}"} --scheme ultra_honk --verifier_type standalone -b $REPO_ROOT/fixtures/programs/${NAME}.json -o $REPO_ROOT/fixtures/keys/ \
     && mv $REPO_ROOT/fixtures/keys/vk $REPO_ROOT/fixtures/keys/${NAME}_key \
     && mv $REPO_ROOT/fixtures/keys/vk_hash $REPO_ROOT/fixtures/keys/${NAME}_key_hash
 

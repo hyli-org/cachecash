@@ -156,17 +156,28 @@ pub struct ProvedTransferRequest {
 // ---- Two-Step Transfer API Types ----
 
 /// Request to create a blob transaction (step 1 of two-step transfer)
+///
+/// `smt_blob_data` can be provided directly, or the server computes it from
+/// `input_notes` + `notes_root`.
 #[derive(Debug, Deserialize)]
 pub struct CreateBlobRequest {
     /// 128-byte blob data: [input_commit_0, input_commit_1, nullifier_0, nullifier_1]
     pub blob_data: Vec<u8>,
-    /// 96-byte SMT blob data: [commit0 (32B)][commit1 (32B)][notes_root (32B)]
-    pub smt_blob_data: Vec<u8>,
+    /// 96-byte SMT blob data: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)].
+    /// Optional when `input_notes` + `notes_root` are provided.
+    #[serde(default)]
+    pub smt_blob_data: Option<Vec<u8>>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
     /// Optional token transfer blob to include in the same transaction.
     #[serde(default)]
     pub token_transfer: Option<TokenTransferRequest>,
+    /// Input notes for computing smt_blob_data server-side (required when smt_blob_data is absent)
+    #[serde(default)]
+    pub input_notes: Option<[InputNoteData; 2]>,
+    /// Hex-encoded notes root (required when smt_blob_data is absent; returned by /smt-witness)
+    #[serde(default)]
+    pub notes_root: Option<String>,
 }
 
 /// Response after creating a blob transaction
@@ -195,12 +206,20 @@ pub struct BlobHashResponse {
 }
 
 /// Request to finalize a transfer atomically: submit blob tx + both proofs in one call.
+///
+/// Two modes:
+/// 1. **Client-provided proofs**: supply `smt_blob_data`, `smt_proof`, and `smt_public_inputs`.
+/// 2. **Server-side SMT proof generation**: omit `smt_proof` and instead provide `input_notes`,
+///    `siblings_0`, `siblings_1`, and `notes_root`. The server computes nullifiers, builds
+///    `smt_blob_data`, and generates the proof.
 #[derive(Debug, Deserialize)]
 pub struct FinalizeTransferRequest {
     /// 128-byte blob data: [input_commit_0, input_commit_1, nullifier_0, nullifier_1]
     pub blob_data: Vec<u8>,
-    /// 96-byte SMT blob data: [commit0 (32B)][commit1 (32B)][notes_root (32B)]
-    pub smt_blob_data: Vec<u8>,
+    /// 96-byte SMT blob data: [nullifier_0 (32B)][nullifier_1 (32B)][notes_root (32B)].
+    /// Required when `smt_proof` is provided; computed by the server otherwise.
+    #[serde(default)]
+    pub smt_blob_data: Option<Vec<u8>>,
     /// Output notes: [recipient_note, change_note]
     pub output_notes: [Note; 2],
     /// Optional token transfer blob to include in the same transaction.
@@ -210,10 +229,24 @@ pub struct FinalizeTransferRequest {
     pub proof: String,
     /// Public inputs as hex strings for hyli_utxo
     pub public_inputs: Vec<String>,
-    /// Base64-encoded proof bytes for hyli_smt_incl_proof
-    pub smt_proof: String,
-    /// Public inputs as hex strings for hyli_smt_incl_proof
-    pub smt_public_inputs: Vec<String>,
+    /// Base64-encoded proof bytes for hyli_smt_incl_proof (optional — server generates if absent)
+    #[serde(default)]
+    pub smt_proof: Option<String>,
+    /// Public inputs as hex strings for hyli_smt_incl_proof (required when smt_proof is provided)
+    #[serde(default)]
+    pub smt_public_inputs: Option<Vec<String>>,
+    /// Input notes for server-side SMT proof generation (required when smt_proof is absent)
+    #[serde(default)]
+    pub input_notes: Option<[InputNoteData; 2]>,
+    /// SMT siblings for input_notes[0] — hex-encoded field elements (required when smt_proof is absent)
+    #[serde(default)]
+    pub siblings_0: Option<Vec<String>>,
+    /// SMT siblings for input_notes[1] — hex-encoded field elements (required when smt_proof is absent)
+    #[serde(default)]
+    pub siblings_1: Option<Vec<String>>,
+    /// Hex-encoded notes root from the SMT (required when smt_proof is absent; returned by /smt-witness)
+    #[serde(default)]
+    pub notes_root: Option<String>,
 }
 
 /// Response after finalizing a transfer
