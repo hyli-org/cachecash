@@ -745,9 +745,7 @@ fn compute_smt_blob_data(
     let nullifier_0 = hash::hash_merge([input_notes[0].note.psi, sk0]);
     let nullifier_1 = hash::hash_merge([input_notes[1].note.psi, sk1]);
 
-    let root_normalized = notes_root_hex
-        .strip_prefix("0x")
-        .unwrap_or(notes_root_hex);
+    let root_normalized = notes_root_hex.strip_prefix("0x").unwrap_or(notes_root_hex);
     let root_bytes = hex::decode(root_normalized)
         .map_err(|e| ApiError::bad_request(format!("invalid notes_root hex: {e}")))?;
     if root_bytes.len() != 32 {
@@ -785,19 +783,13 @@ async fn generate_smt_proof(
     use std::str::FromStr;
 
     let input_notes = input_notes.ok_or_else(|| {
-        ApiError::bad_request(
-            "input_notes is required when smt_proof is not provided".to_string(),
-        )
+        ApiError::bad_request("input_notes is required when smt_proof is not provided".to_string())
     })?;
     let siblings_0_hex = siblings_0.ok_or_else(|| {
-        ApiError::bad_request(
-            "siblings_0 is required when smt_proof is not provided".to_string(),
-        )
+        ApiError::bad_request("siblings_0 is required when smt_proof is not provided".to_string())
     })?;
     let siblings_1_hex = siblings_1.ok_or_else(|| {
-        ApiError::bad_request(
-            "siblings_1 is required when smt_proof is not provided".to_string(),
-        )
+        ApiError::bad_request("siblings_1 is required when smt_proof is not provided".to_string())
     })?;
 
     if siblings_0_hex.len() != 256 {
