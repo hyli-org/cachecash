@@ -3,7 +3,7 @@ import "./App.css";
 import { deriveZkSecretKey, deriveUtxoAddress, FullIdentity } from "./services/KeyService";
 import SHA256 from "crypto-js/sha256";
 import { addressService } from "./services/AddressService";
-import { getNodeBaseUrl, getWalletServerBaseUrl, getApplicationWsUrl, getIndexerBaseUrl } from "./services/ConfigService";
+import { getNodeBaseUrl, getWalletServerBaseUrl, getWalletWebsocketUrl, getIndexerBaseUrl } from "./services/ConfigService";
 
 import { TransactionList } from "./components/TransactionList";
 import { DebugNotesPanel } from "./components/DebugNotesPanel";
@@ -560,7 +560,7 @@ function App() {
             config={{
                 nodeBaseUrl: getNodeBaseUrl(),
                 walletServerBaseUrl: getWalletServerBaseUrl(),
-                applicationWsUrl: getApplicationWsUrl(),
+                applicationWsUrl: getWalletWebsocketUrl(),
                 indexerBaseUrl: getIndexerBaseUrl(),
             }}
             sessionKeyConfig={{

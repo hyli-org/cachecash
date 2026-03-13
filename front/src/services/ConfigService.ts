@@ -2,12 +2,22 @@ interface RuntimeEnv {
     SERVER_BASE_URL?: string;
     NODE_BASE_URL?: string;
     WALLET_SERVER_BASE_URL?: string;
+    WALLET_WEBSOCKET_URL?: string;
+    APPLICATION_WS_URL?: string;
     INDEXER_BASE_URL?: string;
+    ORANJ_STATE_INDEXER_URL?: string;
     DEBUG_MODE?: string;
 }
 
 function getRuntimeEnv(): RuntimeEnv {
     return (window as any).__ENV__ ?? {};
+}
+
+function getWindowLocation(): Location | null {
+    if (typeof window === "undefined") {
+        return null;
+    }
+    return window.location;
 }
 
 function isValidUrl(url: string | undefined): boolean {
@@ -20,11 +30,37 @@ function isValidUrl(url: string | undefined): boolean {
     }
 }
 
+function isLocalHostname(hostname: string): boolean {
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function getRemoteOrigin(protocol?: string): string | null {
+    const location = getWindowLocation();
+    if (!location || isLocalHostname(location.hostname)) {
+        return null;
+    }
+    return `${protocol ?? location.protocol}//${location.host}`;
+}
+
+function getConfiguredUrl(
+    runtimeValue: string | undefined,
+    buildValue: string | undefined,
+    fallback: () => string,
+): string {
+    if (isValidUrl(runtimeValue)) {
+        return runtimeValue!;
+    }
+    if (isValidUrl(buildValue)) {
+        return buildValue!;
+    }
+    return fallback();
+}
+
 export function getServerBaseUrl(): string {
     const runtime = getRuntimeEnv();
-    return isValidUrl(runtime.SERVER_BASE_URL)
-        ? runtime.SERVER_BASE_URL!
-        : import.meta.env.VITE_SERVER_BASE_URL || "http://localhost:9002";
+    return getConfiguredUrl(runtime.SERVER_BASE_URL, import.meta.env.VITE_SERVER_BASE_URL, () => {
+        return getRemoteOrigin() ?? "http://localhost:9002";
+    });
 }
 
 export function getDebugMode(): boolean {
@@ -34,32 +70,44 @@ export function getDebugMode(): boolean {
 }
 
 export function getOranjIndexerUrl(): string {
-    return import.meta.env.VITE_ORANJ_STATE_INDEXER_URL || "http://localhost:4322";
+    const runtime = getRuntimeEnv();
+    return getConfiguredUrl(runtime.ORANJ_STATE_INDEXER_URL, import.meta.env.VITE_ORANJ_STATE_INDEXER_URL, () => {
+        return "http://localhost:4322";
+    });
 }
 
 export function getNodeBaseUrl(): string {
     const runtime = getRuntimeEnv();
-    return isValidUrl(runtime.NODE_BASE_URL)
-        ? runtime.NODE_BASE_URL!
-        : import.meta.env.VITE_NODE_BASE_URL || "http://localhost:4321";
+    return getConfiguredUrl(runtime.NODE_BASE_URL, import.meta.env.VITE_NODE_BASE_URL, () => {
+        return "http://localhost:4321";
+    });
 }
 
 export function getWalletServerBaseUrl(): string {
     const runtime = getRuntimeEnv();
-    return isValidUrl(runtime.WALLET_SERVER_BASE_URL)
-        ? runtime.WALLET_SERVER_BASE_URL!
-        : import.meta.env.VITE_WALLET_SERVER_BASE_URL || "http://localhost:4000";
+    return getConfiguredUrl(runtime.WALLET_SERVER_BASE_URL, import.meta.env.VITE_WALLET_SERVER_BASE_URL, () => {
+        return getRemoteOrigin() ?? "http://localhost:4000";
+    });
 }
 
-export function getApplicationWsUrl(): string {
-    return import.meta.env.VITE_APPLICATION_WS_URL || "ws://localhost:4000";
+export function getWalletWebsocketUrl(): string {
+    const runtime = getRuntimeEnv();
+    return getConfiguredUrl(
+        runtime.WALLET_WEBSOCKET_URL ?? runtime.APPLICATION_WS_URL,
+        import.meta.env.VITE_WALLET_WEBSOCKET_URL ?? import.meta.env.VITE_APPLICATION_WS_URL,
+        () => {
+        const location = getWindowLocation();
+        const protocol = location?.protocol === "https:" ? "wss:" : "ws:";
+        return getRemoteOrigin(protocol) ?? "ws://localhost:4000";
+        },
+    );
 }
 
 export function getIndexerBaseUrl(): string {
     const runtime = getRuntimeEnv();
-    return isValidUrl(runtime.INDEXER_BASE_URL)
-        ? runtime.INDEXER_BASE_URL!
-        : import.meta.env.VITE_INDEXER_BASE_URL || getNodeBaseUrl();
+    return getConfiguredUrl(runtime.INDEXER_BASE_URL, import.meta.env.VITE_INDEXER_BASE_URL, () => {
+        return getNodeBaseUrl();
+    });
 }
 
 interface ServerConfig {
