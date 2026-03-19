@@ -1,31 +1,23 @@
-use std::{fs, path::Path};
+use client_sdk::helpers::jolt::JoltRegistryEntry;
+use contracts::ELF;
+use sdk::ProgramId;
 
-use anyhow::Result;
-use contracts::HYLI_UTXO_STATE_ELF;
-use sp1_sdk::{Prover, ProverClient, SP1ProvingKey};
-use tracing::{error, info};
+pub fn load_utxo_state_registry_entry() -> (ProgramId, JoltRegistryEntry) {
+    let memory_config = hyli_utxo_state::memory_config_run();
 
-pub fn load_utxo_state_proving_key(data_directory: &Path) -> Result<SP1ProvingKey> {
-    let pk_path = data_directory.join("hyli_utxo_state_pk.bin");
+    let mut program = jolt_sdk::guest::program::Program::new(ELF, &memory_config);
 
-    if pk_path.exists() {
-        info!(path = %pk_path.display(), "loading SP1 proving key from disk");
-        let bytes = fs::read(&pk_path)?;
-        return bincode::deserialize(&bytes).map_err(Into::into);
-    }
+    let shared = hyli_utxo_state::preprocess_shared_run(&mut program);
 
-    if let Err(err) = fs::create_dir_all(data_directory) {
-        error!(error = %err, "failed to create data directory for proving key");
-    }
+    let prover_preprocessing = jolt_sdk::host_utils::JoltProverPreprocessing::new(shared);
 
-    info!(path = %pk_path.display(), "building SP1 proving key");
-    let client = ProverClient::builder().cpu().build();
-    let (pk, _) = client.setup(HYLI_UTXO_STATE_ELF);
+    let verifier = hyli_utxo_state::verifier_preprocessing_from_prover_run(&prover_preprocessing);
 
-    info!(path = %pk_path.display(), "persisting SP1 proving key to disk");
-    if let Err(err) = fs::write(&pk_path, bincode::serialize(&pk)?) {
-        error!(error = %err, "failed to persist proving key to disk");
-    }
+    let program_id = client_sdk::helpers::jolt::verifier_preprocessing_to_program_id(&verifier)
+        .expect("Program ID should be derived from verifier preprocessing");
 
-    Ok(pk)
+    (
+        program_id,
+        JoltRegistryEntry::new(prover_preprocessing, memory_config, ELF.to_vec()),
+    )
 }

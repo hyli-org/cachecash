@@ -4,8 +4,6 @@ use hyli_utxo_state::{state::ContractConfig, HyliUtxoState};
 use sdk::{api::APIRegisterContract, ContractName, ProgramId, StateCommitment, TxHash, Verifier};
 use tracing::info;
 
-use contracts::HYLI_UTXO_STATE_VK;
-
 /// Noir verifying key for the hyli_utxo circuit.
 pub const HYLI_UTXO_NOIR_VK: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -64,13 +62,14 @@ pub fn hyli_smt_incl_proof_noir_deployment(contract_name: &str) -> ContractDeplo
 pub fn hyli_utxo_state_deployment(
     contract_name: &str,
     contract_config: &ContractConfig,
+    program_id: ProgramId,
 ) -> ContractDeployment {
     let registration_metadata = borsh::to_vec(contract_config)
         .expect("ContractConfig should serialize for registration metadata");
     let hyli_utxo_state = HyliUtxoState::default();
     ContractDeployment {
         contract_name: ContractName(contract_name.to_string()),
-        program_id: ProgramId(HYLI_UTXO_STATE_VK.to_vec()),
+        program_id,
         state_commitment: hyli_utxo_state.commitment(),
         timeout_window: None,
         registration_metadata: Some(registration_metadata),

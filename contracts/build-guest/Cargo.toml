@@ -1,0 +1,11 @@
+[package]
+name = "build-guest"
+edition = { workspace = true }
+
+[dependencies]
+sdk = { workspace = true }
+hyli-utxo-state = { path = "../hyli-utxo-state" }
+jolt-sdk = { workspace = true, features = ["host"] }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+borsh = { workspace = true }

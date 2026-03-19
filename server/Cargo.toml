@@ -3,7 +3,7 @@ name = "server"
 edition = "2021"
 
 [dependencies]
-contracts = { path = "../contracts", features = ["nobuild"] }
+contracts = { path = "../contracts" }
 hyli-utxo-state = { path = "../contracts/hyli-utxo-state" }
 
 hyli-registry = { workspace = true }
@@ -11,7 +11,7 @@ hyli-registry = { workspace = true }
 # Hyli
 hyli-modules = { workspace = true, features = ["indexer"] }
 hyli-verifiers = { workspace = true }
-client-sdk = { workspace = true, features = ["rest", "sp1", "axum", "csi"] }
+client-sdk = { workspace = true, features = ["rest", "jolt", "axum", "csi"] }
 utoipa = { version = "5.4.0", features = ["axum_extras"] }
 utoipa-axum = { version = "0.2.0" }
 sdk = { workspace = true, features = ["tracing", "full-model"] }
@@ -42,9 +42,11 @@ tower-http = { version = "0.6.2", features = ["cors"] }
 tracing = { workspace = true }
 # tracing-subscriber = { workspace = true }
 bincode = { workspace = true }
-sp1-sdk = { workspace = true }
+jolt-sdk = { workspace = true, features = ["host"] }
 reqwest = { workspace = true }
 tempfile = { workspace = true }
+# TODO :add this reexport in jolt sdk
+ark-serialize = "0.5.0"
 
 [dev-dependencies]
 hyli-modules = { workspace = true, features = ["otlp"] }

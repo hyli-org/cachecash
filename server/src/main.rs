@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum::Router;
 use clap::Parser;
 use client_sdk::{
-    helpers::sp1::SP1Prover,
+    helpers::jolt::JoltProver,
     rest_client::{NodeApiClient, NodeApiHttpClient},
 };
 use hyli_modules::modules::{
@@ -36,7 +36,7 @@ use server::{
     noir_prover::{HyliUtxoNoirProver, HyliUtxoNoirProverCtx},
     note_store::{AddressRegistry, NoteStore},
     smt_incl_prover::{HyliSmtInclNoirProver, SmtInclProverCtx},
-    utils::load_utxo_state_proving_key,
+    utils::load_utxo_state_registry_entry,
 };
 use tracing::{error, info};
 
@@ -97,6 +97,8 @@ async fn main() -> Result<()> {
         NodeApiHttpClient::new(config.node_url.clone()).context("creating node REST client")?,
     );
 
+    let (program_id, entry) = load_utxo_state_registry_entry();
+
     let contract_config = ContractConfig {
         utxo_contract_name: ContractName(config.utxo_contract_name.clone()),
         smt_incl_proof_contract_name: ContractName(config.smt_incl_proof_contract_name.clone()),
@@ -105,8 +107,11 @@ async fn main() -> Result<()> {
     let hyli_utxo_contract = hyli_utxo_noir_deployment(&config.utxo_contract_name);
     let hyli_smt_incl_proof_contract =
         hyli_smt_incl_proof_noir_deployment(&config.smt_incl_proof_contract_name);
-    let hyli_utxo_state_contract =
-        hyli_utxo_state_deployment(&config.utxo_state_contract_name, &contract_config);
+    let hyli_utxo_state_contract = hyli_utxo_state_deployment(
+        &config.utxo_state_contract_name,
+        &contract_config,
+        program_id.clone(),
+    );
     let contracts = vec![
         ContractInit {
             deployment: hyli_utxo_contract.clone(),
@@ -118,7 +123,7 @@ async fn main() -> Result<()> {
         },
         ContractInit {
             deployment: hyli_utxo_state_contract.clone(),
-            verifier: Verifier(verifiers::SP1_4.to_string()),
+            verifier: Verifier(verifiers::JOLT_0_1.to_string()),
         },
     ];
     init_node(node_client.as_ref(), &contracts)
@@ -140,19 +145,43 @@ async fn main() -> Result<()> {
         }
     };
 
-    let proving_key = load_utxo_state_proving_key(&data_directory)
-        .context("loading hyli-utxo-state proving key")?;
-    let prover = Arc::new(SP1Prover::new(proving_key).await);
+    let entry_bytes =
+        borsh::to_vec(&entry).context("serializing JoltRegistryEntry for hyli-utxo-state")?;
+    info!(
+        "Uploading hyli-utxo-state proving key to registry with program ID: {}",
+        program_id
+    );
+    info!("Registry entry size: {} bytes", entry_bytes.len());
 
     hyli_registry::upload_elf(
-        contracts::HYLI_UTXO_STATE_ELF,
-        &hex::encode(contracts::HYLI_UTXO_STATE_VK),
+        &entry_bytes,
+        &hex::encode(program_id.clone().0),
         &config.utxo_state_contract_name,
-        "sp1",
+        "jolt",
         None,
     )
     .await
     .context("Uploading orderbook ELF to registry")?;
+
+    let data_directory_c = data_directory.clone();
+    let prover = Arc::new(JoltProver::new_with_handler(
+        entry,
+        program_id,
+        Some(Box::new(move |m, v| {
+            let proving = (m, v);
+            let proving = borsh::to_vec(&proving).expect("Jolt proving data should serialize");
+            // write proving to disk for debugging purposes
+            let proving_path = data_directory_c.join("latest_proving_data.bin");
+            std::fs::write(&proving_path, &proving)
+                .expect("Should be able to write proving data to disk");
+
+            tracing::info!(
+                "Saved proving data to {}, size: {} bytes",
+                proving_path.to_string_lossy(),
+                proving.len()
+            );
+        })),
+    ));
 
     handler
         .build_module::<HyliUtxoNoirProver>(Arc::new(HyliUtxoNoirProverCtx {
@@ -248,7 +277,7 @@ async fn main() -> Result<()> {
         .context("building ContractStateIndexer for hyli-utxo-state")?;
 
     handler
-        .build_module::<AutoProver<HyliUtxoStateExecutor, SP1Prover>>(Arc::new(AutoProverCtx {
+        .build_module::<AutoProver<HyliUtxoStateExecutor, JoltProver>>(Arc::new(AutoProverCtx {
             data_directory: data_directory.clone(),
             prover: prover.clone(),
             contract_name: ContractName(config.utxo_state_contract_name.clone()),
